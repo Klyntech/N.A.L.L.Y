@@ -1,0 +1,28 @@
+# Nally Requirements (trimmed for migration)
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0
+
+# LLM
+openai>=1.0.0
+python-dotenv>=1.0.0
+
+# Agent framework
+langgraph>=0.2.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+langgraph-checkpoint-sqlite>=2.0.0
+
+# Token counting
+tiktoken>=0.7.0
+
+# System
+psutil>=5.9.0
+requests>=2.31.0
+Pillow>=10.0.0
+
+# Windows audio control
+pycaw>=20230407
+comtypes>=1.4.0

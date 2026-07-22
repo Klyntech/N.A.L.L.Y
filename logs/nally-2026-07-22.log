@@ -1,0 +1,65 @@
+2026-07-22 11:15:14,470 | INFO     | Nally loaded 25 tools
+2026-07-22 11:16:48,317 | INFO     | You: Hey Nally
+2026-07-22 11:19:54,468 | INFO     | Nally loaded 25 tools
+2026-07-22 11:20:28,940 | INFO     | You: Hey Nally
+2026-07-22 11:20:56,817 | INFO     | Using local SQLite checkpointer for persistence
+2026-07-22 11:20:58,150 | WARNING  | Streaming failed, falling back: OPENCODE_API_KEY not set!
+Groq: Get key at https://console.groq.com
+OpenCode: Get key at https://opencode.ai/auth
+Set it in .env file or environment variable.
+2026-07-22 11:20:58,150 | ERROR    | LLM error (1/5): OPENCODE_API_KEY not set!
+Groq: Get key at https://console.groq.com
+OpenCode: Get key at https://opencode.ai/auth
+Set it in .env file or environment variable.
+2026-07-22 11:20:58,500 | INFO     | Nally: I'm having trouble connecting to the AI model. Please try again in a moment.
+2026-07-22 11:20:58,500 | DEBUG    | Total response time: 1521ms
+2026-07-22 11:20:58,655 | DEBUG    | Saved 3 messages to session default
+2026-07-22 11:25:51,868 | INFO     | Nally loaded 25 tools
+2026-07-22 11:25:53,190 | DEBUG    | Loaded 3 messages from session default
+2026-07-22 11:25:53,197 | DEBUG    | Loaded 3 messages from session default
+2026-07-22 11:26:09,127 | INFO     | You: Hey Nally
+2026-07-22 11:26:17,747 | INFO     | Using local SQLite checkpointer for persistence
+2026-07-22 11:26:24,231 | INFO     | Connected to OPENCODE (mimo-v2.5-free)
+2026-07-22 11:26:41,295 | INFO     | Nally: hey, what's good
+2026-07-22 11:26:41,296 | DEBUG    | Total response time: 23446ms
+2026-07-22 11:26:41,325 | DEBUG    | Saved 6 messages to session default
+2026-07-22 11:45:45,050 | INFO     | Nally loaded 25 tools
+2026-07-22 11:45:46,584 | DEBUG    | Loaded 6 messages from session default
+2026-07-22 11:45:46,588 | DEBUG    | Loaded 6 messages from session default
+2026-07-22 11:46:29,434 | INFO     | You: hey nally
+2026-07-22 11:46:40,015 | INFO     | Using local SQLite checkpointer for persistence
+2026-07-22 11:46:46,652 | INFO     | Connected to OPENCODE (mimo-v2.5-free)
+2026-07-22 11:47:01,306 | INFO     | Nally: Hey, wetin dey
+2026-07-22 11:47:01,307 | DEBUG    | Total response time: 21151ms
+2026-07-22 11:47:01,388 | DEBUG    | Saved 9 messages to session default
+2026-07-22 12:42:57,809 | INFO     | Nally loaded 25 tools
+2026-07-22 12:42:58,248 | DEBUG    | Loaded 9 messages from session default
+2026-07-22 12:42:58,250 | DEBUG    | Loaded 9 messages from session default
+2026-07-22 12:43:01,147 | INFO     | You: What's 2+2?
+2026-07-22 12:43:01,149 | ERROR    | Local handler error: TypeError: expected string or bytes-like object, got 'NoneType'
+Traceback (most recent call last):
+  File "C:\Users\chuki\Desktop\N.A.L.L.Y\nally\agent\core.py", line 156, in process
+    result = handler()
+             ^^^^^^^^^
+  File "C:\Users\chuki\Desktop\N.A.L.L.Y\nally\agent\router.py", line 63, in <lambda>
+    best_match = lambda m=m, h=pattern.handler: h(m)
+                                                ^^^^
+  File "C:\Users\chuki\Desktop\N.A.L.L.Y\nally\agent\router.py", line 440, in handle_calculate
+    expr = re.sub(r'[^0-9+\-*/().% ]', '', expr)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\chuki\AppData\Local\Programs\Python\Python312\Lib\re\__init__.py", line 186, in sub
+    return _compile(pattern, flags).sub(repl, string, count)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: expected string or bytes-like object, got 'NoneType'
+2026-07-22 12:43:01,172 | INFO     | Nally: Error: expected string or bytes-like object, got 'NoneType'
+2026-07-22 12:43:01,172 | DEBUG    | Response time: 18ms (local)
+2026-07-22 12:43:01,200 | DEBUG    | Saved 10 messages to session default
+2026-07-22 12:43:03,212 | INFO     | You: And 3+3?
+2026-07-22 12:43:05,119 | INFO     | Using local SQLite checkpointer for persistence
+2026-07-22 12:43:06,253 | INFO     | Connected to OPENCODE (mimo-v2.5-free)
+2026-07-22 12:43:31,042 | INFO     | Nally: 6
+2026-07-22 12:43:31,042 | DEBUG    | Total response time: 25889ms
+2026-07-22 12:43:31,077 | DEBUG    | Saved 12 messages to session default
+2026-07-22 12:43:31,133 | DEBUG    | Saved 12 messages to session default
+2026-07-22 12:43:31,175 | DEBUG    | Saved 10 messages to session default
+2026-07-22 12:44:22,684 | INFO     | Connected to OPENCODE (mimo-v2.5-free)

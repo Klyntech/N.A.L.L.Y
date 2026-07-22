@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nally</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+  <script src="vendor/react.production.min.js"></script>
+  <script src="vendor/react-dom.production.min.js"></script>
+  <script src="vendor/htm.umd.js"></script>
+  <!-- Socket.IO removed - using SSE -->
+  <script src="vendor/lucide.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #070B14;
+      --surface: #0D1117;
+      --border: rgba(255,255,255,0.06);
+      --cyan: #00D4FF;
+      --cyan-dim: rgba(0,212,255,0.15);
+      --text: #E2E8F0;
+      --text-dim: rgba(255,255,255,0.35);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #root { height: 100%; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @keyframes slideInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+    @keyframes copiedFlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+    @keyframes nally-slow-spin-cw { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes nally-slow-spin-ccw { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+    @keyframes nally-core-pulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 14px rgba(0,212,255,0.4)); }
+      50% { transform: scale(1.025); filter: drop-shadow(0 0 24px rgba(0,212,255,0.85)); }
+    }
+    @keyframes nally-ambient-pulse {
+      0%, 100% { transform: scale(0.95); opacity: 0.4; }
+      50% { transform: scale(1.05); opacity: 0.75; }
+    }
+
+    .orb-ring-cw { animation: nally-slow-spin-cw 55s linear infinite; transform-origin: 250px 250px; }
+    .orb-ring-ccw { animation: nally-slow-spin-ccw 60s linear infinite; transform-origin: 250px 250px; }
+    .orb-reactor { animation: nally-core-pulse 7s ease-in-out infinite; transform-origin: 250px 250px; }
+    .orb-ambient { animation: nally-ambient-pulse 8s ease-in-out infinite; }
+    @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+
+    .dot-bounce span:nth-child(1) { animation: bounce 1.2s ease-in-out infinite; }
+    .dot-bounce span:nth-child(2) { animation: bounce 1.2s ease-in-out 0.15s infinite; }
+    .dot-bounce span:nth-child(3) { animation: bounce 1.2s ease-in-out 0.3s infinite; }
+
+    .msg-actions { opacity: 0; transition: opacity 0.2s; }
+    .msg-wrap:hover .msg-actions { opacity: 1; }
+
+    .code-block { position: relative; }
+    .code-block .copy-btn {
+      position: absolute; top: 6px; right: 6px;
+      width: 28px; height: 28px; border-radius: 6px; border: none;
+      background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.4);
+      cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: all 0.2s;
+    }
+    .code-block:hover .copy-btn { opacity: 1; }
+    .code-block .copy-btn:hover { background: rgba(0,212,255,0.15); color: #67E8F9; }
+
+    .task-del { opacity: 0 !important; transition: opacity 0.2s !important; }
+    div:hover > .task-del { opacity: 1 !important; }
+
+    textarea:focus { border-color: rgba(250,204,21,0.2) !important; }
+    input:focus { border-color: rgba(0,212,255,0.15) !important; }
+
+    input:focus + .send-btn { opacity: 1 !important; background: #00D4FF !important; color: #000 !important; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+    .resize-handle { position: absolute; z-index: 10; }
+    .resize-n  { top: -4px; left: 10px; right: 10px; height: 8px; cursor: n-resize; }
+    .resize-s  { bottom: -4px; left: 10px; right: 10px; height: 8px; cursor: s-resize; }
+    .resize-e  { right: -4px; top: 10px; bottom: 10px; width: 8px; cursor: e-resize; }
+    .resize-w  { left: -4px; top: 10px; bottom: 10px; width: 8px; cursor: w-resize; }
+    .resize-ne { top: -4px; right: -4px; width: 14px; height: 14px; cursor: ne-resize; }
+    .resize-nw { top: -4px; left: -4px; width: 14px; height: 14px; cursor: nw-resize; }
+    .resize-se { bottom: -4px; right: -4px; width: 14px; height: 14px; cursor: se-resize; }
+    .resize-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: sw-resize; }
+
+    .dock { transition: transform 0.3s ease; }
+    .dock-btn {
+      width: 36px; height: 36px; border-radius: 10px; border: none;
+      background: transparent; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; color: rgba(255,255,255,0.4);
+    }
+    .dock-btn:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); }
+    .dock-icon {
+      width: 36px; height: 36px; border-radius: 10px; border: none;
+      background: rgba(255,255,255,0.03); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s; position: relative; color: rgba(255,255,255,0.4);
+    }
+    .dock-icon:hover { background: rgba(255,255,255,0.08); transform: scale(1.1); color: rgba(255,255,255,0.7); }
+    .dock-icon .tooltip {
+      position: absolute; right: 48px; top: 50%; transform: translateY(-50%);
+      background: rgba(0,0,0,0.8); color: #fff; padding: 4px 8px;
+      border-radius: 4px; font-size: 10px; white-space: nowrap;
+      opacity: 0; pointer-events: none; transition: opacity 0.15s;
+    }
+    .dock-icon:hover .tooltip { opacity: 1; }
+
+    /* ── Dynamic Panels ───────────────────────────── */
+    .dynamic-panel table th { white-space: nowrap; }
+    .dynamic-panel table td { word-break: break-word; }
+    .dynamic-panel button:hover { background: rgba(0,212,255,0.1) !important; color: rgba(255,255,255,0.8) !important; border-color: rgba(0,212,255,0.2) !important; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="error-overlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#0a0a0a;color:#ff4444;font-family:monospace;font-size:14px;padding:40px;overflow:auto;white-space:pre-wrap;"></div>
+  <script>
+    window.onerror = function(msg, url, line, col, err) {
+      var el = document.getElementById('error-overlay');
+      if (el) {
+        el.style.display = 'block';
+        el.textContent += 'ERROR: ' + msg + '\nFile: ' + url + '\nLine: ' + line + ':' + col + '\n\n';
+      }
+      try { fetch('/api/js-error', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg:String(msg),url:String(url),line:line,col:col,err:err?String(err.stack||err):''})}); } catch(e) {}
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      var el = document.getElementById('error-overlay');
+      if (el) {
+        el.style.display = 'block';
+        el.textContent += 'UNHANDLED PROMISE: ' + (e.reason && e.reason.message || e.reason || 'unknown') + '\n\n';
+      }
+      try { fetch('/api/js-error', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg:'UNHANDLED_PROMISE',err:String(e.reason&&e.reason.stack||e.reason||'')})}); } catch(ex) {}
+    });
+  </script>
+  <script src="js/app.js"></script>
+</body>
+</html>
