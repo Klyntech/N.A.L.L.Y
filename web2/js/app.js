@@ -12,9 +12,60 @@ function _authHeaders() {
   return h;
 }
 
-fetch(BACKEND + '/api/config').then(function(r) { return r.json(); }).then(function(c) {
-  if (c.access_token) _accessToken = c.access_token;
-}).catch(function() {});
+// --- Token from localStorage ---
+function _getStoredToken() {
+  try { return localStorage.getItem('nally-access-token') || ''; } catch(e) { return ''; }
+}
+function _setStoredToken(t) {
+  try { localStorage.setItem('nally-access-token', t); } catch(e) {}
+}
+function _clearStoredToken() {
+  try { localStorage.removeItem('nally-access-token'); } catch(e) {}
+}
+
+_accessToken = _getStoredToken();
+
+function _showLoginPrompt(onDone) {
+  var overlay = document.createElement('div');
+  overlay.id = 'nally-login-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#111;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:32px;width:340px;text-align:center;';
+  var h = document.createElement('div');
+  h.textContent = 'Enter Access Token';
+  h.style.cssText = 'color:rgba(255,255,255,0.8);font-size:15px;font-weight:600;margin-bottom:20px;font-family:system-ui;';
+  var inp = document.createElement('input');
+  inp.type = 'password';
+  inp.placeholder = 'NALLY_ACCESS_TOKEN';
+  inp.style.cssText = 'width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-family:monospace;outline:none;box-sizing:border-box;';
+  var btn = document.createElement('button');
+  btn.textContent = 'Connect';
+  btn.style.cssText = 'width:100%;padding:10px;border-radius:8px;border:none;background:rgba(0,212,255,0.15);color:rgba(0,212,255,0.9);font-size:14px;font-weight:600;margin-top:12px;cursor:pointer;font-family:system-ui;';
+  function submit() {
+    var val = inp.value.trim();
+    if (!val) return;
+    _setStoredToken(val);
+    _accessToken = val;
+    overlay.remove();
+    if (onDone) onDone();
+  }
+  btn.addEventListener('click', submit);
+  inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
+  box.appendChild(h); box.appendChild(inp); box.appendChild(btn);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  inp.focus();
+}
+
+if (!_accessToken) {
+  _showLoginPrompt(function() {});
+}
+
+function _handle401() {
+  _clearStoredToken();
+  _accessToken = '';
+  _showLoginPrompt(function() {});
+}
 
 function initSocket(onConnect, onDisconnect) {
   console.log('[NALLY] initSocket called (SSE mode)');
@@ -37,6 +88,7 @@ function sendMsg(msg, handlers) {
     body: JSON.stringify({ message: msg }),
     signal: ctrl.signal
   }).then(function(response) {
+    if (response.status === 401) { _handle401(); return; }
     if (!response.ok) throw new Error('HTTP ' + response.status);
     var reader = response.body.getReader();
     var decoder = new TextDecoder();
@@ -1055,7 +1107,7 @@ function EmailWidget(props) {
     if (!wasExpanded) {
       setS(function(p) { return Object.assign({}, p, { loadingBody: true }); });
       fetch(BACKEND + '/api/gmail/read/' + id)
-        .then(function(r) { return r.json(); })
+      .then(function(r) { if (r.status === 401) { _handle401(); return; } return r.json(); })
         .then(function(data) {
           setS(function(p) { return Object.assign({}, p, { fullBody: data.body || data.error || 'No content', loadingBody: false }); });
         })
@@ -2082,7 +2134,7 @@ function App() {
                   method: 'POST',
                   headers: _authHeaders(),
                   body: JSON.stringify({ tool_call_id: pendingApproval.tool_call_id, approved: false })
-                });
+                }).then(function(r) { if (r.status === 401) _handle401(); });
                 setPendingApproval(null);
                 beep(300, 0.05, 'sine');
               }} style=${{ flex: 1, padding: '10px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '13px', fontWeight: 500, transition: 'all 0.15s' }}>Deny</button>
@@ -2091,7 +2143,7 @@ function App() {
                   method: 'POST',
                   headers: _authHeaders(),
                   body: JSON.stringify({ tool_call_id: pendingApproval.tool_call_id, approved: true })
-                });
+                }).then(function(r) { if (r.status === 401) _handle401(); });
                 setPendingApproval(null);
                 beep(800, 0.05, 'sine');
               }} style=${{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #00D4FF, #0090FF)', color: '#000', cursor: 'pointer', fontSize: '13px', fontWeight: 600, transition: 'all 0.15s' }}>Allow</button>

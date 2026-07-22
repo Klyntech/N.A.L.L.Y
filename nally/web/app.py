@@ -141,10 +141,6 @@ async def web2_root():
     return RedirectResponse(url="/", status_code=302)
 
 
-@app.get("/api/config")
-async def get_config():
-    return {"access_token": NALLY_ACCESS_TOKEN}
-
 
 # --- JS Error Log ---
 
