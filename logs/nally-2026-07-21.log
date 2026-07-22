@@ -1,8 +1,0 @@
-2026-07-21 12:48:47,474 | INFO     | Nally loaded 25 tools
-2026-07-21 12:50:02,150 | INFO     | Nally loaded 25 tools
-2026-07-21 12:50:02,603 | DEBUG    | No saved history to load: <sqlite3.Connection object at 0x00000200275EE980> returned NULL without setting an exception
-2026-07-21 12:50:03,257 | INFO     | You: hello
-2026-07-21 12:50:03,277 | INFO     | Nally: Hey! How can I help you?
-2026-07-21 12:50:03,279 | DEBUG    | Response time: 0ms (local)
-2026-07-21 12:50:03,468 | INFO     | Nally loaded 25 tools
-2026-07-21 12:50:23,906 | INFO     | Nally loaded 25 tools
