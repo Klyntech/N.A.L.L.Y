@@ -525,22 +525,48 @@ class MemoryToolsV2:
                 "type": "function",
                 "function": {
                     "name": "remember",
-                    "description": "Store a fact, preference, or piece of information in memory. Facts are automatically given confidence scores and reinforced when mentioned again.",
+                    "description": "Store a fact or record an episode. Use type=fact for preferences, facts, people. Use type=episode for experiences, debugging sessions, lessons learned.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "key": {
                                 "type": "string",
-                                "description": "A short label for this memory (e.g. 'favorite_color', 'project_name')",
+                                "description": "A short label (e.g. 'favorite_color', 'deploy_fix')",
                             },
                             "value": {
                                 "type": "string",
-                                "description": "The information to remember",
+                                "description": "The information to remember (for type=fact)",
                             },
                             "category": {
                                 "type": "string",
                                 "description": "Category for organization",
                                 "enum": ["general", "preference", "task", "people", "project", "goal", "habit", "fact"],
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": ["fact", "episode"],
+                                "description": "fact = store a preference/fact, episode = record an experience",
+                            },
+                            "topic": {
+                                "type": "string",
+                                "description": "Short topic label for episodes (e.g. 'Render deployment fix')",
+                            },
+                            "what_happened": {
+                                "type": "string",
+                                "description": "What happened (for type=episode)",
+                            },
+                            "outcome": {
+                                "type": "string",
+                                "description": "What was the result (for type=episode)",
+                            },
+                            "solution": {
+                                "type": "string",
+                                "description": "How it was resolved (for type=episode)",
+                            },
+                            "tags": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Tags for search (for type=episode)",
                             },
                         },
                         "required": ["key", "value"],
@@ -551,7 +577,7 @@ class MemoryToolsV2:
                 "type": "function",
                 "function": {
                     "name": "recall",
-                    "description": "Retrieve something from memory. Supports search by key, category, or keyword. Use when the user asks about something they mentioned before.",
+                    "description": "Retrieve facts or episodes from memory. Use type=fact for preferences/facts, type=episode for past experiences.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -561,11 +587,20 @@ class MemoryToolsV2:
                             },
                             "category": {
                                 "type": "string",
-                                "description": "Filter by category (general, preference, task, people, project, goal, habit, fact)",
+                                "description": "Filter by category",
                             },
                             "search": {
                                 "type": "string",
                                 "description": "Search across all memories by keyword",
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": ["fact", "episode"],
+                                "description": "fact = retrieve preferences/facts, episode = retrieve past experiences",
+                            },
+                            "topic": {
+                                "type": "string",
+                                "description": "Filter episodes by topic",
                             },
                         },
                     },
@@ -585,108 +620,6 @@ class MemoryToolsV2:
                             },
                         },
                         "required": ["key"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "remember_episode",
-                    "description": "Record an experience or event with details about what happened, the outcome, and any solution found. Use for debugging sessions, important decisions, lessons learned.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "topic": {
-                                "type": "string",
-                                "description": "Short topic label (e.g. 'Render deployment fix', 'API redesign')",
-                            },
-                            "what_happened": {
-                                "type": "string",
-                                "description": "What happened - describe the event or experience",
-                            },
-                            "outcome": {
-                                "type": "string",
-                                "description": "What was the result",
-                            },
-                            "solution": {
-                                "type": "string",
-                                "description": "How it was resolved (if applicable)",
-                            },
-                            "tags": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Tags for search (e.g. ['deploy', 'python', 'error'])",
-                            },
-                        },
-                        "required": ["topic", "what_happened"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "recall_episodes",
-                    "description": "Search episodic memory for past experiences. Use when the user asks about something done before.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "topic": {
-                                "type": "string",
-                                "description": "Search by topic",
-                            },
-                            "search": {
-                                "type": "string",
-                                "description": "Search across episode content",
-                            },
-                        },
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "memory_stats",
-                    "description": "Get statistics about stored memories - total count, categories, confidence levels",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "add_semantic_pattern",
-                    "description": "Learn a behavioral pattern or preference. Use when you notice a recurring theme in the user's requests or preferences.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "pattern": {
-                                "type": "string",
-                                "description": "The pattern to learn (e.g. 'prefers concise answers', 'uses Python for scripting')",
-                            },
-                        },
-                        "required": ["pattern"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "recall_semantic_patterns",
-                    "description": "Search for learned behavioral patterns and preferences. Use when you need to know how the user likes things done.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "search": {
-                                "type": "string",
-                                "description": "Search keyword for patterns",
-                            },
-                            "min_confidence": {
-                                "type": "number",
-                                "description": "Minimum confidence threshold (0.0-1.0, default 0.5)",
-                            },
-                        },
                     },
                 },
             },

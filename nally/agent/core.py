@@ -19,8 +19,12 @@ try:
 except ImportError:
     class _StubFilter:
         _ready = False
-        def build_index(self, tools): pass
-        def select(self, query, **kw): return []
+        _tools = {}
+        def build_index(self, tools):
+            self._tools = tools
+            self._ready = True
+        def select(self, query, **kw):
+            return [t.to_openai_schema() for t in self._tools.values()]
     tool_filter = _StubFilter()
 
 

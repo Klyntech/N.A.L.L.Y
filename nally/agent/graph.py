@@ -13,6 +13,7 @@ Key benefits over the manual loop:
 """
 import json
 import operator
+import re
 import threading
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from pathlib import Path
@@ -28,16 +29,63 @@ try:
 except ImportError:
     class _StubFilter:
         _ready = False
-        def build_index(self, tools): pass
-        def select(self, query, **kw): return []
+        _tools = {}
+        def build_index(self, tools):
+            self._tools = tools
+            self._ready = True
+        def select(self, query, **kw):
+            return [t.to_openai_schema() for t in self._tools.values()]
     tool_filter = _StubFilter()
+
+
+def parse_text_tool_calls(text: str) -> tuple:
+    """Parse XML-style tool calls from text output.
+    
+    Models that don't support native function calling output tool calls as:
+    <tool_call>
+    {"name": "...", "args": {...}}
+    </tool_call>
+    
+    Returns (cleaned_text, list_of_tool_calls).
+    """
+    pattern = r"<tool_call>\s*(\{.*?\})\s*</tool_call>"
+    matches = re.findall(pattern, text, re.DOTALL)
+    
+    if not matches:
+        return text, []
+    
+    tool_calls = []
+    for match in matches:
+        try:
+            parsed = json.loads(match)
+            name = parsed.get("name", "")
+            args = parsed.get("args", {})
+            if name:
+                tool_calls.append({
+                    "id": f"tc_{name}_{len(tool_calls)}",
+                    "name": name,
+                    "args": args if isinstance(args, dict) else {},
+                })
+        except json.JSONDecodeError:
+            continue
+    
+    # Strip tool call XML from the text
+    cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL).strip()
+    return cleaned, tool_calls
 
 # Circuit breaker settings
 MAX_CONSECUTIVE_ERRORS = 5
 MAX_TOOL_CALLS = 50
 
-# Module-level emit callback (not in state to avoid serialization issues)
-_current_emit = None
+# Thread-local emit callback (thread-safe, no cross-request clobber)
+import threading as _threading
+tlocal = _threading.local()
+
+def _get_emit():
+    return getattr(tlocal, 'emit', None)
+
+def _set_emit(emit):
+    tlocal.emit = emit
 
 # Approval gate: pending approvals keyed by tool_call_id
 _approval_events: Dict[str, threading.Event] = {}
@@ -81,7 +129,7 @@ def llm_call(state: AgentState) -> AgentState:
         return {"messages": [fallback], "iteration": iteration + 1}
     
     # Emit thinking event
-    emit = _current_emit
+    emit = _get_emit()
     if emit and messages:
         last_msg = messages[-1]
         if hasattr(last_msg, "content") and last_msg.content:
@@ -145,6 +193,11 @@ def llm_call(state: AgentState) -> AgentState:
                         pass
 
                     full_content = "".join(collected_content)
+
+                    # Parse text-based tool calls from models that don't support native function calling
+                    if not collected_tool_calls and full_content:
+                        full_content, text_tool_calls = parse_text_tool_calls(full_content)
+                        collected_tool_calls.extend(text_tool_calls)
 
                     # Build response object
                     from openai.types.chat import ChatCompletion, ChatCompletionMessage
@@ -214,6 +267,22 @@ def llm_call(state: AgentState) -> AgentState:
     
     assistant_msg = response.choices[0].message
     
+    # Parse text-based tool calls from models that don't support native function calling
+    if not assistant_msg.tool_calls and assistant_msg.content:
+        cleaned_text, text_tool_calls = parse_text_tool_calls(assistant_msg.content)
+        if text_tool_calls:
+            assistant_msg.content = cleaned_text
+            from openai.types.chat.chat_completion_message import ChatCompletionMessageToolCall
+            from openai.types.chat.chat_completion_message_function import Function
+            assistant_msg.tool_calls = [
+                ChatCompletionMessageToolCall(
+                    id=tc["id"],
+                    type="function",
+                    function=Function(name=tc["name"], arguments=json.dumps(tc["args"]))
+                )
+                for tc in text_tool_calls
+            ]
+    
     # Convert to LangChain message format
     ai_message = AIMessage(
         content=assistant_msg.content or "",
@@ -253,7 +322,7 @@ def tool_executor(state: AgentState) -> AgentState:
     import time as _time
 
     messages = state["messages"]
-    emit = _current_emit
+    emit = _get_emit()
     tool_calls_total = state.get("tool_calls_total", 0)
     
     # Find the last AI message with tool calls
@@ -272,37 +341,47 @@ def tool_executor(state: AgentState) -> AgentState:
         tool_args = tc["args"]
         tool_id = tc["id"]
         tool = registry.get(tool_name)
-        
-        # Permission gate — only "destructive" tools require explicit user approval
-        if tool and tool.permission == "destructive":
+
+        # Declarative permission gate — reads nally/config/permissions.json
+        from ..tools.permissions import check as check_permission
+        decision = check_permission(tool_name, tool_args)
+
+        if decision == "deny":
+            result = f"Blocked: '{tool_name}' is denied by permission config."
+            logger.info(f"Permission denied: '{tool_name}' {tool_args}")
+            return ToolMessage(content=result, tool_call_id=tool_id)
+
+        if decision == "ask":
             # Emit confirmation_required event and wait for user response
             approval_event = threading.Event()
             _approval_events[tool_id] = approval_event
-            
+
             if emit:
                 try:
                     emit("confirmation_required", {
                         "tool_call_id": tool_id,
                         "name": tool_name,
                         "args": tool_args,
-                        "permission": tool.permission,
+                        "permission": "ask",
                     })
                 except Exception:
                     pass
-            
+
             logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}'")
             approved = approval_event.wait(timeout=120)  # 2 minute timeout
-            
+
             # Clean up
             _approval_events.pop(tool_id, None)
             result_approved = _approval_results.pop(tool_id, False)
-            
+
             if not approved or not result_approved:
                 result = f"Action '{tool_name}' was declined or timed out."
                 logger.info(f"Approval gate: user denied or timed out for '{tool_name}'")
                 return ToolMessage(content=result, tool_call_id=tool_id)
-            
+
             logger.info(f"Approval gate: user approved '{tool_name}'")
+
+        # decision == "allow" → skip gate entirely
         
         # Execute tool
         start = _time.time()
@@ -469,8 +548,7 @@ def run_agent(
             ))
     
     # Run the graph with checkpoint config
-    global _current_emit
-    _current_emit = emit
+    _set_emit(emit)
     config = {"configurable": {"thread_id": thread_id}}
     initial_state = {
         "messages": lc_messages,
@@ -485,7 +563,7 @@ def run_agent(
     
     try:
         result = agent_graph.invoke(initial_state, config=config)
-        _current_emit = None
+        _set_emit(None)
         
         # Extract final response
         final_messages = result["messages"]
@@ -496,7 +574,7 @@ def run_agent(
         return "Done."
         
     except Exception as e:
-        _current_emit = None
+        _set_emit(None)
         logger.error(f"Agent graph failed: {e}")
         raise
 

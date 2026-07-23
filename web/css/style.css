@@ -1,0 +1,830 @@
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #050510;
+  --surface: #0c0c1d;
+  --surface2: #12122a;
+  --border: rgba(255,255,255,0.06);
+  --border-light: rgba(255,255,255,0.1);
+  --accent: #6C5CE7;
+  --accent-glow: rgba(108,92,231,0.4);
+  --cyan: #00D4FF;
+  --cyan-dim: rgba(0,212,255,0.15);
+  --green: #34D399;
+  --red: #F87171;
+  --yellow: #FBBF24;
+  --text: #E2E8F0;
+  --text-dim: rgba(255,255,255,0.35);
+  --text-faint: rgba(255,255,255,0.12);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+html, body {
+  background: #000;
+  color: var(--text);
+  font-family: var(--font);
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root { height: 100%; }
+
+/* ─── Scrollbar ─────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ─── Keyframes ─────────────────────────────────── */
+@keyframes fadeIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeInDown { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+@keyframes softPulse { 0%, 100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.02); } }
+@keyframes copiedFlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes bounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+
+@keyframes orbSpinCW {
+  0% { transform: rotate(0deg); }
+  50% { transform: rotate(180deg) scale(1.02); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes orbSpinCCW {
+  0% { transform: rotate(360deg); }
+  50% { transform: rotate(180deg) scale(0.98); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes orbCorePulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 18px var(--accent-glow)) drop-shadow(0 0 35px rgba(108,92,231,0.25)); }
+  50% { transform: scale(1.05); filter: drop-shadow(0 0 35px var(--accent-glow)) drop-shadow(0 0 60px rgba(108,92,231,0.5)); }
+}
+@keyframes orbAmbientPulse {
+  0%, 100% { transform: scale(0.88); opacity: 0.3; filter: blur(55px) saturate(1.2); }
+  50% { transform: scale(1.15); opacity: 0.75; filter: blur(40px) saturate(1.8); }
+}
+@keyframes orbListening {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(0,212,255,0.6)) drop-shadow(0 0 50px rgba(0,212,255,0.3)); }
+  50% { transform: scale(1.08); filter: drop-shadow(0 0 50px rgba(0,212,255,0.95)) drop-shadow(0 0 90px rgba(0,212,255,0.5)); }
+}
+@keyframes orbThinking {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(0.95); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes orbSpeaking {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)) drop-shadow(0 0 50px rgba(52,211,153,0.35)); }
+  50% { transform: scale(1.1); filter: drop-shadow(0 0 45px rgba(52,211,153,0.9)) drop-shadow(0 0 80px rgba(52,211,153,0.55)); }
+}
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,212,255,0.5); }
+  50% { box-shadow: 0 0 0 16px rgba(0,212,255,0); }
+}
+
+/* ─── Activation Animations ──────────────────────── */
+
+/* Swirling border glow — rotates around the screen */
+@keyframes borderSpin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes borderFadeIn {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes borderPulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.8; }
+}
+
+/* Orb entrance — scale + blur + glow */
+@keyframes orbBreathe {
+  0%   { transform: scale(0.3); opacity: 0; filter: blur(20px) brightness(0.3); }
+  25%  { transform: scale(0.6); opacity: 0.5; filter: blur(8px) brightness(0.7); }
+  50%  { transform: scale(0.9); opacity: 0.9; filter: blur(2px) brightness(1.1); }
+  70%  { transform: scale(1.08); opacity: 1; filter: blur(0px) brightness(1.3); }
+  85%  { transform: scale(0.96); opacity: 1; filter: blur(0px) brightness(1); }
+  100% { transform: scale(1); opacity: 1; filter: blur(0px) brightness(1); }
+}
+
+/* Ripple expanding from center */
+@keyframes rippleExpand {
+  0%   { transform: translate(-50%, -50%) scale(0); opacity: 0.8; border-width: 3px; }
+  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; border-width: 1px; }
+}
+
+/* Particles flying outward */
+@keyframes particleFly {
+  0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; }
+}
+
+/* Input slide up */
+@keyframes inputSlideUp {
+  0%   { opacity: 0; transform: translateY(40px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Activation border container */
+.activation-border {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Swirling gradient ring */
+.activation-border::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 150vmax;
+  height: 150vmax;
+  transform: translate(-50%, -50%) rotate(0deg);
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(108,92,231,0.7) 30deg,
+    rgba(0,212,255,0.5) 60deg,
+    transparent 90deg,
+    transparent 180deg,
+    rgba(108,92,231,0.7) 210deg,
+    rgba(0,212,255,0.5) 240deg,
+    transparent 270deg
+  );
+  mask: radial-gradient(circle, transparent 42%, black 43%, black 47%, transparent 48%);
+  -webkit-mask: radial-gradient(circle, transparent 42%, black 43%, black 47%, transparent 48%);
+  opacity: 0;
+}
+
+.activation-border.active::before {
+  animation: borderSpin 3s linear infinite, borderFadeIn 0.4s ease-out forwards;
+}
+
+.activation-border.sustain::before {
+  animation: borderSpin 8s linear infinite;
+  opacity: 0.15;
+}
+
+/* Soft radial overlay */
+.activation-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(108,92,231,0.06) 0%, transparent 60%);
+  opacity: 0;
+}
+
+.activation-border.active::after {
+  animation: borderFadeIn 0.5s ease-out forwards;
+}
+
+.activation-border.sustain::after {
+  opacity: 0.3;
+  animation: borderPulse 4s ease-in-out infinite;
+}
+
+/* Orb breathe entrance */
+.orb-breathe {
+  animation: orbBreathe 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Ripple waves */
+.ripple {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  border: 2px solid rgba(108,92,231,0.5);
+  pointer-events: none;
+  animation: rippleExpand 1.5s ease-out forwards;
+}
+
+/* Particles */
+.particle {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+  animation: particleFly 1s ease-out forwards;
+}
+
+/* Input entrance */
+.input-entrance {
+  animation: inputSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ─── Orb ───────────────────────────────────────── */
+.orb-ring-cw { animation: orbSpinCW 55s linear infinite; transform-origin: 250px 250px; }
+.orb-ring-ccw { animation: orbSpinCCW 60s linear infinite; transform-origin: 250px 250px; }
+.orb-reactor { animation: orbCorePulse 7s ease-in-out infinite; transform-origin: 250px 250px; }
+.orb-ambient { animation: orbAmbientPulse 8s ease-in-out infinite; }
+.orb-state-listening .orb-reactor { animation: orbListening 1.5s ease-in-out infinite; }
+.orb-state-listening .orb-ring-cw { animation-duration: 8s; }
+.orb-state-listening .orb-ring-ccw { animation-duration: 10s; }
+.orb-state-thinking .orb-ring-cw { animation: orbThinking 1.5s linear infinite; animation-duration: 1.5s; }
+.orb-state-thinking .orb-ring-ccw { animation: orbThinking 2s linear infinite reverse; animation-duration: 2s; }
+.orb-state-thinking .orb-reactor { animation: orbCorePulse 0.8s ease-in-out infinite; }
+.orb-state-speaking .orb-reactor { animation: orbSpeaking 2s ease-in-out infinite; }
+.orb-state-speaking .orb-ring-cw { animation-duration: 20s; }
+.orb-state-speaking .orb-ring-ccw { animation-duration: 25s; }
+
+/* ─── Dot bounce (thinking) ─────────────────────── */
+.dot-bounce span:nth-child(1) { animation: bounce 1.2s ease-in-out infinite; }
+.dot-bounce span:nth-child(2) { animation: bounce 1.2s ease-in-out 0.15s infinite; }
+.dot-bounce span:nth-child(3) { animation: bounce 1.2s ease-in-out 0.3s infinite; }
+
+/* ─── Message actions ───────────────────────────── */
+.msg-actions { opacity: 0; transition: opacity 0.2s; }
+.msg-wrap:hover .msg-actions { opacity: 1; }
+
+/* ─── Code blocks ───────────────────────────────── */
+.code-block { position: relative; }
+.code-block .copy-btn {
+  position: absolute; top: 6px; right: 6px;
+  width: 28px; height: 28px; border-radius: 6px; border: none;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.4);
+  cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: all 0.2s;
+}
+.code-block:hover .copy-btn { opacity: 1; }
+.code-block .copy-btn:hover { background: var(--cyan-dim); color: var(--cyan); }
+
+/* ─── Result cards ──────────────────────────────── */
+.result-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: relative;
+  overflow: hidden;
+}
+.result-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(108,92,231,0.3), transparent);
+}
+.result-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.result-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+}
+.result-card-dismiss {
+  width: 24px; height: 24px;
+  border-radius: 6px; border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.result-card-dismiss:hover { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+
+/* ─── Input bar ─────────────────────────────────── */
+.input-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 5px 5px 5px 6px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
+  max-width: 680px;
+}
+.input-bar:focus-within {
+  border-color: rgba(108,92,231,0.3);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.3), 0 0 0 3px rgba(108,92,231,0.08);
+}
+.input-bar input {
+  flex: 1;
+  height: 42px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 15px;
+  font-family: var(--font);
+  outline: none;
+  padding: 0 8px;
+  min-width: 0;
+}
+.input-bar input::placeholder { color: var(--text-faint); }
+
+.mic-btn {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  position: relative;
+}
+.mic-btn:hover { color: var(--cyan); background: var(--cyan-dim); }
+.mic-btn.listening {
+  color: var(--cyan);
+  background: rgba(0,212,255,0.12);
+  animation: micPulse 1.5s ease-in-out infinite;
+}
+
+.send-btn {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center;
+}
+.send-btn.active {
+  background: linear-gradient(135deg, var(--accent), #0090FF);
+  color: #fff;
+  box-shadow: 0 0 20px rgba(108,92,231,0.3);
+}
+.send-btn.active:hover { transform: scale(1.05); }
+
+.clear-text-btn {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.clear-text-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-dim); }
+
+/* ─── Tool chip ─────────────────────────────────── */
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(16,185,129,0.06);
+  border: 1px solid rgba(16,185,129,0.1);
+  font-size: 11px;
+  font-family: var(--mono);
+  color: rgba(52,211,153,0.7);
+  animation: fadeIn 0.2s ease-out;
+}
+.tool-chip.error {
+  background: rgba(248,113,113,0.06);
+  border-color: rgba(248,113,113,0.1);
+  color: rgba(248,113,113,0.7);
+}
+
+/* ─── Task card specific ────────────────────────── */
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  transition: opacity 0.2s;
+}
+.task-item:last-child { border-bottom: none; }
+.task-check {
+  width: 20px; height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-light);
+  background: transparent;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  color: transparent;
+}
+.task-check:hover { border-color: var(--accent); }
+.task-check.done {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.task-text { font-size: 14px; color: var(--text); transition: all 0.2s; }
+.task-text.done { text-decoration: line-through; color: var(--text-dim); }
+.task-del {
+  margin-left: auto;
+  width: 24px; height: 24px;
+  border-radius: 6px; border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.task-item:hover .task-del { opacity: 1; }
+.task-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+
+/* ─── Email card specific ───────────────────────── */
+.email-item {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.email-item:hover { background: rgba(255,255,255,0.04); border-color: var(--border-light); }
+.email-sender { font-size: 13px; font-weight: 600; color: var(--text); }
+.email-subject { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.email-preview { font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.4; }
+
+/* ─── Music card specific ───────────────────────── */
+.music-progress {
+  width: 100%;
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+.music-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--cyan));
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.music-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.music-btn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.music-btn:hover { background: rgba(255,255,255,0.1); }
+.music-btn.play {
+  width: 44px; height: 44px;
+  background: var(--accent);
+  color: #fff;
+}
+.music-btn.play:hover { background: #5a4bd6; transform: scale(1.05); }
+
+/* ─── Approval modal ────────────────────────────── */
+.approval-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+  animation: fadeIn 0.2s ease-out;
+  padding: 20px;
+}
+.approval-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  animation: fadeInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ─── Cinematic Entry (Full Luxury) ────────────────── */
+
+/* Vignette overlay */
+@keyframes vignettePulse {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 0.9; }
+}
+
+.cin-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.85) 100%);
+  pointer-events: none;
+  animation: vignettePulse 5s ease-in-out infinite;
+  z-index: 1;
+}
+
+/* Horizon line */
+@keyframes horizonIn {
+  0%   { opacity: 0; width: 0; }
+  50%  { opacity: 0.5; width: 60%; }
+  100% { opacity: 0.25; width: 80%; }
+}
+
+@keyframes horizonGlow {
+  0%, 100% { opacity: 0.15; box-shadow: 0 0 20px rgba(108,92,231,0.2); }
+  50%      { opacity: 0.4; box-shadow: 0 0 40px rgba(108,92,231,0.5), 0 0 80px rgba(108,92,231,0.2); }
+}
+
+.cin-horizon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 30%, #fff 50%, var(--accent) 70%, transparent 100%);
+  pointer-events: none;
+  z-index: 2;
+  animation: horizonIn 3s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+             horizonGlow 5s ease-in-out 3s infinite;
+}
+
+/* Center pulse ring */
+@keyframes pulseRingExpand {
+  0%   { transform: translate(-50%, -50%) scale(0); opacity: 0.6; border-width: 1.5px; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 0; border-width: 0.5px; }
+}
+
+.cin-pulse-ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 300px; height: 300px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  pointer-events: none;
+  z-index: 2;
+  animation: pulseRingExpand 3s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.cin-pulse-ring:nth-child(2) { animation-delay: 0.8s; }
+.cin-pulse-ring:nth-child(3) { animation-delay: 1.6s; }
+
+/* Ambient center glow pulse */
+@keyframes ambientGlow {
+  0%, 100% { opacity: 0; transform: scale(0.8); }
+  50%      { opacity: 0.12; transform: scale(1.3); }
+}
+
+.luxury-ambient {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px; height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+  filter: blur(90px);
+  animation: ambientGlow 6s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Sweep line */
+@keyframes sweepLine {
+  0%   { left: -10%; opacity: 0; width: 3px; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { left: 110%; opacity: 0; width: 3px; }
+}
+
+.cin-sweep {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 2px;
+  width: 3px;
+  background: linear-gradient(180deg, transparent, rgba(255,255,255,0.8), transparent);
+  box-shadow: 0 0 15px rgba(108,92,231,0.6), 0 0 30px rgba(108,92,231,0.3);
+  pointer-events: none;
+  z-index: 5;
+  animation: sweepLine 2.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ─── 3D Text Reveal ────────────────────────────── */
+
+/* Letter materialize — 2.5D depth illusion */
+@keyframes letter3DIn {
+  0%   { opacity: 0; transform: perspective(600px) rotateX(40deg) rotateY(-15deg) translateZ(-120px) translateY(30px) scale(0.6); filter: blur(6px); }
+  40%  { opacity: 0.7; transform: perspective(600px) rotateX(10deg) rotateY(5deg) translateZ(-30px) translateY(5px) scale(0.95); filter: blur(1px); }
+  70%  { opacity: 1; transform: perspective(600px) rotateX(-3deg) rotateY(-2deg) translateZ(10px) translateY(-2px) scale(1.02); filter: blur(0px); }
+  85%  { opacity: 1; transform: perspective(600px) rotateX(1deg) rotateY(1deg) translateZ(5px) translateY(0px) scale(1.005); }
+  100% { opacity: 1; transform: perspective(600px) rotateX(0deg) rotateY(0deg) translateZ(0px) translateY(0px) scale(1); }
+}
+
+/* Letter glow pulse — dramatic bloom */
+@keyframes letter3DGlow {
+  0%   { text-shadow: 0 0 0 transparent, 0 0 0 transparent; }
+  30%  { text-shadow: 0 0 40px rgba(108,92,231,0.9), 0 0 80px rgba(108,92,231,0.5), 0 0 120px rgba(108,92,231,0.2), 0 4px 8px rgba(0,0,0,0.8); }
+  60%  { text-shadow: 0 0 15px rgba(108,92,231,0.4), 0 0 30px rgba(108,92,231,0.2), 0 2px 4px rgba(0,0,0,0.6); }
+  100% { text-shadow: 0 0 8px rgba(108,92,231,0.25), 0 2px 4px rgba(0,0,0,0.5); }
+}
+
+/* Depth shadow layers — 3D illusion */
+@keyframes letterShadow {
+  0%   { opacity: 0; transform: translate(6px, 6px) scale(0.6); filter: blur(8px); }
+  50%  { opacity: 0.3; transform: translate(4px, 4px) scale(0.95); filter: blur(4px); }
+  100% { opacity: 0.15; transform: translate(3px, 3px) scale(1); filter: blur(3px); }
+}
+
+@keyframes letterShadowFar {
+  0%   { opacity: 0; transform: translate(12px, 12px) scale(0.6); filter: blur(14px); }
+  50%  { opacity: 0.15; transform: translate(8px, 8px) scale(0.95); filter: blur(8px); }
+  100% { opacity: 0.08; transform: translate(6px, 6px) scale(1); filter: blur(6px); }
+}
+
+/* Identity fade out — dramatic */
+@keyframes identityFadeOut {
+  0%   { opacity: 1; transform: perspective(600px) rotateX(0deg) scale(1); filter: blur(0px); }
+  30%  { opacity: 0.9; transform: perspective(600px) rotateX(-2deg) scale(1.01); filter: blur(1px); }
+  100% { opacity: 0; transform: perspective(600px) rotateX(15deg) scale(1.15); filter: blur(20px); }
+}
+
+.luxury-text {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  letter-spacing: 16px;
+  text-transform: uppercase;
+  color: #fff;
+  text-indent: 16px;
+  position: relative;
+  z-index: 10;
+  perspective: 800px;
+  transform-style: preserve-3d;
+}
+
+.luxury-letter {
+  display: inline-block;
+  position: relative;
+  opacity: 0;
+  animation: letter3DIn 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+             letter3DGlow 2.5s ease-out forwards;
+  animation-delay: var(--letter-delay, 0s);
+  transform-style: preserve-3d;
+  will-change: transform, opacity, filter;
+}
+
+/* 3D depth shadow layer (before letter) */
+.luxury-letter::before {
+  content: attr(data-char);
+  position: absolute;
+  inset: 0;
+  color: rgba(108, 92, 231, 0.4);
+  z-index: -1;
+  opacity: 0;
+  animation: letterShadow 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--letter-delay, 0s);
+}
+
+/* Far depth shadow */
+.luxury-letter::after {
+  content: attr(data-char);
+  position: absolute;
+  inset: 0;
+  color: rgba(0, 0, 0, 0.6);
+  z-index: -2;
+  opacity: 0;
+  animation: letterShadowFar 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--letter-delay, 0s);
+}
+
+.luxury-text.fade-out {
+  animation: identityFadeOut 2s ease-in forwards;
+}
+
+/* Phase container */
+.luxury-phase {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  z-index: 0;
+}
+
+/* Subtle scan line overlay */
+.luxury-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255,255,255,0.015) 2px,
+    rgba(255,255,255,0.015) 4px
+  );
+  pointer-events: none;
+  opacity: 0;
+  animation: borderFadeIn 2s ease-out 1s forwards;
+  z-index: 3;
+}
+
+/* Light burst */
+@keyframes lightBurst {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.1); }
+  30%  { opacity: 0.9; transform: translate(-50%, -50%) scale(0.8); }
+  60%  { opacity: 0.5; transform: translate(-50%, -50%) scale(1.5); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.5); }
+}
+
+.cin-light-burst {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 200px; height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(108,92,231,0.4) 40%, transparent 70%);
+  pointer-events: none;
+  z-index: 4;
+  animation: lightBurst 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Ring assembly */
+@keyframes ringAssemble {
+  0%   { transform: rotate(0deg) scale(0.3); opacity: 0; stroke-dashoffset: 940; }
+  50%  { opacity: 0.6; }
+  100% { transform: rotate(360deg) scale(1); opacity: 1; stroke-dashoffset: 0; }
+}
+
+/* Core double pulse */
+@keyframes coreDoublePulse {
+  0%   { transform: scale(1); filter: brightness(1); }
+  15%  { transform: scale(1.15); filter: brightness(1.8); }
+  30%  { transform: scale(1); filter: brightness(1); }
+  45%  { transform: scale(1.1); filter: brightness(1.5); }
+  60%  { transform: scale(1); filter: brightness(1); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+/* Input shimmer */
+@keyframes inputShimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.input-bar-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, rgba(108,92,231,0.15) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: inputShimmer 1.5s ease-in-out;
+  pointer-events: none;
+}
+
+/* Status text type */
+@keyframes statusType {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+/* ─── Responsive ────────────────────────────────── */
+@media (max-width: 768px) {
+  .input-bar { max-width: 100%; }
+  .result-card { padding: 14px; }
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .input-bar-container {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ─── Focus states ──────────────────────────────── */
+input:focus, textarea:focus { outline: none; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

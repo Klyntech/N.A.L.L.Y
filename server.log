@@ -1,0 +1,6 @@
+Nally loaded 10 tools
+
+  Nally Jarvis starting on http://localhost:5000
+  Press Ctrl+C to stop
+
+INFO:     127.0.0.1:58590 - "GET / HTTP/1.1" 200 OK

@@ -99,64 +99,35 @@ def run_cli():
     """Run Nally in CLI mode"""
     from nally.agent import get_agent
     agent = get_agent()
-    
-    # Try to import system monitor (optional)
-    system_monitor = None
-    try:
-        from nally.system import system_monitor
-    except (ImportError, Exception):
-        pass
-    
+
     print("Nally CLI Mode")
     print("-" * 40)
-    print("Commands: 'quit' to exit, 'status' for system info")
+    print("Commands: 'quit' to exit")
     print()
-    
+
     while True:
         try:
-            # Show status indicator
-            if system_monitor:
-                status = system_monitor.get_status()
-                status_icon = {"normal": "OK", "warning": "BUSY", "critical": "OVERLOAD"}
-                print(f"[{status_icon[status.get('status', 'normal')]}] ", end="", flush=True)
-            
             user_input = input("You]: ").strip()
-            
+
             if user_input.lower() in ['quit', 'exit', 'bye']:
-                print("\nNally: Goodbye! Have a great day!")
+                print("\nNally: Goodbye!")
                 break
-            
-            if user_input.lower() == 'status':
-                if system_monitor:
-                    print(f"\nNally: {system_monitor.get_usage_summary()}")
-                else:
-                    print("\nNally: System monitor not available.")
-                continue
-            
+
             if not user_input:
                 continue
-            
-            # Check system status (warn but still allow)
-            if system_monitor:
-                can_run, msg = system_monitor.can_start_task()
-                if not can_run:
-                    print(f"\nNally: {msg}")
-                    print("  (Proceeding anyway...)")
-            
+
             print("\nNally: ", end="", flush=True)
-            
-            # Process with timing
+
             start = time.time()
             response = agent.process(user_input)
             elapsed = time.time() - start
-            
+
             print(response)
-            
-            # Show timing for local patterns
+
             if elapsed < 1:
                 print(f"  [{elapsed*1000:.0f}ms]", end="")
             print()
-            
+
         except KeyboardInterrupt:
             print("\n\nNally: Interrupted. Goodbye!")
             break

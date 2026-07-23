@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#050510">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" black-translucent">
+  <title>Nally</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+  <div id="root"></div>
+  <div id="error-overlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#0a0a0a;color:#ff4444;font-family:monospace;font-size:14px;padding:40px;overflow:auto;white-space:pre-wrap;"></div>
+  <script>
+    window.onerror = function(msg, url, line, col, err) {
+      var el = document.getElementById('error-overlay');
+      if (el) {
+        el.style.display = 'block';
+        el.textContent += 'ERROR: ' + msg + '\nFile: ' + url + '\nLine: ' + line + ':' + col + '\n\n';
+      }
+      try { fetch('/api/js-error', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg:String(msg),url:String(url),line:line,col:col,err:err?String(err.stack||err):''})}); } catch(e) {}
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      var el = document.getElementById('error-overlay');
+      if (el) {
+        el.style.display = 'block';
+        el.textContent += 'UNHANDLED PROMISE: ' + (e.reason && e.reason.message || e.reason || 'unknown') + '\n\n';
+      }
+      try { fetch('/api/js-error', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg:'UNHANDLED_PROMISE',err:String(e.reason&&e.reason.stack||e.reason||'')})}); } catch(ex) {}
+    });
+  </script>
+
+  <script src="vendor/react.production.min.js"></script>
+  <script src="vendor/react-dom.production.min.js"></script>
+  <script src="vendor/htm.umd.js"></script>
+  <script src="vendor/lucide.min.js"></script>
+
+  <script src="js/utils.js?v=3"></script>
+  <script src="js/cinema.js?v=3"></script>
+  <script src="js/voice.js?v=3"></script>
+  <script src="js/orb.js?v=3"></script>
+  <script src="js/input.js?v=3"></script>
+  <script src="js/cards.js?v=3"></script>
+  <script src="js/chat.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
+</body>
+</html>

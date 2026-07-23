@@ -123,21 +123,38 @@ app.add_middleware(
 
 @app.get("/")
 async def index():
-    return FileResponse(str(_base / "web2" / "index.html"))
+    return FileResponse(str(_base / "web" / "index.html"))
 
 
 @app.get("/vendor/{filename:path}")
 async def vendor_static(filename: str):
-    return FileResponse(str(_base / "web2" / "vendor" / filename))
+    resp = FileResponse(str(_base / "web" / "vendor" / filename), media_type="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.get("/js/{filename:path}")
 async def js_static(filename: str):
-    return FileResponse(str(_base / "web2" / "js" / filename))
+    resp = FileResponse(str(_base / "web" / "js" / filename), media_type="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
-@app.get("/web2/")
-async def web2_root():
+@app.get("/css/{filename:path}")
+async def css_static(filename: str):
+    resp = FileResponse(str(_base / "web" / "css" / filename), media_type="text/css")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
+@app.get("/web/")
+async def web_root():
     return RedirectResponse(url="/", status_code=302)
 
 
@@ -240,9 +257,9 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
                 agent = get_agent()
                 response = agent.process(message, emit=stream_event)
                 # If no streaming happened, send the final response
-                loop.call_soon_threadsafe(queue.put_nowait, {"event": "response", "data": {"response": response, "status": "ok"}})
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
             except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"event": "error", "data": {"response": str(e), "status": "error"}})
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
@@ -328,6 +345,12 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
     from nally.agent.graph import resolve_approval
     resolve_approval(request.tool_call_id, request.approved)
     return {"ok": True}
+
+
+@app.get("/api/permissions")
+async def get_permissions(_auth=Depends(verify_auth)):
+    from nally.tools.permissions import get_config, reload
+    return {"permissions": get_config()}
 
 
 # --- Run server ---
