@@ -3,10 +3,8 @@
 
 def get_agent():
     """Lazy singleton for NallyAgent (avoids import-time DB/cloud init)"""
-    from .core import NallyAgent
-    if not hasattr(get_agent, '_instance'):
-        get_agent._instance = NallyAgent()
-    return get_agent._instance
+    from .core import get_agent as _get_agent
+    return _get_agent()
 
 
 def get_llm():

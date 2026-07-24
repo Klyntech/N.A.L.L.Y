@@ -1,38 +1,62 @@
 """Declarative permission system — evaluates tool calls against config rules.
 
-Reads nally/config/permissions.json. Three effects per rule:
+Three effects per rule:
   "allow" — execute without prompting
   "ask"   — prompt user for approval
   "deny"  — block immediately
 
-Rules are matched against tool input (command string, action, etc.).
+Rules match against tool input (command string, action, etc.).
 For dict rules, last matching pattern wins. Default is "ask".
+
+Usage:
+    from nally.tools.permissions import gate
+
+    decision = gate.check("run_command", {"command": "rm -rf /"})
+    # -> PermissionDecision.DENY
+
+    result = gate.enforce("run_command", {"command": "git status"})
+    # -> "allow" (skips approval)
 """
+
 import json
 import re
+from enum import Enum
 from pathlib import Path
+from typing import Optional
+
 from ..config import BASE_DIR
+from ..core.errors import PermissionDenied
 from ..utils.logger import logger
 
-_config = None
+
+class PermissionDecision(str, Enum):
+    """Outcome of a permission check."""
+    ALLOW = "allow"
+    ASK = "ask"
+    DENY = "deny"
 
 
-def _load():
-    global _config
-    path = BASE_DIR / "nally" / "config" / "permissions.json"
-    try:
-        if path.exists():
-            _config = json.loads(path.read_text(encoding="utf-8"))
-            logger.debug(f"Loaded permissions from {path}")
-        else:
-            logger.warning(f"permissions.json not found at {path}, using defaults")
-            _config = {}
-    except Exception as e:
-        logger.error(f"Failed to load permissions.json: {e}")
-        _config = {}
+# ── Match string extraction ───────────────────────────────
+
+# Maps tool name → which arg to match against
+_MATCH_KEY = {
+    "run_command": "command",
+    "file_ops": "action",
+    "run_code": "action",
+    "code_analysis": "action",
+}
 
 
-def _match(pattern: str, value: str) -> bool:
+def _extract_match_value(tool_name: str, tool_args: dict) -> str:
+    """Extract the string to match rules against from tool arguments."""
+    key = _MATCH_KEY.get(tool_name)
+    if key and key in tool_args:
+        return str(tool_args[key])
+    # Fallback: concat all string arg values
+    return " ".join(str(v) for v in tool_args.values() if isinstance(v, str))
+
+
+def _wildcard_match(pattern: str, value: str) -> bool:
     """Simple wildcard matching: * matches zero or more chars, ? matches one."""
     if pattern == "*":
         return True
@@ -40,63 +64,119 @@ def _match(pattern: str, value: str) -> bool:
     return re.fullmatch(regex, value, re.IGNORECASE) is not None
 
 
-def _build_match_string(tool_name: str, tool_args: dict) -> str:
-    """Extract the string to match rules against from tool arguments."""
-    if tool_name == "run_command":
-        return tool_args.get("command", "")
-    elif tool_name == "file_ops":
-        return tool_args.get("action", "")
-    elif tool_name == "run_code":
-        return tool_args.get("action", "")
-    elif tool_name == "code_analysis":
-        return tool_args.get("action", "")
-    else:
-        # For other tools, concat all string arg values
-        return " ".join(str(v) for v in tool_args.values() if isinstance(v, str))
+# ── Permission Gate ───────────────────────────────────────
 
+
+class PermissionGate:
+    """Evaluates tool calls against declarative permission rules.
+
+    Thread-safe: config is loaded once and immutable after that.
+    Call `reload()` to pick up changes to permissions.json.
+    """
+
+    def __init__(self, config_path: Optional[Path] = None):
+        self._config_path = config_path or (BASE_DIR / "nally" / "config" / "permissions.json")
+        self._config: Optional[dict] = None
+
+    def _ensure_loaded(self):
+        if self._config is None:
+            self._load()
+
+    def _load(self):
+        try:
+            if self._config_path.exists():
+                self._config = json.loads(self._config_path.read_text(encoding="utf-8"))
+                logger.debug(f"Loaded permissions from {self._config_path}")
+            else:
+                logger.warning(f"permissions.json not found at {self._config_path}, using defaults")
+                self._config = {}
+        except Exception as e:
+            logger.error(f"Failed to load permissions.json: {e}")
+            self._config = {}
+
+    def reload(self):
+        """Force reload config (after user edits permissions.json)."""
+        self._config = None
+        self._ensure_loaded()
+
+    def check(self, tool_name: str, tool_args: dict) -> PermissionDecision:
+        """Check permission for a tool call without enforcing.
+
+        Returns:
+            PermissionDecision.ALLOW — safe to execute
+            PermissionDecision.ASK — needs user approval
+            PermissionDecision.DENY — blocked
+        """
+        self._ensure_loaded()
+        assert self._config is not None
+
+        rules = self._config.get(tool_name)
+
+        # Unknown tool → ask
+        if rules is None:
+            return PermissionDecision.ASK
+
+        # Simple string rule: "allow" / "ask" / "deny"
+        if isinstance(rules, str):
+            try:
+                return PermissionDecision(rules)
+            except ValueError:
+                return PermissionDecision.ASK
+
+        # Dict rules: match against tool input, last match wins
+        if isinstance(rules, dict):
+            match_value = _extract_match_value(tool_name, tool_args)
+            result = PermissionDecision.ASK
+            for pattern, effect in rules.items():
+                if _wildcard_match(pattern, match_value):
+                    try:
+                        result = PermissionDecision(effect)
+                    except ValueError:
+                        result = PermissionDecision.ASK
+            return result
+
+        return PermissionDecision.ASK
+
+    def enforce(self, tool_name: str, tool_args: dict) -> PermissionDecision:
+        """Check permission and raise PermissionDenied for DENY decisions.
+
+        Same as check() but raises an error for denied operations.
+        Use this when you want to block denied tools immediately.
+
+        Returns:
+            PermissionDecision.ALLOW or PermissionDecision.ASK
+
+        Raises:
+            PermissionDenied: if decision is DENY
+        """
+        decision = self.check(tool_name, tool_args)
+        if decision == PermissionDecision.DENY:
+            raise PermissionDenied.denied(tool_name)
+        return decision
+
+    def get_config(self) -> dict:
+        """Return the current permission config (for API endpoint)."""
+        self._ensure_loaded()
+        return self._config or {}
+
+
+# ── Singleton ─────────────────────────────────────────────
+
+gate = PermissionGate()
+
+
+# ── Backward-compatible functions ──────────────────────────
 
 def check(tool_name: str, tool_args: dict) -> str:
-    """Check permission for a tool call.
-
-    Returns:
-        "allow" — skip approval gate, execute immediately
-        "ask"   — prompt user for approval (current behavior)
-        "deny"  — block immediately, return error to LLM
-    """
-    if _config is None:
-        _load()
-
-    rules = _config.get(tool_name)
-
-    # Unknown tool → ask
-    if rules is None:
-        return "ask"
-
-    # Simple string rule: "allow" / "ask" / "deny"
-    if isinstance(rules, str):
-        return rules
-
-    # Dict rules: match against tool input, last match wins
-    if isinstance(rules, dict):
-        match_value = _build_match_string(tool_name, tool_args)
-        result = "ask"  # default if no pattern matches
-        for pattern, effect in rules.items():
-            if _match(pattern, match_value):
-                result = effect
-        return result
-
-    return "ask"
-
-
-def get_config() -> dict:
-    """Return the current permission config (for API endpoint)."""
-    if _config is None:
-        _load()
-    return _config or {}
+    """Check permission. Returns "allow", "ask", or "deny" as strings."""
+    return gate.check(tool_name, tool_args).value
 
 
 def reload():
-    """Force reload config (after user edits permissions.json)."""
-    global _config
-    _config = None
-    _load()
+    """Force reload permission config."""
+    gate.reload()
+
+
+def get_config() -> dict:
+    """Return the current permission config."""
+    return gate.get_config()

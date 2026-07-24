@@ -1,6 +1,7 @@
 """SubAgentPool - Manages creation, execution, and result collection of sub-agents"""
 import threading
 import time
+from datetime import datetime
 from typing import Dict, List, Optional, Callable, Any
 from .agent import SubAgent
 from ..utils.logger import logger
@@ -15,7 +16,7 @@ class SubAgentPool:
         self._total_spawned = 0
 
     def spawn(self, goal: str, context: str = "", emit: Optional[Callable] = None) -> str:
-        """Spawn a single sub-agent"""
+        """Spawn a single sub-agent."""
         agent = SubAgent(goal=goal, context=context)
         agent.set_callback(emit)
         agent.start(emit)
@@ -28,73 +29,58 @@ class SubAgentPool:
 
     def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None) -> List[str]:
         """Spawn multiple sub-agents in parallel. Each task: {goal, context}"""
-        ids = []
-        for task in tasks:
-            agent_id = self.spawn(task.get("goal", ""), task.get("context", ""), emit)
-            ids.append(agent_id)
-
-        return ids
+        return [self.spawn(t.get("goal", ""), t.get("context", ""), emit) for t in tasks]
 
     def get_status(self, agent_id: str) -> Optional[dict]:
-        """Get status of a single sub-agent"""
+        """Get status of a single sub-agent."""
         with self._lock:
             agent = self._agents.get(agent_id)
-        if agent:
-            return agent.get_status()
-        return None
+        return agent.get_status() if agent else None
 
     def get_results(self, agent_ids: List[str]) -> List[dict]:
-        """Get results for multiple sub-agents"""
-        results = []
-        for aid in agent_ids:
-            status = self.get_status(aid)
-            if status:
-                results.append(status)
-        return results
+        """Get results for multiple sub-agents."""
+        return [s for aid in agent_ids if (s := self.get_status(aid))]
 
     def get_completed(self, agent_ids: List[str]) -> List[dict]:
-        """Get only completed sub-agent results"""
-        results = self.get_results(agent_ids)
-        return [r for r in results if r.get("status") == "completed"]
+        """Get only completed sub-agent results."""
+        return [r for r in self.get_results(agent_ids) if r.get("status") == "completed"]
 
     def get_all_status(self) -> List[dict]:
-        """Get status of all sub-agents"""
+        """Get status of all sub-agents."""
         with self._lock:
             return [a.get_status() for a in self._agents.values()]
 
     def get_running(self) -> List[dict]:
-        """Get status of all running sub-agents"""
-        all_status = self.get_all_status()
-        return [s for s in all_status if s.get("status") == "running"]
+        """Get status of all running sub-agents."""
+        return [s for s in self.get_all_status() if s.get("status") == "running"]
 
     def cancel(self, agent_id: str) -> bool:
-        """Cancel a sub-agent (mark as cancelled)"""
+        """Cancel a sub-agent (mark as cancelled)."""
         with self._lock:
             agent = self._agents.get(agent_id)
         if agent and agent.status in ("pending", "running"):
             agent.status = "cancelled"
-            agent.completed_at = __import__('datetime').datetime.now().isoformat()
+            agent.completed_at = datetime.now().isoformat()
             return True
         return False
 
     def cancel_all(self):
-        """Cancel all running sub-agents"""
+        """Cancel all running sub-agents."""
         with self._lock:
             for agent in self._agents.values():
                 if agent.status in ("pending", "running"):
                     agent.status = "cancelled"
 
     def wait_for_all(self, timeout: float = 300.0):
-        """Wait for all sub-agents to complete"""
+        """Wait for all sub-agents to complete."""
         with self._lock:
             agents = list(self._agents.values())
-
         for agent in agents:
             if agent.status in ("pending", "running"):
                 agent.wait(timeout)
 
     def collect_finished(self) -> List[dict]:
-        """Collect results from finished agents and remove them from the pool"""
+        """Collect results from finished agents and remove them from the pool."""
         with self._lock:
             finished = []
             to_remove = []
@@ -107,30 +93,25 @@ class SubAgentPool:
             return finished
 
     def get_stats(self) -> dict:
-        """Get pool statistics"""
+        """Get pool statistics."""
         with self._lock:
-            total = len(self._agents)
-            running = sum(1 for a in self._agents.values() if a.status == "running")
-            completed = sum(1 for a in self._agents.values() if a.status == "completed")
-            pending = sum(1 for a in self._agents.values() if a.status == "pending")
-            failed = sum(1 for a in self._agents.values() if a.status == "failed")
-
+            statuses = [a.status for a in self._agents.values()]
         return {
-            "total": total,
-            "running": running,
-            "completed": completed,
-            "pending": pending,
-            "failed": failed,
+            "total": len(statuses),
+            "running": statuses.count("running"),
+            "completed": statuses.count("completed"),
+            "pending": statuses.count("pending"),
+            "failed": statuses.count("failed"),
             "total_spawned_all_time": self._total_spawned,
         }
 
     def clear(self):
-        """Clear all completed agents from the pool"""
+        """Clear all completed agents from the pool."""
         with self._lock:
-            to_remove = []
-            for aid, agent in self._agents.items():
-                if agent.status in ("completed", "failed", "cancelled"):
-                    to_remove.append(aid)
+            to_remove = [
+                aid for aid, agent in self._agents.items()
+                if agent.status in ("completed", "failed", "cancelled")
+            ]
             for aid in to_remove:
                 del self._agents[aid]
 

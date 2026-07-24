@@ -91,8 +91,8 @@ class NallyLLM:
             try:
                 from .context import context_manager
                 context_manager.track_usage(response.usage.prompt_tokens, response.usage.completion_tokens)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Token tracking failed: {e}")
 
         return response
 
@@ -172,7 +172,8 @@ class NallyLLM:
                                 tool_calls[idx]["name"] = tc.function.name
                             if tc.function.arguments:
                                 tool_calls[idx]["args_str"] += tc.function.arguments
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Streaming chunk processing failed: {e}")
                 continue
 
         # Yield completed tool calls
@@ -182,7 +183,8 @@ class NallyLLM:
                 continue
             try:
                 args = json.loads(tc["args_str"]) if tc["args_str"] else {}
-            except Exception:
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.debug(f"Tool call args parse failed: {e}")
                 args = {}
             yield {"type": "tool_call", "id": tc["id"], "name": tc["name"], "args": args}
 

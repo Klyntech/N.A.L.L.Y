@@ -4,6 +4,7 @@ import time
 import os
 import sys
 import asyncio
+import uuid
 import webbrowser
 from pathlib import Path
 from typing import Optional
@@ -11,36 +12,35 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Import Nally agent
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from nally.tools import load_all_tools
 from nally.tools.registry import registry
 from nally.agent import get_agent
-from nally.config import SYSTEM_PROMPT, PROVIDER, ACTIVE_MODEL
+from nally.config import (
+    PROVIDER, ACTIVE_MODEL, ALLOWED_ORIGINS,
+    RATE_LIMIT_ENABLED, RATE_LIMIT_RPM, RATE_LIMIT_BURST,
+    ensure_data_dir, DATA_DIR,
+)
+from nally.core.errors import NallyError
+from nally.utils.logger import logger
 
-# Handle PyInstaller frozen paths
-if getattr(sys, 'frozen', False):
+
+# ── Paths ─────────────────────────────────────────────────
+
+if getattr(sys, "frozen", False):
     _base = Path(sys.executable).parent
-    _mei = Path(sys._MEIPASS)
 else:
     _base = Path(__file__).parent.parent.parent
 
-# Auth config
+
+# ── Auth ──────────────────────────────────────────────────
+
 NALLY_ACCESS_TOKEN = os.environ.get("NALLY_ACCESS_TOKEN", "")
 security = HTTPBearer(auto_error=False)
 
-# Track streaming events for diagnostic logs
-streaming_logs = []
-js_errors = []
-
-
-# --- Auth dependency ---
 
 async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     if credentials and credentials.credentials == NALLY_ACCESS_TOKEN:
@@ -48,78 +48,116 @@ async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depe
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-# --- Lifespan ---
+# ── Rate limiter (in-memory, per-IP) ─────────────────────
+
+class _RateLimiter:
+    """Simple token bucket rate limiter."""
+
+    def __init__(self, rpm: int = 30, burst: int = 5):
+        self._rpm = rpm
+        self._burst = burst
+        self._buckets: dict = {}
+        self._last_refill = time.time()
+
+    def _refill(self):
+        now = time.time()
+        elapsed = now - self._last_refill
+        tokens_to_add = elapsed * (self._rpm / 60)
+        for ip in list(self._buckets):
+            self._buckets[ip] = min(self._burst, self._buckets[ip] + tokens_to_add)
+        self._last_refill = now
+
+    def allow(self, ip: str) -> bool:
+        if not RATE_LIMIT_ENABLED:
+            return True
+        self._refill()
+        if ip not in self._buckets:
+            self._buckets[ip] = self._burst
+        if self._buckets[ip] >= 1:
+            self._buckets[ip] -= 1
+            return True
+        return False
+
+
+_rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
+
+
+# ── Request models ────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+class ApprovalRequest(BaseModel):
+    tool_call_id: str
+    approved: bool
+
+
+# ── Lifespan ──────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_data_dir()
     load_all_tools()
-    print("[NALLY] Tools loaded.")
+    logger.info("Tools loaded.")
 
     def _prewarm():
         try:
-            print("[NALLY] Pre-warming agent in background...")
+            logger.info("Pre-warming agent in background...")
             get_agent()
-            print("[NALLY] Agent ready.")
+            logger.info("Agent ready.")
         except Exception as e:
-            print(f"[NALLY] Agent pre-warm failed: {e}")
+            logger.warning(f"Agent pre-warm failed: {e}")
 
     import threading
     threading.Thread(target=_prewarm, daemon=True).start()
 
-    # Auto-seed user profile
-    _profile_path = _base / "data" / "user_profile.json"
-    if not _profile_path.exists():
-        _profile_path.parent.mkdir(parents=True, exist_ok=True)
-        _default_profile = {
-            "name": "Clinton Onyedikachi Chukwuma",
-            "preferred_name": "Clinton",
-            "aliases": ["Klyntech", "Klynvybz", "Klyntyn"],
-            "age": 17,
-            "location": "Lagos, Nigeria",
-            "occupation": "Coding Student & AI Developer",
-            "education": "Processing admission to ABSU (Abia State University) - Law",
-            "communication_style": "concise",
-            "timezone": "Africa/Lagos",
-            "languages_spoken": ["English", "Igbo"],
-            "languages_to_learn": ["Russian", "Spanish", "French"],
-            "coding_level": "Beginner",
-            "coding_languages": ["Python", "JavaScript", "TypeScript", "C", "C++"],
-            "projects": ["Nally (AI agent)", "Tradeknox (trading bot)"],
-            "goals": ["Build a company that handles big money", "Be powerful", "Be global", "Learn Russian, Spanish, French"],
-            "interests": ["coding", "AI", "building software", "trading"],
-            "favorite_apps": [],
-            "work_hours": "",
-            "notes": "Clinton is building something massive. He's 17, studying law while coding. He wants to be global and powerful. Never mention ADHD or medical conditions.",
-            "created": "2026-07-11T10:00:00",
-            "updated": "2026-07-11T10:00:00"
-        }
-        _profile_path.write_text(json.dumps(_default_profile, indent=2, default=str), encoding="utf-8")
-        print(f"[NALLY] Seeded user profile at {_profile_path}")
-
     if not NALLY_ACCESS_TOKEN:
-        print("[FATAL] NALLY_ACCESS_TOKEN not set — refusing to start without auth", file=sys.stderr)
-        print("[FATAL] Set it: export NALLY_ACCESS_TOKEN='your-secret-here'", file=sys.stderr)
+        logger.error("NALLY_ACCESS_TOKEN not set — refusing to start without auth")
         raise RuntimeError("NALLY_ACCESS_TOKEN not set")
 
-    print("[NALLY] Lifespan startup complete.")
+    logger.info("Lifespan startup complete.")
     yield
-    print("[NALLY] Lifespan shutdown.")
+    logger.info("Lifespan shutdown.")
 
 
-# --- App ---
+# ── App ───────────────────────────────────────────────────
 
 app = FastAPI(title="Nally", lifespan=lifespan)
 
+# CORS from config
+_origins = ALLOWED_ORIGINS if isinstance(ALLOWED_ORIGINS, list) else [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# --- Static files ---
+# ── Middleware: rate limit + request ID ───────────────────
+
+@app.middleware("http")
+async def _middleware(request: Request, call_next):
+    # Rate limit
+    client_ip = request.client.host if request.client else "unknown"
+    if not _rate_limiter.allow(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "rate_limit_exceeded", "message": "Too many requests. Please wait."},
+        )
+
+    # Request ID
+    request_id = str(uuid.uuid4())[:8]
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+# ── Static files ──────────────────────────────────────────
 
 @app.get("/")
 async def index():
@@ -130,8 +168,6 @@ async def index():
 async def vendor_static(filename: str):
     resp = FileResponse(str(_base / "web" / "vendor" / filename), media_type="application/javascript")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
     return resp
 
 
@@ -139,8 +175,6 @@ async def vendor_static(filename: str):
 async def js_static(filename: str):
     resp = FileResponse(str(_base / "web" / "js" / filename), media_type="application/javascript")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
     return resp
 
 
@@ -148,8 +182,6 @@ async def js_static(filename: str):
 async def css_static(filename: str):
     resp = FileResponse(str(_base / "web" / "css" / filename), media_type="text/css")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
     return resp
 
 
@@ -158,29 +190,7 @@ async def web_root():
     return RedirectResponse(url="/", status_code=302)
 
 
-
-# --- JS Error Log ---
-
-class JsError(BaseModel):
-    error: dict = {}
-    time: float = 0.0
-
-
-@app.post("/api/js-error")
-async def js_error(request: Request):
-    data = await request.json()
-    js_errors.append({"error": data, "time": time.time()})
-    if len(js_errors) > 50:
-        js_errors.pop(0)
-    return {"ok": True}
-
-
-@app.get("/api/js-errors")
-async def get_js_errors():
-    return {"errors": js_errors[-20:]}
-
-
-# --- Debug Page ---
+# ── Debug page ────────────────────────────────────────────
 
 @app.get("/debug")
 async def debug_page():
@@ -201,8 +211,7 @@ function L(cls, txt) {
   d.textContent = txt;
   document.getElementById('log').appendChild(d);
 }
-L('info', 'Server: FastAPI + SSE (no Socket.IO needed)');
-L('info', 'Testing SSE connection...');
+L('info', 'Server: FastAPI + SSE');
 fetch('/api/status').then(r => r.json()).then(data => {
   L('ok', 'STATUS: ' + JSON.stringify(data));
 }).catch(e => {
@@ -212,13 +221,7 @@ fetch('/api/status').then(r => r.json()).then(data => {
 </body></html>"""
 
 
-# --- Chat Request Model ---
-
-class ChatRequest(BaseModel):
-    message: str
-
-
-# --- API Endpoints ---
+# ── API: Status ───────────────────────────────────────────
 
 @app.get("/api/status")
 async def status():
@@ -232,6 +235,8 @@ async def status():
         "streaming": "sse",
     }
 
+
+# ── API: Chat (SSE streaming) ────────────────────────────
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
@@ -256,23 +261,28 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             try:
                 agent = get_agent()
                 response = agent.process(message, emit=stream_event)
-                # If no streaming happened, send the final response
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
+                loop.call_soon_threadsafe(
+                    queue.put_nowait, {"type": "response", "text": response}
+                )
+            except NallyError as e:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait, {"type": "error", "text": e.to_llm_format()}
+                )
             except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
+                loop.call_soon_threadsafe(
+                    queue.put_nowait, {"type": "error", "text": str(e)}
+                )
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        async def _run_agent():
-            await loop.run_in_executor(None, run_agent)
-        asyncio.ensure_future(_run_agent())
+        asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         while True:
             item = await queue.get()
             if item is None:
                 break
             yield f"data: {json.dumps(item)}\n\n"
-        yield "data: {\"event\": \"done\"}\n\n"
+        yield 'data: {"event": "done"}\n\n'
 
     return StreamingResponse(
         event_generator(),
@@ -281,9 +291,11 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             "X-Accel-Buffering": "no",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )
 
+
+# ── API: Chat (non-streaming) ────────────────────────────
 
 @app.post("/api/jarvis")
 async def jarvis_chat(request: ChatRequest, _auth=Depends(verify_auth)):
@@ -293,20 +305,24 @@ async def jarvis_chat(request: ChatRequest, _auth=Depends(verify_auth)):
     try:
         response = get_agent().process(prompt)
         return {"text": response, "status": "ok"}
+    except NallyError as e:
+        return {"text": e.to_llm_format(), "status": "error", "fallback": True}
     except Exception as e:
         return {"text": f"System error: {str(e)}", "status": "error", "fallback": True}
 
 
+# ── API: History ──────────────────────────────────────────
+
 @app.get("/api/history")
 async def history(_auth=Depends(verify_auth)):
-    messages = []
-    for msg in get_agent().get_history():
-        messages.append({
-            "role": msg.get("role", "unknown"),
-            "content": msg.get("content", ""),
-        })
+    messages = [
+        {"role": msg.get("role", "unknown"), "content": msg.get("content", "")}
+        for msg in get_agent().get_history()
+    ]
     return {"messages": messages}
 
+
+# ── API: Clear ────────────────────────────────────────────
 
 @app.post("/api/clear")
 async def clear(_auth=Depends(verify_auth)):
@@ -314,31 +330,7 @@ async def clear(_auth=Depends(verify_auth)):
     return {"status": "cleared"}
 
 
-@app.get("/api/ui-commands")
-async def get_ui_commands(_auth=Depends(verify_auth)):
-    # tools.ui module not copied during migration
-    return {"commands": []}
-
-
-@app.get("/api/logs")
-async def get_logs(_auth=Depends(verify_auth)):
-    return {"logs": streaming_logs[-50:]}
-
-
-# --- Gmail API Endpoints (disabled — nally/integrations not copied) ---
-# To re-enable, copy nally/integrations/google/ and add google-api-python-client to requirements
-
-
-# --- Telegram API Endpoints (disabled — nally/integrations not copied) ---
-# To re-enable, copy nally/integrations/telegram/ and add httpx to requirements
-
-
-# --- Approval endpoint (replaces Socket.IO approval_response) ---
-
-class ApprovalRequest(BaseModel):
-    tool_call_id: str
-    approved: bool
-
+# ── API: Approval ─────────────────────────────────────────
 
 @app.post("/api/approval")
 async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)):
@@ -347,13 +339,15 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
     return {"ok": True}
 
 
+# ── API: Permissions ──────────────────────────────────────
+
 @app.get("/api/permissions")
 async def get_permissions(_auth=Depends(verify_auth)):
-    from nally.tools.permissions import get_config, reload
+    from nally.tools.permissions import get_config
     return {"permissions": get_config()}
 
 
-# --- Run server ---
+# ── Run server ────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn

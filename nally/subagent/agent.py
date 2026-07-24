@@ -9,15 +9,16 @@ from ..agent.llm import llm
 from ..tools.registry import registry
 from ..utils.logger import logger
 
-try:
-    from ..tools.filter import tool_filter
-except ImportError:
-    class _StubFilter:
-        _ready = False
-        def build_index(self, tools): pass
-        def select(self, query, **kw): return []
-    tool_filter = _StubFilter()
-import traceback
+
+def _get_filtered_tools(query: str) -> List[Dict]:
+    """Get tool schemas filtered for the given query."""
+    try:
+        from ..tools.filter import tool_filter
+        if not tool_filter._ready:
+            tool_filter.build_index(registry.tools)
+        return tool_filter.select(query)
+    except ImportError:
+        return [t.to_openai_schema() for t in registry.tools.values()]
 
 
 class SubAgent:
@@ -39,11 +40,11 @@ class SubAgent:
         self._thread: Optional[threading.Thread] = None
 
     def set_callback(self, callback: Optional[Callable]):
-        """Set progress reporting callback"""
+        """Set progress reporting callback."""
         self._emit = callback
 
     def _emit_event(self, event: str, data: dict):
-        """Emit event if callback is set"""
+        """Emit event if callback is set."""
         if self._emit:
             try:
                 self._emit(event, data)
@@ -51,45 +52,37 @@ class SubAgent:
                 pass
 
     def start(self, emit: Optional[Callable] = None):
-        """Start the sub-agent in its own thread"""
+        """Start the sub-agent in its own thread."""
         if emit:
             self._emit = emit
-
         self._thread = threading.Thread(
-            target=self._run,
-            daemon=True,
-            name=f"SubAgent-{self.id}"
+            target=self._run, daemon=True, name=f"SubAgent-{self.id}"
         )
         self._thread.start()
 
     def _run(self):
-        """Run the sub-agent autonomously"""
+        """Run the sub-agent autonomously."""
         with self._lock:
             self.status = "running"
 
         self._emit_event("subagent_status", {
-            "id": self.id,
-            "goal": self.goal,
-            "status": "running"
+            "id": self.id, "goal": self.goal, "status": "running",
         })
 
         self.messages = [
-            {"role": "system", "content": f"""You are a focused sub-agent. Your sole goal is:
-{self.goal}
-
-Context:
-{self.context}
-
-OUTPUT FORMAT: End your response with a structured summary in this exact format:
----RESULT---
-STATUS: success|failure|partial
-SUMMARY: [one-line summary]
-FILES_CHANGED: [comma-separated list or "none"]
-KEY_FINDINGS: [bullet points or "none"]
----END---
-
-Complete your goal using the available tools. Be concise. NO EMOJIS."""},
-            {"role": "user", "content": self.goal}
+            {"role": "system", "content": (
+                f"You are a focused sub-agent. Your sole goal is:\n{self.goal}\n\n"
+                f"Context:\n{self.context}\n\n"
+                "OUTPUT FORMAT: End your response with a structured summary in this exact format:\n"
+                "---RESULT---\n"
+                "STATUS: success|failure|partial\n"
+                "SUMMARY: [one-line summary]\n"
+                "FILES_CHANGED: [comma-separated list or \"none\"]\n"
+                "KEY_FINDINGS: [bullet points or \"none\"]\n"
+                "---END---\n\n"
+                "Complete your goal using the available tools. Be concise. NO EMOJIS."
+            )},
+            {"role": "user", "content": self.goal},
         ]
 
         try:
@@ -100,10 +93,8 @@ Complete your goal using the available tools. Be concise. NO EMOJIS."""},
                 self.completed_at = datetime.now().isoformat()
 
             self._emit_event("subagent_result", {
-                "id": self.id,
-                "goal": self.goal,
-                "result": result[:500],
-                "steps": self.steps_taken
+                "id": self.id, "goal": self.goal,
+                "result": result[:500], "steps": self.steps_taken,
             })
             logger.debug(f"SubAgent {self.id} completed: {result[:100]}")
 
@@ -114,45 +105,32 @@ Complete your goal using the available tools. Be concise. NO EMOJIS."""},
                 self.completed_at = datetime.now().isoformat()
 
             self._emit_event("subagent_error", {
-                "id": self.id,
-                "goal": self.goal,
-                "error": str(e)
+                "id": self.id, "goal": self.goal, "error": str(e),
             })
             logger.error(f"SubAgent {self.id} failed: {e}")
 
     def _agent_loop(self) -> str:
-        """Run the agent loop using LangGraph"""
+        """Run the agent loop using LangGraph."""
         from ..agent.graph import run_agent
 
-        # Build tool filter if needed
-        if not tool_filter._ready:
-            tool_filter.build_index(registry.tools)
-
-        # Select tools relevant to this goal
-        tools = tool_filter.select(self.goal)
+        tools = _get_filtered_tools(self.goal)
         selected_names = [t["function"]["name"] for t in tools]
         logger.debug(f"SubAgent {self.id}: selected {len(tools)} tools: {selected_names}")
 
-        # Emit progress
         self._emit_event("subagent_status", {
-            "id": self.id,
-            "status": "thinking",
-            "tools": selected_names
+            "id": self.id, "status": "thinking", "tools": selected_names,
         })
 
-        # Run LangGraph agent loop
-        result = run_agent(
+        return run_agent(
             messages=self.messages,
             tools=tools,
             emit=self._emit,
             max_iterations=15,
-            thread_id=self.id
+            thread_id=self.id,
         )
 
-        return result
-
     def get_status(self) -> dict:
-        """Get current status"""
+        """Get current status."""
         with self._lock:
             return {
                 "id": self.id,
@@ -166,7 +144,7 @@ Complete your goal using the available tools. Be concise. NO EMOJIS."""},
             }
 
     def wait(self, timeout: float = 300.0) -> Optional[str]:
-        """Wait for sub-agent to complete"""
+        """Wait for sub-agent to complete."""
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         return self.result

@@ -23,17 +23,13 @@ except Exception:
     def _count_tokens(text):
         return len(str(text)) // 4
 
-# Context budget (conservative: 20% of 1M)
-MAX_CONTEXT_TOKENS = 200_000
-
-# Recent messages to keep in full
-RECENT_MESSAGES = 15
-
-# Compress when more than this many messages
-COMPRESSION_THRESHOLD = 30
-
-# Max memories to inject
-MAX_MEMORIES = 5
+# Import from config (single source of truth)
+from ..config import (
+    CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS,
+    CONTEXT_RECENT_MESSAGES as RECENT_MESSAGES,
+    CONTEXT_COMPRESSION_THRESHOLD as COMPRESSION_THRESHOLD,
+    MAX_MEMORIES_TO_INJECT as MAX_MEMORIES,
+)
 
 
 class ContextManager:
@@ -193,7 +189,8 @@ class ContextManager:
         try:
             from ..memory.store_v2 import memory_v2
             memories = memory_v2.recall(search=query, min_confidence=0.5, limit=MAX_MEMORIES)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Memory recall failed: {e}")
             return messages
 
         if not memories or not isinstance(memories, dict) or len(memories) == 0:
@@ -229,7 +226,8 @@ class ContextManager:
         try:
             from ..memory.store_v2 import memory_v2
             summaries_text = memory_v2.get_conversation_summaries_text(3)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Conversation history injection failed: {e}")
             return messages
 
         if not summaries_text:
