@@ -31,7 +31,11 @@ function _showLoginPrompt(onDone) {
   overlay.id = 'nally-login-overlay';
   overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:99999;display:flex;align-items:center;justify-content:center;';
   var box = document.createElement('div');
-  box.style.cssText = 'background:#111;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:32px;width:340px;text-align:center;';
+  box.style.cssText = 'background:#111;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:32px;width:340px;text-align:center;position:relative;';
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'position:absolute;top:8px;right:12px;background:none;border:none;color:rgba(255,255,255,0.3);font-size:20px;cursor:pointer;padding:4px 8px;';
+  closeBtn.addEventListener('click', function() { overlay.remove(); if (onDone) onDone(); });
   var h = document.createElement('div');
   h.textContent = 'Enter Access Token';
   h.style.cssText = 'color:rgba(255,255,255,0.8);font-size:15px;font-weight:600;margin-bottom:20px;font-family:system-ui;';
@@ -41,7 +45,7 @@ function _showLoginPrompt(onDone) {
   inp.style.cssText = 'width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-family:monospace;outline:none;box-sizing:border-box;';
   var btn = document.createElement('button');
   btn.textContent = 'Connect';
-  btn.style.cssText = 'width:100%;padding:10px;border-radius:8px;border:none;background:rgba(0,212,255,0.15);color:rgba(0,212,255,0.9);font-size:14px;font-weight:600;margin-top:12px;cursor:pointer;font-family:system-ui;';
+  btn.style.cssText = 'width:100%;padding:10px;border-radius:8px;border:none;background:rgba(62,207,184,0.12);color:rgba(62,207,184,0.9);font-size:14px;font-weight:600;margin-top:12px;cursor:pointer;font-family:system-ui;';
   function submit() {
     var val = inp.value.trim();
     if (!val) return;
@@ -52,7 +56,7 @@ function _showLoginPrompt(onDone) {
   }
   btn.addEventListener('click', submit);
   inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
-  box.appendChild(h); box.appendChild(inp); box.appendChild(btn);
+  box.appendChild(closeBtn); box.appendChild(h); box.appendChild(inp); box.appendChild(btn);
   overlay.appendChild(box);
   document.body.appendChild(overlay);
   inp.focus();
@@ -164,9 +168,19 @@ function httpPost(path, body) {
 }
 
 // ─── Audio ──────────────────────────────────────────
+var _sharedAudioCtx = null;
+function _getAudioCtx() {
+  if (!_sharedAudioCtx || _sharedAudioCtx.state === 'closed') {
+    try { _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  }
+  return _sharedAudioCtx;
+}
+
 function beep(freq, dur, type) {
   try {
-    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var ctx = _getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
     var o = ctx.createOscillator();
     var g = ctx.createGain();
     o.type = type || 'sine';
@@ -176,6 +190,11 @@ function beep(freq, dur, type) {
     o.connect(g); g.connect(ctx.destination);
     o.start(); o.stop(ctx.currentTime + (dur || 0.08));
   } catch(e) {}
+}
+
+// ─── Haptic ─────────────────────────────────────────
+function haptic(ms) {
+  try { if (navigator.vibrate) navigator.vibrate(ms || 10); } catch(e) {}
 }
 
 // ─── Time ───────────────────────────────────────────
@@ -225,7 +244,7 @@ function ico(name, sz, col) {
 
 // ─── Markdown ───────────────────────────────────────
 function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function copyCode(btn) {
@@ -243,7 +262,7 @@ function md(text) {
   if (!text) return '';
   var s = escapeHtml(text);
   s = s.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
-    return '<div class="code-block" style="position:relative;background:rgba(0,0,0,0.5);border:1px solid rgba(108,92,231,0.2);border-radius:12px;padding:12px 12px 12px 14px;overflow-x:auto;margin:8px 0"><button class="copy-btn" onclick="copyCode(this)" title="Copy" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:6px;border:none;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);cursor:pointer;opacity:0;transition:all 0.2s;display:flex;align-items:center;justify-content:center">' + ico('Copy', 12, 'rgba(255,255,255,0.4)') + '</button>' + (lang ? '<div style="font-size:10px;color:rgba(108,92,231,0.6);font-family:monospace;margin-bottom:6px">' + lang + '</div>' : '') + '<code style="color:#A78BFA;font-size:12px;font-family:monospace;white-space:pre">' + code + '</code></div>';
+    return '<div class="code-block" style="position:relative;background:rgba(0,0,0,0.5);border:1px solid rgba(124,106,239,0.15);border-radius:12px;padding:12px 12px 12px 14px;overflow-x:auto;margin:8px 0"><button class="copy-btn" onclick="copyCode(this)" title="Copy" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:6px;border:none;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);cursor:pointer;opacity:0;transition:all 0.2s;display:flex;align-items:center;justify-content:center">' + ico('Copy', 12, 'rgba(255,255,255,0.4)') + '</button>' + (lang ? '<div style="font-size:10px;color:rgba(124,106,239,0.55);font-family:monospace;margin-bottom:6px">' + lang + '</div>' : '') + '<code style="color:#A78BFA;font-size:12px;font-family:monospace;white-space:pre">' + code + '</code></div>';
   });
   s = s.replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:4px;color:#A78BFA;font-size:12px;font-family:monospace">$1</code>');
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#F1F5F9">$1</strong>');
@@ -252,7 +271,7 @@ function md(text) {
   s = s.replace(/^## (.+)$/gm, '<div style="font-size:17px;font-weight:700;color:#F1F5F9;margin:14px 0 6px">$1</div>');
   s = s.replace(/^# (.+)$/gm, '<div style="font-size:20px;font-weight:700;color:#fff;margin:16px 0 8px">$1</div>');
   s = s.replace(/^- (.+)$/gm, '<div style="margin-left:16px">&#8226; $1</div>');
-  s = s.replace(/^> (.+)$/gm, '<div style="border-left:3px solid rgba(108,92,231,0.3);padding-left:12px;color:rgba(255,255,255,0.5);margin:4px 0">$1</div>');
+  s = s.replace(/^> (.+)$/gm, '<div style="border-left:3px solid rgba(124,106,239,0.25);padding-left:12px;color:rgba(255,255,255,0.5);margin:4px 0">$1</div>');
   s = s.replace(/\n/g, '<br/>');
   return s;
 }

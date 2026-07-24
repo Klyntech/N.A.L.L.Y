@@ -1,9 +1,15 @@
 """Code Execution and Analysis Tools"""
 import sys
 import io
+import os
 import subprocess
+import threading
 from pathlib import Path
 from .registry import Tool, registry
+
+
+# Thread lock for stdout/stderr hijacking (not thread-safe otherwise)
+_code_exec_lock = threading.Lock()
 
 
 class RunCode(Tool):
@@ -31,45 +37,70 @@ class RunCode(Tool):
         )
 
     def execute(self, action: str, code: str = "", file_path: str = "", **kwargs) -> str:
-        try:
-            if action == "execute":
-                if not code:
-                    return "Error: code is required for execute"
-                old_stdout = sys.stdout
-                old_stderr = sys.stderr
-                sys.stdout = io.StringIO()
-                sys.stderr = io.StringIO()
+        if action == "execute":
+            return self._execute_code(code)
+        elif action == "run_file":
+            return self._run_file(file_path)
+        else:
+            return f"Unknown action: {action}. Use execute or run_file."
+
+    def _execute_code(self, code: str) -> str:
+        if not code:
+            return "Error: code is required for execute"
+
+        with _code_exec_lock:
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            stdout_capture = io.StringIO()
+            stderr_capture = io.StringIO()
+            sys.stdout = stdout_capture
+            sys.stderr = stderr_capture
+            try:
                 exec(code, {"__builtins__": __builtins__})
-                output = sys.stdout.getvalue()
-                error = sys.stderr.getvalue()
-                sys.stdout = old_stdout
-                sys.stderr = old_stderr
+                output = stdout_capture.getvalue()
+                error = stderr_capture.getvalue()
                 if error:
                     return f"Output:\n{output}\nErrors:\n{error}"
                 return f"Output:\n{output}" if output else "Code executed successfully (no output)"
+            except SystemExit:
+                output = stdout_capture.getvalue()
+                return f"Output:\n{output}\nScript called sys.exit()"
+            except Exception as e:
+                output = stdout_capture.getvalue()
+                error = stderr_capture.getvalue()
+                parts = []
+                if output:
+                    parts.append(f"Output:\n{output}")
+                if error:
+                    parts.append(f"Errors:\n{error}")
+                parts.append(f"Exception: {type(e).__name__}: {e}")
+                return "\n".join(parts)
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
 
-            elif action == "run_file":
-                if not file_path:
-                    return "Error: file_path is required for run_file"
-                result = subprocess.run(
-                    [sys.executable, file_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                output = result.stdout
-                if result.stderr:
-                    output += f"\nStderr: {result.stderr}"
-                return output if output else "Script executed successfully"
-
-            else:
-                return f"Unknown action: {action}. Use execute or run_file."
+    def _run_file(self, file_path: str) -> str:
+        if not file_path:
+            return "Error: file_path is required for run_file"
+        path = Path(file_path)
+        if not path.exists():
+            return f"Error: file not found: {file_path}"
+        try:
+            result = subprocess.run(
+                [sys.executable, str(path.resolve())],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=str(path.parent),
+            )
+            output = result.stdout
+            if result.stderr:
+                output += f"\nStderr: {result.stderr}"
+            if result.returncode != 0:
+                return f"Exit code {result.returncode}\n{output}" if output else f"Exit code {result.returncode}"
+            return output if output else "Script executed successfully"
         except subprocess.TimeoutExpired:
             return "Script timed out after 60 seconds"
-        except Exception as e:
-            sys.stdout = sys.__stdout__
-            sys.stderr = sys.__stderr__
-            return f"Error: {str(e)}"
 
 
 class CodeAnalysis(Tool):
@@ -108,7 +139,6 @@ class CodeAnalysis(Tool):
                     output += f"\n{result.stderr}"
                 if output:
                     return output
-                # Fallback to unittest
                 cmd = [sys.executable, "-m", "unittest", "discover"]
                 if path:
                     cmd = [sys.executable, "-m", "unittest", path]
@@ -117,13 +147,12 @@ class CodeAnalysis(Tool):
 
             elif action == "lint":
                 target = path or "."
-                # Try flake8 first, fall back to pylint
                 for linter in ["flake8", "pylint"]:
                     cmd = [sys.executable, "-m", linter, target]
                     if linter == "flake8" and not verbose:
                         cmd.append("--quiet")
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                    if result.returncode != 127:  # not "command not found"
+                    if result.returncode not in (127, 126):
                         output = result.stdout
                         if result.stderr:
                             output += f"\n{result.stderr}"
@@ -135,4 +164,4 @@ class CodeAnalysis(Tool):
         except subprocess.TimeoutExpired:
             return "Analysis timed out after 120 seconds"
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {type(e).__name__}: {e}"

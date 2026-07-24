@@ -15,7 +15,7 @@ function InputBar(props) {
 
   function handleSubmit(e) {
     e.preventDefault();
-    var msg = text.trim();
+    var msg = (listening ? voiceTranscript : text).trim();
     if (!msg) return;
     onSend(msg);
     setText('');
@@ -40,7 +40,7 @@ function InputBar(props) {
       <form onSubmit=${handleSubmit} class="input-bar">
         <button type="button" onClick=${onMicToggle} class=${'mic-btn' + (listening ? ' listening' : '')} title=${listening ? 'Stop listening' : 'Start voice input'}>
           ${listening
-            ? html`<${Li} name="Mic" size=${20} color="#00D4FF" />`
+            ? html`<${Li} name="Mic" size=${20} color="#3ECFB8" />`
             : html`<${Li} name="Mic" size=${20} />`
           }
         </button>
@@ -52,7 +52,7 @@ function InputBar(props) {
           onInput=${function(e) { if (!listening) setText(e.target.value); }}
           placeholder=${listening ? 'Listening...' : placeholder}
           readOnly=${listening}
-          style=${{ opacity: listening && voiceTranscript ? 1 : 1 }}
+          style=${{ opacity: listening && !voiceTranscript ? 0.5 : 1 }}
         />
 
         ${hasText && !listening && html`

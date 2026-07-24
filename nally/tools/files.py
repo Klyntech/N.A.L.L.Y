@@ -1,6 +1,19 @@
 """File Operation Tools"""
+import os
 from pathlib import Path
 from .registry import Tool, registry
+
+MAX_WRITE_SIZE = 500_000  # 500KB max write
+
+
+def _is_within_project(path: Path) -> bool:
+    """Check if path is within the project directory."""
+    try:
+        project_root = Path(__file__).parent.parent.parent.resolve()
+        path.resolve().relative_to(project_root)
+        return True
+    except ValueError:
+        return False
 
 
 class ReadFile(Tool):
@@ -29,7 +42,7 @@ class ReadFile(Tool):
             content = path.read_text(encoding="utf-8")
             return content[:5000] + "..." if len(content) > 5000 else content
         except Exception as e:
-            return f"Error reading file: {str(e)}"
+            return f"Error reading file: {type(e).__name__}: {e}"
 
 
 class FileOps(Tool):
@@ -63,18 +76,14 @@ class FileOps(Tool):
                     return "Error: file_path is required for write"
                 if content is None:
                     content = ""
+                if len(content) > MAX_WRITE_SIZE:
+                    return f"Error: content too large ({len(content)} chars, max {MAX_WRITE_SIZE})"
                 path = Path(file_path)
+                if not _is_within_project(path):
+                    return f"Error: cannot write outside project directory: {file_path}"
                 path.parent.mkdir(parents=True, exist_ok=True)
-                max_chunk = 4000
-                if len(content) > max_chunk:
-                    chunks = [content[i:i + max_chunk] for i in range(0, len(content), max_chunk)]
-                    with open(path, "w", encoding="utf-8") as f:
-                        for chunk in chunks:
-                            f.write(chunk)
-                    return f"Wrote {len(content)} chars to {file_path} (chunked)"
-                else:
-                    path.write_text(content, encoding="utf-8")
-                    return f"Wrote to {file_path}"
+                path.write_text(content, encoding="utf-8")
+                return f"Wrote {len(content)} chars to {file_path}"
 
             elif action == "list":
                 p = Path(file_path)
@@ -83,17 +92,23 @@ class FileOps(Tool):
                 items = []
                 for item in sorted(p.iterdir()):
                     prefix = "[dir] " if item.is_dir() else "      "
-                    size = item.stat().st_size if item.is_file() else 0
+                    try:
+                        size = item.stat().st_size if item.is_file() else 0
+                    except (PermissionError, OSError):
+                        size = 0
                     items.append(f"{prefix}{item.name} ({size // 1024}KB)")
                 return "\n".join(items) if items else "Empty directory"
 
             elif action == "mkdir":
                 if not file_path:
                     return "Error: file_path is required for mkdir"
-                Path(file_path).mkdir(parents=True, exist_ok=True)
+                path = Path(file_path)
+                if not _is_within_project(path):
+                    return f"Error: cannot create directory outside project: {file_path}"
+                path.mkdir(parents=True, exist_ok=True)
                 return f"Created directory: {file_path}"
 
             else:
                 return f"Unknown action: {action}. Use write, list, or mkdir."
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {type(e).__name__}: {e}"

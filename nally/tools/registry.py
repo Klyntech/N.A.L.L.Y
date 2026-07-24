@@ -1,11 +1,15 @@
 """Tool Registry and Plugin System"""
 import importlib
 import json
+import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from ..config import PLUGINS_DIR
 
 MAX_TOOL_OUTPUT = 4000  # Max chars before truncation (~1000 tokens)
+
+logger = logging.getLogger("nally.registry")
+
 
 class Tool:
     """Base class for all Nally tools"""
@@ -46,7 +50,9 @@ class ToolRegistry:
         self.tools: Dict[str, Tool] = {}
     
     def register(self, tool: Tool):
-        """Register a tool"""
+        """Register a tool (warn if overwriting existing)"""
+        if tool.name in self.tools:
+            logger.warning(f"Tool '{tool.name}' already registered — overwriting")
         self.tools[tool.name] = tool
     
     def unregister(self, name: str):
@@ -70,15 +76,14 @@ class ToolRegistry:
         
         try:
             result = tool.execute(**arguments)
-            # Centralized truncation
             if isinstance(result, str) and len(result) > MAX_TOOL_OUTPUT:
                 result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
             return result
         except Exception as e:
-            return f"Error executing {name}: {str(e)}"
+            return f"Error executing {name}: {type(e).__name__}: {e}"
     
     def load_plugins(self):
-        """Load all plugins from the plugins directory"""
+        """Load all plugins from the plugins directory (safe import)"""
         if not PLUGINS_DIR.exists():
             PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
             return
@@ -89,15 +94,20 @@ class ToolRegistry:
             
             try:
                 spec = importlib.util.spec_from_file_location(
-                    plugin_file.stem, plugin_file
+                    f"nally_plugin_{plugin_file.stem}", plugin_file
                 )
+                if not spec or not spec.loader:
+                    logger.warning(f"Cannot load plugin: {plugin_file.name}")
+                    continue
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 
                 if hasattr(module, "register_tools"):
                     module.register_tools(self)
-                    print(f"Loaded plugin: {plugin_file.name}")
+                    logger.info(f"Loaded plugin: {plugin_file.name}")
+                else:
+                    logger.debug(f"Plugin {plugin_file.name} has no register_tools()")
             except Exception as e:
-                print(f"Error loading plugin {plugin_file.name}: {e}")
+                logger.error(f"Error loading plugin {plugin_file.name}: {type(e).__name__}: {e}")
 
 registry = ToolRegistry()

@@ -33,7 +33,7 @@ function useVoiceInput(onResult, onEnd) {
 
       // Check for "hey nally" keyword in final or interim
       var combined = (final + ' ' + interim).toLowerCase();
-      if (combined.match(/\b(hey\s*nally|hey\s*nali|hey\s*nal)\b/)) {
+      if (combined.match(/\bhey\s+nally\b/)) {
         // Keyword detected — strip it and fire callback
         var cleaned = final.replace(/hey\s*nally/gi, '').trim();
         if (keywordCallback.current) {
@@ -81,7 +81,15 @@ function useVoiceInput(onResult, onEnd) {
       recognition.current.start();
       recognizing.current = true;
       setListening(true);
-    } catch(e) {}
+    } catch(e) {
+      if (e.name === 'NotAllowedError') {
+        console.warn('[NALLY] Microphone permission denied by browser');
+      } else if (e.name === 'NotFoundError') {
+        console.warn('[NALLY] No microphone found');
+      } else {
+        console.error('[NALLY] Speech start error:', e.name);
+      }
+    }
   }
 
   function stop() {

@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>N.A.L.L.Y</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --iris: #7C6AEF;
+      --iris-glow: rgba(124,106,239,0.35);
+      --teal: #3ECFB8;
+      --green: #34D399;
+    }
+    html, body { background: #0a0a0a; height: 100%; width: 100%; overflow: hidden; font-family: 'Space Grotesk', sans-serif; }
+    #root { height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 40px; }
+
+    /* ─── Orb Keyframes ─────────────────────────── */
+    @keyframes orbSpinCW {
+      0% { transform: rotate(0deg); }
+      50% { transform: rotate(180deg) scale(1.02); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes orbSpinCCW {
+      0% { transform: rotate(360deg); }
+      50% { transform: rotate(180deg) scale(0.98); }
+      100% { transform: rotate(0deg); }
+    }
+    @keyframes orbCorePulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 18px var(--iris-glow)) drop-shadow(0 0 35px rgba(124,106,239,0.2)); }
+      50% { transform: scale(1.05); filter: drop-shadow(0 0 35px var(--iris-glow)) drop-shadow(0 0 60px rgba(124,106,239,0.4)); }
+    }
+    @keyframes orbAmbientPulse {
+      0%, 100% { transform: scale(0.88); opacity: 0.3; filter: blur(55px) saturate(1.2); }
+      50% { transform: scale(1.15); opacity: 0.75; filter: blur(40px) saturate(1.8); }
+    }
+    @keyframes orbListening {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(62,207,184,0.5)) drop-shadow(0 0 50px rgba(62,207,184,0.25)); }
+      50% { transform: scale(1.08); filter: drop-shadow(0 0 50px rgba(62,207,184,0.85)) drop-shadow(0 0 90px rgba(62,207,184,0.4)); }
+    }
+    @keyframes orbThinkingPulse {
+      0%   { transform: scale(1); filter: drop-shadow(0 0 15px rgba(124,106,239,0.3)); }
+      8%   { transform: scale(1.07); filter: drop-shadow(0 0 35px rgba(124,106,239,0.7)) drop-shadow(0 0 60px rgba(124,106,239,0.3)); }
+      18%  { transform: scale(1); filter: drop-shadow(0 0 15px rgba(124,106,239,0.3)); }
+      26%  { transform: scale(1.1); filter: drop-shadow(0 0 45px rgba(124,106,239,0.9)) drop-shadow(0 0 80px rgba(124,106,239,0.45)); }
+      40%  { transform: scale(1); filter: drop-shadow(0 0 15px rgba(124,106,239,0.3)); }
+      100% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(124,106,239,0.3)); }
+    }
+    @keyframes orbThinkingRingPulse {
+      0%   { opacity: 0; transform: scale(1); }
+      10%  { opacity: 0.6; transform: scale(1.05); }
+      40%  { opacity: 0; transform: scale(1.4); }
+      100% { opacity: 0; transform: scale(1); }
+    }
+    @keyframes orbThinkingRipple {
+      0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.5; border-color: rgba(124,106,239,0.5); }
+      100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; border-color: rgba(124,106,239,0.1); }
+    }
+    @keyframes orbSpeaking {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)) drop-shadow(0 0 50px rgba(52,211,153,0.35)); }
+      50% { transform: scale(1.1); filter: drop-shadow(0 0 45px rgba(52,211,153,0.9)) drop-shadow(0 0 80px rgba(52,211,153,0.55)); }
+    }
+    @keyframes orbBreathe {
+      0%   { transform: scale(0.3); opacity: 0; filter: blur(20px) brightness(0.3); }
+      25%  { transform: scale(0.6); opacity: 0.5; filter: blur(8px) brightness(0.7); }
+      50%  { transform: scale(0.9); opacity: 0.9; filter: blur(2px) brightness(1.1); }
+      70%  { transform: scale(1.08); opacity: 1; filter: blur(0px) brightness(1.3); }
+      85%  { transform: scale(0.96); opacity: 1; filter: blur(0px) brightness(1); }
+      100% { transform: scale(1); opacity: 1; filter: blur(0px) brightness(1); }
+    }
+    @keyframes rippleExpand {
+      0%   { transform: translate(-50%, -50%) scale(0); opacity: 0.8; border-width: 3px; }
+      100% { transform: translate(-50%, -50%) scale(4); opacity: 0; border-width: 1px; }
+    }
+    @keyframes particleFly {
+      0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+      100% { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; }
+    }
+    @keyframes wordPulse {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+    @keyframes emphasisFlare {
+      0% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)); }
+      30% { transform: scale(1.15); filter: drop-shadow(0 0 60px rgba(52,211,153,1)) drop-shadow(0 0 100px rgba(52,211,153,0.6)); }
+      100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)); }
+    }
+
+    /* ─── Orb Classes ───────────────────────────── */
+    .orb-wrapper {
+      position: relative;
+      width: 312px; height: 312px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; user-select: none;
+      transition: transform 0.15s ease-out;
+      transform-style: preserve-3d;
+    }
+    .orb-inner {
+      position: relative;
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.12s ease-out;
+    }
+    .orb-inner.breathe { animation: orbBreathe 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+    .orb-inner.word-pulse { animation: wordPulse 0.25s ease-out; }
+    .orb-inner.emphasis-flare { animation: emphasisFlare 0.4s ease-out; }
+    .orb-ambient {
+      position: absolute;
+      width: 470px; height: 470px;
+      border-radius: 50%;
+      background: rgba(124,106,239,0.1);
+      filter: blur(40px);
+      pointer-events: none;
+      transition: all 0.6s ease;
+      animation: orbAmbientPulse 8s ease-in-out infinite;
+    }
+    .orb-ring-cw { animation: orbSpinCW 55s linear infinite; transform-origin: 250px 250px; }
+    .orb-ring-ccw { animation: orbSpinCCW 60s linear infinite; transform-origin: 250px 250px; }
+    .orb-reactor { animation: orbCorePulse 7s ease-in-out infinite; transform-origin: 250px 250px; }
+
+    /* State: listening */
+    .orb-state-listening .orb-reactor { animation: orbListening 1.5s ease-in-out infinite; }
+    .orb-state-listening .orb-ring-cw { animation-duration: 8s; }
+    .orb-state-listening .orb-ring-ccw { animation-duration: 10s; }
+    /* State: thinking */
+    .orb-state-thinking .orb-ring-cw { animation: orbSpinCW 2.5s linear infinite; }
+    .orb-state-thinking .orb-ring-ccw { animation: orbSpinCCW 3s linear infinite reverse; }
+    .orb-state-thinking .orb-reactor { animation: orbThinkingPulse 1.2s ease-in-out infinite; }
+    .orb-thinking-ring-pulse {
+      position: absolute; top: 50%; left: 50%;
+      width: 312px; height: 312px; border-radius: 50%;
+      border: 2px solid rgba(124,106,239,0.4);
+      transform: translate(-50%, -50%) scale(1);
+      pointer-events: none; opacity: 0;
+      animation: orbThinkingRingPulse 1.2s ease-out infinite;
+    }
+    .orb-thinking-ripple {
+      position: absolute; top: 50%; left: 50%;
+      width: 120px; height: 120px; border-radius: 50%;
+      border: 1.5px solid rgba(124,106,239,0.5);
+      pointer-events: none;
+      animation: orbThinkingRipple 1.2s ease-out infinite;
+    }
+    /* State: speaking */
+    .orb-state-speaking .orb-reactor { animation: orbSpeaking 2s ease-in-out infinite; }
+    .orb-state-speaking .orb-ring-cw { animation-duration: 20s; }
+    .orb-state-speaking .orb-ring-ccw { animation-duration: 25s; }
+
+    /* Ripple */
+    .ripple {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 100px; height: 100px;
+      border-radius: 50%;
+      border: 2px solid rgba(124,106,239,0.45);
+      pointer-events: none;
+      animation: rippleExpand 1.5s ease-out forwards;
+    }
+    /* Particle */
+    .particle {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: particleFly 1s ease-out forwards;
+    }
+
+    /* ─── Status text ───────────────────────────── */
+    #status-text {
+      font-size: 13px;
+      font-family: 'Space Grotesk', sans-serif;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: rgba(228,226,220,0.25);
+      transition: all 0.4s ease;
+      min-height: 20px;
+    }
+    #thought-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-height: 0;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    #thought-wrap.visible { opacity: 1; }
+    #thought-wrap.collapsed #thought-content { max-height: 0; opacity: 0; padding: 0; margin: 0; overflow: hidden; }
+    #thought-toggle {
+      background: none; border: none; cursor: pointer;
+      color: rgba(124,106,239,0.35);
+      font-size: 11px; letter-spacing: 1px;
+      font-family: 'Space Grotesk', sans-serif;
+      display: flex; align-items: center; gap: 4px;
+      transition: color 0.3s ease;
+      padding: 2px 8px;
+    }
+    #thought-toggle:hover { color: rgba(124,106,239,0.7); }
+    #thought-toggle .chevron {
+      display: inline-block;
+      transition: transform 0.3s ease;
+      font-size: 10px;
+    }
+    #thought-wrap.collapsed #thought-toggle .chevron { transform: rotate(-90deg); }
+    #thought-content {
+      font-size: 14px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-style: italic;
+      letter-spacing: 1px;
+      color: rgba(124,106,239,0.55);
+      text-align: center;
+      max-width: 400px;
+      min-height: 20px;
+      max-height: 40px;
+      transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+      opacity: 1;
+      padding: 2px 0;
+    }
+
+
+
+    /* ─── View Overlay ───────────────────────────── */
+    #view-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
+    }
+    #view-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .overlay-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(5,5,10,0.55);
+      backdrop-filter: blur(16px) saturate(1.2);
+      -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    }
+    .overlay-panel {
+      position: relative;
+      width: 620px;
+      max-width: 90vw;
+      max-height: 72vh;
+      background: rgba(14,14,22,0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 32px;
+      overflow-y: auto;
+      transform: translateY(20px) scale(0.97);
+      transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    #view-overlay.open .overlay-panel {
+      transform: translateY(0) scale(1);
+    }
+    .overlay-panel::-webkit-scrollbar { width: 4px; }
+    .overlay-panel::-webkit-scrollbar-track { background: transparent; }
+    .overlay-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    .overlay-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .overlay-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: rgba(228,226,220,0.9);
+      letter-spacing: 1px;
+    }
+    .overlay-close {
+      background: none; border: none; cursor: pointer;
+      color: rgba(228,226,220,0.3);
+      font-size: 22px;
+      transition: color 0.2s ease;
+      padding: 4px;
+      line-height: 1;
+    }
+    .overlay-close:hover { color: rgba(228,226,220,0.8); }
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
+
+    /* View: Chat */
+    .chat-messages {
+      min-height: 200px;
+      max-height: 45vh;
+      overflow-y: auto;
+      padding: 16px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.04);
+      margin-bottom: 16px;
+    }
+    .chat-input-wrap {
+      display: flex;
+      gap: 10px;
+    }
+    .chat-input {
+      flex: 1;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: rgba(228,226,220,0.9);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+    .chat-input:focus { border-color: rgba(124,106,239,0.4); }
+    .chat-input::placeholder { color: rgba(228,226,220,0.2); }
+    .chat-send {
+      background: var(--iris);
+      border: none;
+      border-radius: 10px;
+      width: 44px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: white;
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+    .chat-send svg { width: 18px; height: 18px; }
+    .chat-send:hover { background: #6a58d9; transform: scale(1.05); }
+
+    /* View: Dashboard */
+    .dash-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .dash-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 10px;
+      padding: 18px;
+    }
+    .dash-card-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: rgba(228,226,220,0.3);
+      margin-bottom: 8px;
+    }
+    .dash-card-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: rgba(228,226,220,0.85);
+    }
+    .dash-card-sub {
+      font-size: 12px;
+      color: rgba(228,226,220,0.3);
+      margin-top: 4px;
+    }
+
+    /* View: Files */
+    .file-list {
+      list-style: none;
+    }
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      transition: background 0.15s ease;
+      cursor: pointer;
+    }
+    .file-item:hover { background: rgba(255,255,255,0.04); }
+    .file-item i, .file-item svg { width: 20px; height: 20px; color: var(--iris); opacity: 0.7; }
+    .file-item span {
+      font-size: 14px;
+      color: rgba(228,226,220,0.7);
+    }
+    .file-item .file-size {
+      margin-left: auto;
+      font-size: 12px;
+      color: rgba(228,226,220,0.25);
+    }
+
+    /* View: Settings */
+    .settings-group {
+      margin-bottom: 20px;
+    }
+    .settings-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: rgba(228,226,220,0.3);
+      margin-bottom: 10px;
+    }
+    .settings-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .settings-option-name {
+      font-size: 14px;
+      color: rgba(228,226,220,0.7);
+    }
+    .settings-toggle {
+      width: 40px; height: 22px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 11px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+    .settings-toggle.on { background: var(--iris); }
+    .settings-toggle::after {
+      content: '';
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: white;
+      transition: transform 0.3s ease;
+    }
+    .settings-toggle.on::after { transform: translateX(18px); }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="orb-mount"></div>
+    <div id="status-text"></div>
+    <div id="thought-wrap">
+      <button id="thought-toggle" onclick="toggleThought()"><span class="chevron">&#9660;</span> thought</button>
+      <div id="thought-content"></div>
+    </div>
+  </div>
+
+  <!-- View Overlay -->
+  <div id="view-overlay">
+    <div class="overlay-backdrop" onclick="closeOverlay()"></div>
+    <div class="overlay-panel">
+      <div class="overlay-header">
+        <span class="overlay-title" id="overlay-title">Chat</span>
+        <button class="overlay-close" onclick="closeOverlay()">&times;</button>
+      </div>
+
+      <!-- Chat View -->
+      <div id="view-chat" class="view-panel active">
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-wrap">
+          <input class="chat-input" id="chat-input" type="text" placeholder="Ask Nally anything..." onkeydown="if(event.key==='Enter')sendChat()">
+          <button class="chat-send" onclick="sendChat()"><i data-lucide="send"></i></button>
+        </div>
+      </div>
+
+      <!-- Dashboard View -->
+      <div id="view-dashboard" class="view-panel">
+        <div class="dash-grid">
+          <div class="dash-card">
+            <div class="dash-card-label">Status</div>
+            <div class="dash-card-value" style="color: var(--green);">Online</div>
+            <div class="dash-card-sub">All systems operational</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Provider</div>
+            <div class="dash-card-value">OpenCode</div>
+            <div class="dash-card-sub">mimo-v2.5-free</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Uptime</div>
+            <div class="dash-card-value" id="dash-uptime">0m</div>
+            <div class="dash-card-sub">Since last restart</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Requests</div>
+            <div class="dash-card-value" id="dash-requests">0</div>
+            <div class="dash-card-sub">Total conversations</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Files View -->
+      <div id="view-files" class="view-panel">
+        <ul class="file-list">
+          <li class="file-item"><i data-lucide="folder"></i><span>nally/</span><span class="file-size">—</span></li>
+          <li class="file-item"><i data-lucide="file-code"></i><span>main.py</span><span class="file-size">4.2 KB</span></li>
+          <li class="file-item"><i data-lucide="file-code"></i><span>config.py</span><span class="file-size">2.1 KB</span></li>
+          <li class="file-item"><i data-lucide="file-code"></i><span>app.py</span><span class="file-size">8.7 KB</span></li>
+          <li class="file-item"><i data-lucide="folder"></i><span>web/</span><span class="file-size">—</span></li>
+          <li class="file-item"><i data-lucide="file-text"></i><span>README.md</span><span class="file-size">3.5 KB</span></li>
+          <li class="file-item"><i data-lucide="file-json"></i><span>requirements.txt</span><span class="file-size">0.4 KB</span></li>
+        </ul>
+      </div>
+
+      <!-- Settings View -->
+      <div id="view-settings" class="view-panel">
+        <div class="settings-group">
+          <div class="settings-label">General</div>
+          <div class="settings-option">
+            <span class="settings-option-name">Rate Limiting</span>
+            <div class="settings-toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="settings-option">
+            <span class="settings-option-name">Sound Effects</span>
+            <div class="settings-toggle" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="settings-option">
+            <span class="settings-option-name">Auto-scroll Chat</span>
+            <div class="settings-toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-label">Provider</div>
+          <div class="settings-option">
+            <span class="settings-option-name">OpenCode Zen</span>
+            <div class="settings-toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="settings-option">
+            <span class="settings-option-name">Groq</span>
+            <div class="settings-toggle" onclick="this.classList.toggle('on')"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <script>
+    var root = document.getElementById('root');
+    var statusEl = document.getElementById('status-text');
+    var thoughtWrap = document.getElementById('thought-wrap');
+    var thoughtContent = document.getElementById('thought-content');
+    var thoughtCollapsed = false;
+
+    function toggleThought() {
+      thoughtCollapsed = !thoughtCollapsed;
+      thoughtWrap.classList.toggle('collapsed', thoughtCollapsed);
+    }
+
+    // ─── Orb Component (Vanilla JS) ──────────────
+    function createOrb(opts) {
+      opts = opts || {};
+      var size = opts.size || 312;
+      var state = opts.state || 'idle';
+      var activated = opts.activated !== false;
+
+      var wrapper = document.createElement('div');
+      wrapper.className = 'orb-wrapper';
+      wrapper.style.width = size + 'px';
+      wrapper.style.height = size + 'px';
+
+      var inner = document.createElement('div');
+      inner.className = 'orb-inner orb-state-' + state;
+      if (activated) inner.classList.add('breathe');
+
+      var ambient = document.createElement('div');
+      ambient.className = 'orb-ambient';
+      inner.appendChild(ambient);
+
+      if (activated) {
+        for (var r = 0; r < 3; r++) {
+          var rip = document.createElement('div');
+          rip.className = 'ripple';
+          rip.style.animationDelay = (r * 0.35) + 's';
+          inner.appendChild(rip);
+        }
+        var colors = ['#3ECFB8', '#7C6AEF', '#A78BFA'];
+        for (var p = 0; p < 16; p++) {
+          var angle = (p / 16) * Math.PI * 2;
+          var dist = 60 + Math.random() * 80;
+          var part = document.createElement('div');
+          part.className = 'particle';
+          part.style.setProperty('--px', Math.cos(angle) * dist + 'px');
+          part.style.setProperty('--py', Math.sin(angle) * dist + 'px');
+          part.style.animationDelay = (Math.random() * 0.3) + 's';
+          part.style.background = colors[p % 3];
+          part.style.boxShadow = '0 0 6px ' + colors[p % 3];
+          inner.appendChild(part);
+        }
+      }
+
+      var strokeColor, glowColor, orbFilter, reactStroke;
+      switch (state) {
+        case 'listening': strokeColor = '#3ECFB8'; glowColor = 'rgba(62,207,184,0.15)'; orbFilter = 'drop-shadow(0 0 25px rgba(62,207,184,0.45))'; break;
+        case 'thinking': strokeColor = '#ffffff'; glowColor = 'rgba(255,255,255,0.12)'; orbFilter = 'drop-shadow(0 0 20px rgba(255,255,255,0.35))'; break;
+        case 'speaking': strokeColor = '#34D399'; glowColor = 'rgba(52,211,153,0.15)'; orbFilter = 'drop-shadow(0 0 25px rgba(52,211,153,0.45))'; break;
+        default: strokeColor = '#7C6AEF'; glowColor = 'rgba(124,106,239,0.1)'; orbFilter = 'drop-shadow(0 0 15px rgba(124,106,239,0.25))';
+      }
+      reactStroke = state === 'idle' ? '#ffffff' : strokeColor;
+      ambient.style.background = glowColor;
+
+      var svgNS = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 500 500');
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+      svg.style.filter = orbFilter;
+      svg.style.transition = 'filter 0.6s ease';
+
+      var defs = document.createElementNS(svgNS, 'defs');
+      function makeFilter(id, stdDev) {
+        var f = document.createElementNS(svgNS, 'filter');
+        f.setAttribute('id', id); f.setAttribute('x', '-20%'); f.setAttribute('y', '-20%');
+        f.setAttribute('width', '140%'); f.setAttribute('height', '140%');
+        var blur = document.createElementNS(svgNS, 'feGaussianBlur');
+        blur.setAttribute('stdDeviation', stdDev); blur.setAttribute('result', 'b');
+        f.appendChild(blur);
+        var merge = document.createElementNS(svgNS, 'feMerge');
+        var mn1 = document.createElementNS(svgNS, 'feMergeNode'); mn1.setAttribute('in', 'b');
+        var mn2 = document.createElementNS(svgNS, 'feMergeNode'); mn2.setAttribute('in', 'SourceGraphic');
+        merge.appendChild(mn1); merge.appendChild(mn2); f.appendChild(merge);
+        return f;
+      }
+      defs.appendChild(makeFilter('og1', '12'));
+      defs.appendChild(makeFilter('og2', '4'));
+      var ft = makeFilter('otg', '4');
+      ft.setAttribute('x', '-50%'); ft.setAttribute('y', '-50%');
+      ft.setAttribute('width', '200%'); ft.setAttribute('height', '200%');
+      defs.appendChild(ft);
+      svg.appendChild(defs);
+
+      var bgCircle = document.createElementNS(svgNS, 'circle');
+      bgCircle.setAttribute('cx', '250'); bgCircle.setAttribute('cy', '250');
+      bgCircle.setAttribute('r', '140'); bgCircle.setAttribute('fill', '#7C6AEF');
+      bgCircle.setAttribute('fill-opacity', '0.03');
+      svg.appendChild(bgCircle);
+
+      var ringCCW = document.createElementNS(svgNS, 'circle');
+      ringCCW.setAttribute('cx', '250'); ringCCW.setAttribute('cy', '250');
+      ringCCW.setAttribute('r', '150'); ringCCW.setAttribute('fill', 'none');
+      ringCCW.setAttribute('stroke', strokeColor); ringCCW.setAttribute('stroke-width', '10');
+      ringCCW.setAttribute('filter', 'url(#og1)'); ringCCW.setAttribute('stroke-dasharray', '940 2');
+      ringCCW.classList.add('orb-ring-ccw');
+      ringCCW.style.transformOrigin = '250px 250px'; ringCCW.style.transition = 'stroke 0.6s ease';
+      svg.appendChild(ringCCW);
+
+      var ringCW = document.createElementNS(svgNS, 'circle');
+      ringCW.setAttribute('cx', '250'); ringCW.setAttribute('cy', '250');
+      ringCW.setAttribute('r', '125'); ringCW.setAttribute('fill', 'none');
+      ringCW.setAttribute('stroke', reactStroke); ringCW.setAttribute('stroke-width', '5');
+      ringCW.setAttribute('filter', 'url(#og2)'); ringCW.setAttribute('stroke-dasharray', '780 5');
+      ringCW.classList.add('orb-reactor', 'orb-ring-cw');
+      ringCW.style.transformOrigin = '250px 250px'; ringCW.style.transition = 'stroke 0.6s ease';
+      svg.appendChild(ringCW);
+
+      var text = document.createElementNS(svgNS, 'text');
+      text.setAttribute('x', '250'); text.setAttribute('y', '262');
+      text.setAttribute('text-anchor', 'middle'); text.setAttribute('fill', reactStroke);
+      text.setAttribute('filter', 'url(#otg)'); text.classList.add('orb-reactor');
+      text.style.fontFamily = '"Space Grotesk",sans-serif'; text.style.fontSize = '46px';
+      text.style.fontWeight = '700'; text.style.letterSpacing = '6px';
+      text.style.textTransform = 'uppercase'; text.style.userSelect = 'none';
+      text.style.transformOrigin = '250px 250px'; text.style.transition = 'fill 0.6s ease';
+      text.textContent = 'NALLY';
+      svg.appendChild(text);
+
+      var lineCoords = [[250,100,250,116],[250,384,250,400],[100,250,116,250],[384,250,400,250]];
+      lineCoords.forEach(function(l) {
+        var line = document.createElementNS(svgNS, 'line');
+        line.setAttribute('x1',l[0]); line.setAttribute('y1',l[1]);
+        line.setAttribute('x2',l[2]); line.setAttribute('y2',l[3]);
+        line.setAttribute('stroke', strokeColor); line.setAttribute('stroke-width', '2');
+        line.setAttribute('opacity', '0.6'); line.style.transition = 'stroke 0.6s ease';
+        svg.appendChild(line);
+      });
+
+      inner.appendChild(svg);
+      wrapper.appendChild(inner);
+
+      // Mouse tilt
+      if (!window.matchMedia('(pointer: coarse)').matches) {
+        wrapper.addEventListener('mousemove', function(e) {
+          var rect = wrapper.getBoundingClientRect();
+          var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+          var dx = (e.clientX - cx) / (rect.width / 2);
+          var dy = (e.clientY - cy) / (rect.height / 2);
+          wrapper.style.transform = 'perspective(600px) rotateY(' + (Math.max(-1,Math.min(1,dx)) * 1.5) + 'deg) rotateX(' + (-Math.max(-1,Math.min(1,dy)) * 1.5) + 'deg)';
+        });
+        wrapper.addEventListener('mouseleave', function() {
+          wrapper.style.transform = 'perspective(600px) rotateY(0deg) rotateX(0deg)';
+        });
+      }
+
+      // ─── Apply state colors to SVG elements ────
+      var thinkingEls = [];
+
+      function applyColors(sc, gc, of, rs) {
+        ambient.style.background = gc;
+        svg.style.filter = of;
+        ringCCW.setAttribute('stroke', sc);
+        ringCW.setAttribute('stroke', rs);
+        text.setAttribute('fill', rs);
+        svg.querySelectorAll('line').forEach(function(l) { l.setAttribute('stroke', sc); });
+      }
+
+      function addThinkingElements() {
+        removeThinkingElements();
+        var rp = document.createElement('div');
+        rp.className = 'orb-thinking-ring-pulse';
+        inner.appendChild(rp);
+        thinkingEls.push(rp);
+        for (var i = 0; i < 2; i++) {
+          var rip = document.createElement('div');
+          rip.className = 'orb-thinking-ripple';
+          rip.style.animationDelay = (i * 0.4) + 's';
+          inner.appendChild(rip);
+          thinkingEls.push(rip);
+        }
+      }
+
+      function removeThinkingElements() {
+        thinkingEls.forEach(function(el) { el.remove(); });
+        thinkingEls = [];
+      }
+
+      // Public API
+      return {
+        el: wrapper,
+        inner: inner,
+        svg: svg,
+        ambient: ambient,
+        ringCW: ringCW,
+        ringCCW: ringCCW,
+        text: text,
+        setState: function(newState) {
+          state = newState;
+          inner.className = 'orb-inner orb-state-' + state;
+          if (activated) inner.classList.add('breathe');
+          if (state === 'thinking') { addThinkingElements(); } else { removeThinkingElements(); }
+          var sc, gc, of, rs;
+          switch (state) {
+            case 'listening': sc='#3ECFB8'; gc='rgba(62,207,184,0.15)'; of='drop-shadow(0 0 25px rgba(62,207,184,0.45))'; break;
+            case 'thinking': sc='#ffffff'; gc='rgba(255,255,255,0.12)'; of='drop-shadow(0 0 20px rgba(255,255,255,0.35))'; break;
+            case 'speaking': sc='#34D399'; gc='rgba(52,211,153,0.15)'; of='drop-shadow(0 0 25px rgba(52,211,153,0.45))'; break;
+            default: sc='#7C6AEF'; gc='rgba(124,106,239,0.1)'; of='drop-shadow(0 0 15px rgba(124,106,239,0.25))';
+          }
+          rs = state === 'idle' ? '#ffffff' : sc;
+          applyColors(sc, gc, of, rs);
+        },
+        // Pulse the Orb for a single word
+        pulseWord: function(isEmphasis) {
+          inner.classList.remove('word-pulse', 'emphasis-flare');
+          void inner.offsetWidth; // force reflow
+          inner.classList.add(isEmphasis ? 'emphasis-flare' : 'word-pulse');
+        },
+        // Burst particles outward
+        burstParticles: function(count, color) {
+          for (var i = 0; i < (count || 8); i++) {
+            var angle = (i / count) * Math.PI * 2;
+            var dist = 40 + Math.random() * 60;
+            var part = document.createElement('div');
+            part.className = 'particle';
+            part.style.setProperty('--px', Math.cos(angle) * dist + 'px');
+            part.style.setProperty('--py', Math.sin(angle) * dist + 'px');
+            part.style.animationDelay = '0s';
+            part.style.background = color || '#34D399';
+            part.style.boxShadow = '0 0 8px ' + (color || '#34D399');
+            inner.appendChild(part);
+            (function(el) { setTimeout(function() { el.remove(); }, 1100); })(part);
+          }
+        }
+      };
+    }
+
+    // ─── Mount Orb ───────────────────────────────
+    var orb = createOrb({ size: 312, state: 'idle', activated: true });
+    document.getElementById('orb-mount').appendChild(orb.el);
+
+    // ─── Think Function ──────────────────────────
+    // think("Searching files...")  — shows text, sets thinking state
+    // think(null)                  — clears thought, returns to idle
+    var _thinkTimers = [];
+    function think(text) {
+      _thinkTimers.forEach(clearTimeout);
+      _thinkTimers = [];
+      if (text === null || text === undefined) {
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        orb.setState('idle');
+        statusEl.textContent = '';
+        statusEl.style.color = 'rgba(228,226,220,0.25)';
+        return;
+      }
+      orb.setState('thinking');
+      statusEl.textContent = 'Thinking';
+      statusEl.style.color = 'rgba(124,106,239,0.4)';
+      thoughtContent.textContent = '';
+      thoughtWrap.classList.add('visible');
+      // Typewriter effect
+      var i = 0;
+      var typeTimer = setInterval(function() {
+        if (i < text.length) {
+          thoughtContent.textContent += text[i];
+          i++;
+        } else {
+          clearInterval(typeTimer);
+        }
+      }, 30);
+      _thinkTimers.push(typeTimer);
+    }
+
+    // ─── Simulated Speaking Engine ───────────────
+    // speak("Hello! This is Nally... How are you?")
+    // Pulses the Orb in sync with each word.
+    // ! and ? trigger emphasis flares.
+    // , and . trigger brief pauses.
+    var _speakTimers = [];
+    var thinkPhrases = [
+      "Processing your request...",
+      "Analyzing input...",
+      "Connecting to server...",
+      "Retrieving data...",
+      "Formulating response...",
+      "Almost ready...",
+    ];
+    function speak(text) {
+      _speakTimers.forEach(clearTimeout);
+      _speakTimers = [];
+
+      // Thinking phase with real-time thought
+      var phrase = thinkPhrases[Math.floor(Math.random() * thinkPhrases.length)];
+      think(phrase);
+
+      var thinkTime = 600 + Math.random() * 600;
+      var t = setTimeout(function() {
+        // Clear thought, switch to speaking
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        orb.setState('speaking');
+        statusEl.textContent = 'Speaking';
+        statusEl.style.color = 'rgba(52,211,153,0.5)';
+
+        // Split into tokens: words + punctuation
+        var tokens = text.match(/[\w']+|[^\w\s]|\s+/g) || [];
+        var delay = 0;
+
+        for (var i = 0; i < tokens.length; i++) {
+          var token = tokens[i];
+          var isWord = /[\w']/.test(token);
+          var isEmphasis = /[!?]/.test(token);
+          var isPause = /[.,;:]/.test(token);
+          var isSpace = /^\s+$/.test(token);
+
+          if (isWord) {
+            (function(w, d, emph) {
+              var timer = setTimeout(function() {
+                orb.pulseWord(emph);
+                // Burst particles on emphasis words
+                if (emph) orb.burstParticles(6, '#34D399');
+              }, d);
+              _speakTimers.push(timer);
+            })(token, delay, isEmphasis);
+            // Word duration: ~180ms base, longer for long words
+            delay += Math.max(120, token.length * 45);
+          } else if (isEmphasis) {
+            // Emphasis punctuation: extra pause + flare
+            (function(d) {
+              var timer = setTimeout(function() {
+                orb.pulseWord(true);
+                orb.burstParticles(10, '#34D399');
+              }, d);
+              _speakTimers.push(timer);
+            })(delay);
+            delay += 300;
+          } else if (isPause) {
+            delay += 200; // comma/period pause
+          } else if (isSpace) {
+            delay += 30; // tiny gap between words
+          }
+        }
+
+        // Done speaking
+        var doneTimer = setTimeout(function() {
+          orb.setState('idle');
+          statusEl.textContent = '';
+          statusEl.style.color = 'rgba(228,226,220,0.25)';
+          thoughtContent.textContent = '';
+          thoughtWrap.classList.remove('visible');
+        }, delay + 200);
+        _speakTimers.push(doneTimer);
+      }, thinkTime);
+      _speakTimers.push(t);
+    }
+
+    // ─── Demo: Click Orb to speak ────────────────
+    var demos = [
+      "Hello! I'm Nally, your personal AI assistant.",
+      "I can help you with code, files, and system tasks.",
+      "Ready when you are. Ask me anything!",
+      "What's the weather like today?",
+      "That's interesting! Let me look into it.",
+    ];
+    var demoIdx = 0;
+    orb.el.addEventListener('click', function() {
+      speak(demos[demoIdx % demos.length]);
+      demoIdx++;
+    });
+
+    // Auto-speak on load
+    setTimeout(function() {
+      speak("Hello! I'm Nally. Click me to hear more.");
+    }, 2200);
+
+    // ─── View Overlay ────────────────────────────
+    var viewOverlay = document.getElementById('view-overlay');
+    var overlayTitle = document.getElementById('overlay-title');
+    var activeView = 'chat';
+
+    function openView(viewName) {
+      activeView = viewName;
+      document.querySelectorAll('.view-panel').forEach(function(p) { p.classList.remove('active'); });
+      var panel = document.getElementById('view-' + viewName);
+      if (panel) panel.classList.add('active');
+      var titles = { chat: 'Chat', dashboard: 'Dashboard', files: 'Files', settings: 'Settings' };
+      overlayTitle.textContent = titles[viewName] || viewName;
+      viewOverlay.classList.add('open');
+    }
+
+    function closeOverlay() {
+      viewOverlay.classList.remove('open');
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeOverlay();
+    });
+
+    // ─── Chat Functionality ──────────────────────
+    var chatMessages = document.getElementById('chat-messages');
+    var chatInput = document.getElementById('chat-input');
+    var msgCount = 0;
+
+    function addChatMsg(text, isUser) {
+      var msg = document.createElement('div');
+      msg.style.cssText = 'padding:10px 14px;margin:6px 0;border-radius:8px;font-size:14px;line-height:1.5;max-width:85%;'
+        + (isUser
+          ? 'background:rgba(124,106,239,0.15);color:rgba(228,226,220,0.85);margin-left:auto;border:1px solid rgba(124,106,239,0.2);'
+          : 'background:rgba(255,255,255,0.04);color:rgba(228,226,220,0.7);border:1px solid rgba(255,255,255,0.05);');
+      msg.textContent = text;
+      chatMessages.appendChild(msg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      msgCount++;
+      document.getElementById('dash-requests').textContent = msgCount;
+    }
+
+    function sendChat() {
+      var text = chatInput.value.trim();
+      if (!text) return;
+      addChatMsg(text, true);
+      chatInput.value = '';
+      // Simulate response
+      setTimeout(function() {
+        addChatMsg("I received your message. Backend integration coming soon.", false);
+      }, 800);
+    }
+
+    // ─── Uptime Counter ──────────────────────────
+    var startTime = Date.now();
+    setInterval(function() {
+      var elapsed = Math.floor((Date.now() - startTime) / 1000);
+      var m = Math.floor(elapsed / 60);
+      var h = Math.floor(m / 60);
+      var s = elapsed % 60;
+      var el = document.getElementById('dash-uptime');
+      if (el) {
+        el.textContent = h > 0 ? h + 'h ' + (m % 60) + 'm' : m + 'm ' + s + 's';
+      }
+    }, 1000);
+
+    // ─── Init Lucide Icons ───────────────────────
+    lucide.createIcons();
+  </script>
+</body>
+</html>

@@ -43,6 +43,10 @@ def main():
     parser.add_argument("--provider", choices=["groq", "opencode"], help="Override LLM provider")
     args = parser.parse_args()
     
+    if args.port < 1024 or args.port > 65535:
+        print(f"Error: port must be between 1024 and 65535, got {args.port}")
+        sys.exit(1)
+    
     # Override provider if specified
     if args.provider:
         import os
@@ -60,8 +64,10 @@ def main():
         from nally.system import system_monitor
         print("Starting system monitor...")
         system_monitor.start_monitoring(interval=10)
-    except (ImportError, Exception):
+    except ImportError:
         pass
+    except Exception as e:
+        print(f"System monitor failed: {e}")
 
     # Start automation engine (optional)
     automation_engine = None
@@ -69,16 +75,21 @@ def main():
         from nally.automation.engine import automation_engine
         print("Starting automation engine...")
         automation_engine.start()
-    except (ImportError, Exception):
+    except ImportError:
         pass
+    except Exception as e:
+        print(f"Automation engine failed: {e}")
 
     # Connect to cloud database in background (non-blocking)
     def _connect_cloud():
         try:
             from nally.memory.cloud import cloud_db
             cloud_db.connect_cloud()
-        except Exception:
+        except ImportError:
             pass
+        except Exception as e:
+            from nally.utils.logger import logger
+            logger.debug(f"Cloud DB connection failed: {e}")
     import threading
     threading.Thread(target=_connect_cloud, daemon=True).start()
 

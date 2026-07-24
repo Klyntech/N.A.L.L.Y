@@ -2,7 +2,7 @@
 function ResultCard(props) {
   var title = props.title;
   var icon = props.icon;
-  var iconColor = props.iconColor || 'rgba(108,92,231,0.7)';
+  var iconColor = props.iconColor || 'rgba(124,106,239,0.7)';
   var onDismiss = props.onDismiss;
   var children = props.children;
 
@@ -34,7 +34,7 @@ function WeatherCard(props) {
   var wind = data.wind || '12 km/h';
 
   return html`
-    <${ResultCard} title="Weather" icon="Cloud" iconColor="rgba(0,212,255,0.7)" onDismiss=${props.onDismiss}>
+    <${ResultCard} title="Weather" icon="Cloud" iconColor="rgba(62,207,184,0.7)" onDismiss=${props.onDismiss}>
       <div style=${{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         <div style=${{ fontSize: '42px', fontWeight: 700, color: '#fff', lineHeight: 1 }}>
           ${temp}<span style=${{ fontSize: '18px', fontWeight: 400, color: 'var(--text-dim)' }}>°C</span>
@@ -74,7 +74,7 @@ function TasksCard(props) {
   }
 
   return html`
-    <${ResultCard} title=${'Tasks' + (total ? ' (' + done + '/' + total + ')' : '')} icon="CheckSquare" iconColor="rgba(108,92,231,0.7)" onDismiss=${onDismiss}>
+    <${ResultCard} title=${'Tasks' + (total ? ' (' + done + '/' + total + ')' : '')} icon="CheckSquare" iconColor="rgba(124,106,239,0.7)" onDismiss=${onDismiss}>
       <div style=${{ maxHeight: '200px', overflowY: 'auto' }}>
         ${tasks.map(function(t) {
           return html`
@@ -101,7 +101,7 @@ function TasksCard(props) {
         }} />
         <button type="submit" disabled=${!newTask.trim()} style=${{
           height: '34px', padding: '0 12px', borderRadius: '8px', border: 'none',
-          background: newTask.trim() ? 'var(--accent)' : 'rgba(255,255,255,0.04)',
+          background: newTask.trim() ? 'var(--iris)' : 'rgba(255,255,255,0.04)',
           color: newTask.trim() ? '#fff' : 'var(--text-faint)',
           cursor: 'pointer', fontSize: '12px', fontWeight: 600,
         }}>Add</button>
@@ -153,7 +153,7 @@ function MusicCard(props) {
       <div style=${{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px' }}>
         <div style=${{
           width: '48px', height: '48px', borderRadius: '10px',
-          background: 'linear-gradient(135deg, var(--accent), var(--cyan))',
+          background: 'linear-gradient(90deg, var(--iris), var(--teal))',
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}>
           <${Li} name="Music" size=${22} color="#fff" />
@@ -164,7 +164,7 @@ function MusicCard(props) {
         </div>
       </div>
       <div class="music-progress" style=${{ marginBottom: '12px' }}>
-        <div class="music-progress-fill" style=${{ width: progress + '%' }} />
+        <div class="music-progress-fill" style=${{ width: (typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : 0) + '%' }} />
       </div>
       <div class="music-controls">
         <button class="music-btn" onClick=${onPrev}><${Li} name="SkipBack" size=${16} /></button>
@@ -198,11 +198,11 @@ function ClockCard(props) {
   var dateStr = time.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   return html`
-    <${ResultCard} title="Clock" icon="Clock" iconColor="rgba(108,92,231,0.7)" onDismiss=${props.onDismiss}>
+    <${ResultCard} title="Clock" icon="Clock" iconColor="rgba(124,106,239,0.7)" onDismiss=${props.onDismiss}>
       <div style=${{ textAlign: 'center', padding: '8px 0' }}>
-        <div style=${{ fontFamily: 'Orbitron,sans-serif', fontSize: '36px', fontWeight: 700, color: '#fff', letterSpacing: '2px' }}>
+        <div style=${{ fontFamily: '"Space Grotesk",sans-serif', fontSize: '36px', fontWeight: 700, color: '#fff', letterSpacing: '2px' }}>
           ${h12}:${mins}<span style=${{ fontSize: '18px', color: 'var(--text-dim)', fontWeight: 400 }}>:${secs}</span>
-          <span style=${{ fontSize: '14px', color: 'var(--accent)', marginLeft: '8px' }}>${ampm}</span>
+          <span style=${{ fontSize: '14px', color: 'var(--iris)', marginLeft: '8px' }}>${ampm}</span>
         </div>
         <div style=${{ fontSize: '13px', color: 'var(--text-dim)', marginTop: '6px' }}>${dateStr}</div>
       </div>
@@ -215,10 +215,21 @@ function NotesCard(props) {
   var notes = props.notes || '';
   var onChange = props.onChange;
   var onDismiss = props.onDismiss;
+  var debounceRef = useRef(null);
+
+  function handleChange(e) {
+    var val = e.target.value;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(function() { onChange(val); }, 300);
+  }
+
+  useEffect(function() {
+    return function() { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
 
   return html`
-    <${ResultCard} title="Notes" icon="FileText" iconColor="rgba(0,212,255,0.7)" onDismiss=${onDismiss}>
-      <textarea value=${notes} onInput=${function(e) { onChange(e.target.value); }}
+    <${ResultCard} title="Notes" icon="FileText" iconColor="rgba(62,207,184,0.7)" onDismiss=${onDismiss}>
+      <textarea value=${notes} onInput=${handleChange}
         placeholder="Write something..."
         style=${{
           width: '100%', height: '100px', background: 'rgba(0,0,0,0.3)',

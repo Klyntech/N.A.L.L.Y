@@ -211,12 +211,12 @@ function ApprovalModal(props) {
           </div>
         </div>
         <div style=${{ background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '12px 14px', marginBottom: '20px', border: '1px solid var(--border)' }}>
-          <div style=${{ fontSize: '12px', color: 'rgba(108,92,231,0.7)', fontFamily: 'var(--mono)', marginBottom: '6px' }}>${approval.name}</div>
+          <div style=${{ fontSize: '12px', color: 'rgba(124,106,239,0.7)', fontFamily: 'var(--mono)', marginBottom: '6px' }}>${approval.name}</div>
           <div style=${{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)', wordBreak: 'break-all', maxHeight: '80px', overflow: 'auto' }}>${JSON.stringify(approval.args, null, 2)}</div>
         </div>
         <div style=${{ display: 'flex', gap: '10px' }}>
           <button onClick=${onDeny} style=${{ flex: 1, padding: '11px', borderRadius: '10px', border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '13px', fontWeight: 500, transition: 'all 0.15s' }}>Deny</button>
-          <button onClick=${onApprove} style=${{ flex: 1, padding: '11px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, var(--accent), #0090FF)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, transition: 'all 0.15s' }}>Allow</button>
+          <button onClick=${onApprove} style=${{ flex: 1, padding: '11px', borderRadius: '10px', border: 'none', background: 'var(--iris)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, transition: 'all 0.15s' }}>Allow</button>
         </div>
       </div>
     </div>
@@ -245,25 +245,22 @@ function App() {
   var music = _music[0], setMusic = _music[1];
 
   // ─── Cinematic Phase State ──────────────────────
-  // phase 0: ambient (canvas drift, dust, vignette, horizon, pulse rings)
-  // phase 1: identity (canvas converge, 3D letters, sweep line)
-  // phase 2: materialize (canvas explode, light burst, orb appears)
-  // phase 3: ready (interactive, input shimmer)
+  // phase 0: static (canvas noise, scanlines)
+  // phase 1: resolve (chars lock to text, noise thins)
+  // phase 2: stable (text fully formed, holographic)
+  // phase 3: ready (interactive)
   var _phase = useState(0);
   var phase = _phase[0], setPhase = _phase[1];
-  var _identityFading = useState(false);
-  var identityFading = _identityFading[0], setIdentityFading = _identityFading[1];
   var _orbVisible = useState(false);
   var orbVisible = _orbVisible[0], setOrbVisible = _orbVisible[1];
   var _inputVisible = useState(false);
   var inputVisible = _inputVisible[0], setInputVisible = _inputVisible[1];
-  var _sweepVisible = useState(false);
-  var sweepVisible = _sweepVisible[0], setSweepVisible = _sweepVisible[1];
-  var _lightBurst = useState(false);
-  var lightBurst = _lightBurst[0], setLightBurst = _lightBurst[1];
+  var _glitchActive = useState(false);
+  var glitchActive = _glitchActive[0], setGlitchActive = _glitchActive[1];
 
   // Cinema engine ref
   var cinemaRef = useRef(null);
+  var typewriterRef = useRef(null);
 
   useEffect(function() { lssave('messages', messages); }, [messages]);
   useEffect(function() { lssave('tasks', tasks); }, [tasks]);
@@ -275,8 +272,21 @@ function App() {
     function() {}
   );
 
-  // ─── Cinematic Auto-Play Sequence ──────────────
+  // ─── Cinematic Auto-Play Sequence (4.0s) ───────
+  // Static (0-0.5s) → Resolve (0.5-1.5s) → Stable (1.5-2.6s) → Glitch (2.6-2.9s) → Settle (2.9-4.0s)
   useEffect(function() {
+    // Skip entirely for reduced-motion preference
+    var prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReduced) {
+      setPhase(3);
+      setOrbVisible(true);
+      setInputVisible(true);
+      return function() {};
+    }
+
+    var isMobile = window.innerWidth < 768;
+    var timers = [];
+
     // Start AudioContext on first user interaction (browser policy)
     function unlockAudio() {
       if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
@@ -286,93 +296,142 @@ function App() {
     document.addEventListener('click', unlockAudio);
     document.addEventListener('touchstart', unlockAudio);
 
-    // Init canvas particle system
+    // Init canvas noise system
     var canvas = document.getElementById('cinema-canvas');
     if (canvas && typeof CinemaEngine !== 'undefined') {
       cinemaRef.current = CinemaEngine('cinema-canvas');
       cinemaRef.current.init();
     }
 
-    // Phase 0: Ambient — canvas drift + dual drone + wind (0-4s)
-    playDrone(55, 10, 0.025);
-    playHarmonic(110, 10, 0.012);
-    playWind(8);
+    // Act 1: Static (0-0.5s) — pure noise, silence
+    // (canvas auto-fills with noise on init)
 
-    // Phase 1: Identity — canvas converge + sweep line (4-8s)
-    var t1 = setTimeout(function() {
+    // Act 2: Resolve (0.5s) — noise thins, chars lock to text
+    timers.push(setTimeout(function() {
       setPhase(1);
-      if (cinemaRef.current) cinemaRef.current.startConverge();
-    }, 4000);
+      if (cinemaRef.current) cinemaRef.current.startResolve();
+      // Digital hum + data clicks
+      playDrone(80, 3, 0.02);
+      if (!isMobile) playHarmonic(160, 2, 0.008);
+    }, 500));
 
-    var sweepTimeout = setTimeout(function() {
-      setSweepVisible(true);
-    }, 4500);
+    // Resolve: swell build (1.2s)
+    timers.push(setTimeout(function() {
+      playSwell(0.8);
+    }, 1200));
 
-    // Audio swell buildup before explosion
-    var swellTimeout = setTimeout(function() {
-      playSwell(1.3);
-    }, 7200);
-
-    // Phase 2: Materialize — canvas explode + light burst + orb (8.5s)
-    var t2 = setTimeout(function() {
-      setIdentityFading(true);
-    }, 7500);
-
-    var t3 = setTimeout(function() {
+    // Act 3: Stable (1.5s) — text fully formed, holographic glow
+    timers.push(setTimeout(function() {
       setPhase(2);
-      setOrbVisible(true);
-      setLightBurst(true);
-      if (cinemaRef.current) cinemaRef.current.startExplode();
+      if (cinemaRef.current) cinemaRef.current.startStable();
+    }, 1500));
+
+    // Act 4: Glitch (2.6s) — dramatic distortion burst
+    timers.push(setTimeout(function() {
+      setGlitchActive(true);
+      if (cinemaRef.current) cinemaRef.current.startGlitch();
       playSubDrop();
-      playNoiseBurst(0.8);
-    }, 8500);
+      playNoiseBurst(0.3);
+      // Screen shake
+      var phaseEl = document.querySelector('.luxury-phase');
+      if (phaseEl) {
+        phaseEl.classList.add('erupt');
+        setTimeout(function() { phaseEl.classList.remove('erupt'); }, 400);
+      }
+    }, 2600));
 
-    // Phase 3: Ready — warm chime + input (10s)
-    var t4 = setTimeout(function() {
-      setInputVisible(true);
+    // Settle (2.9s) — glitch resolves, text returns clean
+    timers.push(setTimeout(function() {
+      setGlitchActive(false);
+      if (cinemaRef.current) cinemaRef.current.startSettle();
+    }, 2900));
+
+    // Orb appears (3.2s)
+    timers.push(setTimeout(function() {
+      setOrbVisible(true);
       playWarmChime();
-    }, 9500);
+    }, 3200));
 
-    var t5 = setTimeout(function() {
+    // Input (3.5s)
+    timers.push(setTimeout(function() {
+      setInputVisible(true);
+    }, 3500));
+
+    // Ready + ambient (4.0s)
+    timers.push(setTimeout(function() {
       setPhase(3);
-    }, 10500);
+      if (cinemaRef.current) cinemaRef.current.startAmbient();
+    }, 4000));
 
     return function() {
-      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); clearTimeout(t5); clearTimeout(sweepTimeout); clearTimeout(swellTimeout);
+      timers.forEach(clearTimeout);
       document.removeEventListener('click', unlockAudio);
       document.removeEventListener('touchstart', unlockAudio);
       if (cinemaRef.current) cinemaRef.current.destroy();
     };
   }, []);
 
-  // Keyboard shortcut: skip cinematic with any key
+  // Skip cinematic — Space, Enter, or click only (with flash cut)
   useEffect(function() {
+    function skipToReady() {
+      // Flash-to-white-then-black (150ms film cut)
+      var flash = document.createElement('div');
+      flash.className = 'skip-flash';
+      document.body.appendChild(flash);
+      setTimeout(function() { flash.remove(); }, 200);
+
+      setPhase(3);
+      setGlitchActive(false);
+      setOrbVisible(true);
+      setInputVisible(true);
+      if (cinemaRef.current) {
+        cinemaRef.current.startGlitch();
+        setTimeout(function() {
+          if (cinemaRef.current) cinemaRef.current.startAmbient();
+        }, 700);
+      }
+      playSubDrop();
+      playWarmChime();
+    }
+
     function handleKey(e) {
-      if (phase < 3) {
-        setPhase(3);
-        setIdentityFading(true);
-        setOrbVisible(true);
-        setInputVisible(true);
-        setSweepVisible(true);
-        setLightBurst(true);
-        if (cinemaRef.current) cinemaRef.current.startExplode();
-        playSubDrop();
-        playWarmChime();
+      if (phase < 3 && (e.key === ' ' || e.key === 'Enter')) {
+        e.preventDefault();
+        skipToReady();
       }
     }
+
+    function handleClick(e) {
+      if (phase < 3 && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
+        skipToReady();
+      }
+    }
+
     window.addEventListener('keydown', handleKey);
-    return function() { window.removeEventListener('keydown', handleKey); };
+    window.addEventListener('click', handleClick);
+    return function() {
+      window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('click', handleClick);
+    };
   }, [phase]);
 
   function handleKeywordDetected(cleanedText) {
     if (phase < 3) {
+      var flash = document.createElement('div');
+      flash.className = 'skip-flash';
+      document.body.appendChild(flash);
+      setTimeout(function() { flash.remove(); }, 200);
+
       setPhase(3);
-      setIdentityFading(true);
+      setGlitchActive(false);
       setOrbVisible(true);
       setInputVisible(true);
-      setSweepVisible(true);
-      setLightBurst(true);
-      if (cinemaRef.current) cinemaRef.current.startExplode();
+      if (cinemaRef.current) {
+        cinemaRef.current.startGlitch();
+        setTimeout(function() {
+          if (cinemaRef.current) cinemaRef.current.startAmbient();
+        }, 700);
+      }
       playSubDrop();
       playWarmChime();
     }
@@ -442,17 +501,19 @@ function App() {
       var text = d.text || d.response || '';
       var id = 'n-' + Date.now();
       var s = stamp();
+      haptic(8);
+      if (typewriterRef.current) clearInterval(typewriterRef.current);
       setMessages(function(p) { return p.concat([{ id: id, sender: 'nally', text: '', stamp: s, isTyping: true }]); });
       var i = 0;
-      var iv = setInterval(function() {
+      typewriterRef.current = setInterval(function() {
         setMessages(function(p) {
           return p.map(function(m) {
-            return m.id === id ? Object.assign({}, m, { text: text.substring(0, i + 1), isTyping: i < text.length - 1 }) : m;
+            return m.id === id ? Object.assign({}, m, { text: text.substring(0, i + 1), isTyping: i < text.length }) : m;
           });
         });
         if (i % 3 === 0) beep(1550, 0.004, 'triangle');
         i++;
-        if (i >= text.length) clearInterval(iv);
+        if (i >= text.length) { clearInterval(typewriterRef.current); typewriterRef.current = null; }
       }, 15);
     }
 
@@ -506,6 +567,7 @@ function App() {
     on('confirmation_required', onApprovalRequest);
 
     return function() {
+      if (typewriterRef.current) { clearInterval(typewriterRef.current); typewriterRef.current = null; }
       off('status', onStatus);
       off('tool_call', onToolCall);
       off('tool_result', onToolResult);
@@ -520,6 +582,7 @@ function App() {
   // ─── Handlers ────────────────────────────────────
   function handleSend(text) {
     beep(425, 0.06, 'sine');
+    haptic(10);
     setMessages(function(p) { return p.concat([{ id: 'u-' + Date.now(), sender: 'user', text: text, stamp: stamp() }]); });
     sendMsg(text);
   }
@@ -583,32 +646,20 @@ function App() {
         ${showCinematic && html`
           <div class="luxury-phase">
             <canvas id="cinema-canvas" style=${{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none' }} />
-            <div class="luxury-scanlines" />
             <div class="cin-vignette" />
 
-            ${phase >= 0 && html`
-              <div class="cin-horizon" />
-              <div class="cin-pulse-ring" />
-              <div class="cin-pulse-ring" />
-              <div class="cin-pulse-ring" />
-            `}
-
-            ${phase >= 0 && html`
-              <div class="luxury-ambient" />
-            `}
-
-            ${sweepVisible && html`<div class="cin-sweep" />`}
-
-            ${phase >= 1 && !identityFading && html`
-              <div class="luxury-text" style=${{ zIndex: 15 }}>
+            ${phase >= 1 && html`
+              <div class=${'holo-text' + (glitchActive ? ' glitch' : '')} style=${{ zIndex: 15 }}>
                 ${identityLetters.map(function(ch, i) {
-                  return html`<span key=${i} class="luxury-letter" data-char=${ch} style=${{ '--letter-delay': (i * 0.35) + 's' }} onAnimationStart=${function() { playMetalPing(); }}>${ch}</span>`;
+                  return html`<span key=${i} class="holo-letter" style=${{ '--letter-delay': (i * 0.2) + 's' }}>${ch}</span>`;
                 })}
               </div>
             `}
-
-            ${lightBurst && html`<div class="cin-light-burst" />`}
           </div>
+        `}
+
+        ${!showCinematic && html`
+          <canvas id="cinema-canvas" style=${{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none' }} />
         `}
 
         ${isActive && !hasConversation && html`

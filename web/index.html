@@ -2,17 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#050510">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#09090F">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Nally</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body>
-  <div id="root"></div>
+  <svg style="position:absolute;width:0;height:0" aria-hidden="true">
+    <filter id="noise-filter">
+      <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" result="noise"/>
+      <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise"/>
+      <feBlend in="SourceGraphic" in2="grayNoise" mode="multiply"/>
+    </filter>
+  </svg>
+  <div id="noise-overlay"></div>
+  <div id="root"><noscript style="color:#fff;font-family:monospace;padding:40px;display:block">JavaScript is required to run Nally.</noscript></div>
   <div id="error-overlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#0a0a0a;color:#ff4444;font-family:monospace;font-size:14px;padding:40px;overflow:auto;white-space:pre-wrap;"></div>
   <script>
     window.onerror = function(msg, url, line, col, err) {

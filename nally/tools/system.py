@@ -1,4 +1,5 @@
 """System Control Tools"""
+import os
 import subprocess
 from .registry import Tool, registry
 
@@ -51,7 +52,8 @@ class SystemHealth(Tool):
 
             cpu = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
-            disk = psutil.disk_usage("/")
+            disk_path = os.path.splitdrive(os.getcwd())[0] + os.sep if os.name == "nt" else "/"
+            disk = psutil.disk_usage(disk_path)
 
             return (
                 f"CPU: {cpu}% | "
