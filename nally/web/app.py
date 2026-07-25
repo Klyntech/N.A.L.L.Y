@@ -1,4 +1,5 @@
 """Nally Web Server - FastAPI backend with SSE streaming"""
+import hmac
 import json
 import time
 import os
@@ -43,7 +44,7 @@ security = HTTPBearer(auto_error=False)
 
 
 async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    if credentials and credentials.credentials == NALLY_ACCESS_TOKEN:
+    if credentials and hmac.compare_digest(credentials.credentials, NALLY_ACCESS_TOKEN):
         return True
     raise HTTPException(status_code=401, detail="Unauthorized")
 

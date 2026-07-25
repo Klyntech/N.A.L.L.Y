@@ -224,215 +224,173 @@
 
 
 
-    /* ─── View Overlay ───────────────────────────── */
-    #view-overlay {
+    /* ─── Chat Drawer (Desktop Window) ────────────── */
+    #chat-drawer {
       position: fixed;
-      inset: 0;
-      z-index: 90;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 560px;
+      height: 480px;
+      min-width: 320px;
+      min-height: 260px;
+      background: rgba(12,12,18,0.94);
+      backdrop-filter: blur(28px) saturate(1.4);
+      -webkit-backdrop-filter: blur(28px) saturate(1.4);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 80;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.35s ease;
+      transition: opacity 0.3s ease, box-shadow 0.3s ease;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
     }
-    #view-overlay.open {
+    #chat-drawer.open {
       opacity: 1;
       pointer-events: auto;
     }
-    .overlay-backdrop {
-      position: absolute;
-      inset: 0;
-      background: rgba(5,5,10,0.55);
-      backdrop-filter: blur(16px) saturate(1.2);
-      -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    #chat-drawer.maximized {
+      top: 0; left: 0;
+      transform: none;
+      width: 100vw !important;
+      height: calc(100vh - 48px) !important;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.07);
     }
-    .overlay-panel {
-      position: relative;
-      width: 620px;
-      max-width: 90vw;
-      max-height: 72vh;
-      background: rgba(14,14,22,0.92);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 16px;
-      padding: 32px;
-      overflow-y: auto;
-      transform: translateY(20px) scale(0.97);
-      transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-    #view-overlay.open .overlay-panel {
-      transform: translateY(0) scale(1);
-    }
-    .overlay-panel::-webkit-scrollbar { width: 4px; }
-    .overlay-panel::-webkit-scrollbar-track { background: transparent; }
-    .overlay-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
-    .overlay-header {
+
+    /* Title bar */
+    .drawer-titlebar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      margin-bottom: 24px;
+      gap: 12px;
+      padding: 0 16px;
+      height: 38px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      cursor: grab;
+      user-select: none;
+      flex-shrink: 0;
     }
-    .overlay-title {
-      font-size: 18px;
+    .drawer-titlebar:active { cursor: grabbing; }
+    .titlebar-dots {
+      display: flex;
+      gap: 7px;
+    }
+    .dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: filter 0.2s ease, transform 0.15s ease;
+    }
+    .dot:hover { filter: brightness(1.3); transform: scale(1.15); }
+    .dot-close { background: #ff5f57; }
+    .dot-min { background: #febc2e; }
+    .dot-max { background: #28c840; }
+    .titlebar-label {
+      font-size: 12px;
       font-weight: 600;
-      color: rgba(228,226,220,0.9);
-      letter-spacing: 1px;
+      color: rgba(228,226,220,0.45);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      flex: 1;
+      text-align: center;
+      pointer-events: none;
     }
-    .overlay-close {
-      background: none; border: none; cursor: pointer;
-      color: rgba(228,226,220,0.3);
-      font-size: 22px;
-      transition: color 0.2s ease;
-      padding: 4px;
-      line-height: 1;
-    }
-    .overlay-close:hover { color: rgba(228,226,220,0.8); }
-    .view-panel { display: none; }
-    .view-panel.active { display: block; }
+    .titlebar-spacer { width: 52px; }
 
-    /* View: Chat */
-    .chat-messages {
-      min-height: 200px;
-      max-height: 45vh;
+    /* Messages area */
+    .drawer-messages {
+      flex: 1;
       overflow-y: auto;
-      padding: 16px;
-      background: rgba(255,255,255,0.02);
-      border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.04);
-      margin-bottom: 16px;
+      padding: 20px;
     }
-    .chat-input-wrap {
+    .drawer-messages::-webkit-scrollbar { width: 4px; }
+    .drawer-messages::-webkit-scrollbar-track { background: transparent; }
+    .drawer-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    .drawer-msg {
+      padding: 10px 16px;
+      margin: 6px 0;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 75%;
+      animation: msgFadeIn 0.3s ease-out;
+    }
+    @keyframes msgFadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .drawer-msg.user {
+      background: rgba(124,106,239,0.15);
+      color: rgba(228,226,220,0.9);
+      margin-left: auto;
+      border: 1px solid rgba(124,106,239,0.2);
+    }
+    .drawer-msg.nally {
+      background: rgba(255,255,255,0.04);
+      color: rgba(228,226,220,0.7);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .drawer-msg.nally .msg-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--iris);
+      opacity: 0.6;
+      margin-bottom: 4px;
+    }
+
+    /* Input area */
+    .drawer-input-wrap {
       display: flex;
       gap: 10px;
+      padding: 14px 16px 16px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      flex-shrink: 0;
     }
-    .chat-input {
+    .drawer-input {
       flex: 1;
       background: rgba(255,255,255,0.04);
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 10px;
-      padding: 12px 16px;
+      padding: 10px 16px;
       color: rgba(228,226,220,0.9);
       font-family: 'Space Grotesk', sans-serif;
       font-size: 14px;
       outline: none;
       transition: border-color 0.2s ease;
     }
-    .chat-input:focus { border-color: rgba(124,106,239,0.4); }
-    .chat-input::placeholder { color: rgba(228,226,220,0.2); }
-    .chat-send {
+    .drawer-input:focus { border-color: rgba(124,106,239,0.4); }
+    .drawer-input::placeholder { color: rgba(228,226,220,0.2); }
+    .drawer-send {
       background: var(--iris);
       border: none;
       border-radius: 10px;
-      width: 44px; height: 44px;
+      width: 42px; height: 42px;
       display: flex; align-items: center; justify-content: center;
       cursor: pointer;
       color: white;
       transition: background 0.2s ease, transform 0.15s ease;
+      flex-shrink: 0;
     }
-    .chat-send svg { width: 18px; height: 18px; }
-    .chat-send:hover { background: #6a58d9; transform: scale(1.05); }
+    .drawer-send svg { width: 18px; height: 18px; }
+    .drawer-send:hover { background: #6a58d9; transform: scale(1.05); }
 
-    /* View: Dashboard */
-    .dash-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    .dash-card {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.05);
-      border-radius: 10px;
-      padding: 18px;
-    }
-    .dash-card-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: rgba(228,226,220,0.3);
-      margin-bottom: 8px;
-    }
-    .dash-card-value {
-      font-size: 24px;
-      font-weight: 700;
-      color: rgba(228,226,220,0.85);
-    }
-    .dash-card-sub {
-      font-size: 12px;
-      color: rgba(228,226,220,0.3);
-      margin-top: 4px;
-    }
-
-    /* View: Files */
-    .file-list {
-      list-style: none;
-    }
-    .file-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 14px;
-      border-radius: 8px;
-      transition: background 0.15s ease;
-      cursor: pointer;
-    }
-    .file-item:hover { background: rgba(255,255,255,0.04); }
-    .file-item i, .file-item svg { width: 20px; height: 20px; color: var(--iris); opacity: 0.7; }
-    .file-item span {
-      font-size: 14px;
-      color: rgba(228,226,220,0.7);
-    }
-    .file-item .file-size {
-      margin-left: auto;
-      font-size: 12px;
-      color: rgba(228,226,220,0.25);
-    }
-
-    /* View: Settings */
-    .settings-group {
-      margin-bottom: 20px;
-    }
-    .settings-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: rgba(228,226,220,0.3);
-      margin-bottom: 10px;
-    }
-    .settings-option {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.05);
-      border-radius: 8px;
-      margin-bottom: 8px;
-    }
-    .settings-option-name {
-      font-size: 14px;
-      color: rgba(228,226,220,0.7);
-    }
-    .settings-toggle {
-      width: 40px; height: 22px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 11px;
-      position: relative;
-      cursor: pointer;
-      transition: background 0.3s ease;
-    }
-    .settings-toggle.on { background: var(--iris); }
-    .settings-toggle::after {
-      content: '';
+    /* Resize handles */
+    .resize-handle {
       position: absolute;
-      top: 3px; left: 3px;
-      width: 16px; height: 16px;
-      border-radius: 50%;
-      background: white;
-      transition: transform 0.3s ease;
+      z-index: 10;
     }
-    .settings-toggle.on::after { transform: translateX(18px); }
+    .resize-n  { top: -4px; left: 8px; right: 8px; height: 8px; cursor: n-resize; }
+    .resize-s  { bottom: -4px; left: 8px; right: 8px; height: 8px; cursor: s-resize; }
+    .resize-e  { right: -4px; top: 8px; bottom: 8px; width: 8px; cursor: e-resize; }
+    .resize-w  { left: -4px; top: 8px; bottom: 8px; width: 8px; cursor: w-resize; }
+    .resize-ne { top: -4px; right: -4px; width: 14px; height: 14px; cursor: ne-resize; }
+    .resize-nw { top: -4px; left: -4px; width: 14px; height: 14px; cursor: nw-resize; }
+    .resize-se { bottom: -4px; right: -4px; width: 14px; height: 14px; cursor: se-resize; }
+    .resize-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: sw-resize; }
   </style>
 </head>
 <body>
@@ -445,93 +403,31 @@
     </div>
   </div>
 
-  <!-- View Overlay -->
-  <div id="view-overlay">
-    <div class="overlay-backdrop" onclick="closeOverlay()"></div>
-    <div class="overlay-panel">
-      <div class="overlay-header">
-        <span class="overlay-title" id="overlay-title">Chat</span>
-        <button class="overlay-close" onclick="closeOverlay()">&times;</button>
+  <!-- Chat Drawer -->
+  <div id="chat-drawer">
+    <div class="drawer-titlebar" id="drawer-titlebar">
+      <div class="titlebar-dots">
+        <span class="dot dot-close" onclick="closeDrawer()"></span>
+        <span class="dot dot-min" onclick="minimizeDrawer()"></span>
+        <span class="dot dot-max" onclick="maximizeDrawer()"></span>
       </div>
-
-      <!-- Chat View -->
-      <div id="view-chat" class="view-panel active">
-        <div class="chat-messages" id="chat-messages"></div>
-        <div class="chat-input-wrap">
-          <input class="chat-input" id="chat-input" type="text" placeholder="Ask Nally anything..." onkeydown="if(event.key==='Enter')sendChat()">
-          <button class="chat-send" onclick="sendChat()"><i data-lucide="send"></i></button>
-        </div>
-      </div>
-
-      <!-- Dashboard View -->
-      <div id="view-dashboard" class="view-panel">
-        <div class="dash-grid">
-          <div class="dash-card">
-            <div class="dash-card-label">Status</div>
-            <div class="dash-card-value" style="color: var(--green);">Online</div>
-            <div class="dash-card-sub">All systems operational</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Provider</div>
-            <div class="dash-card-value">OpenCode</div>
-            <div class="dash-card-sub">mimo-v2.5-free</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Uptime</div>
-            <div class="dash-card-value" id="dash-uptime">0m</div>
-            <div class="dash-card-sub">Since last restart</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Requests</div>
-            <div class="dash-card-value" id="dash-requests">0</div>
-            <div class="dash-card-sub">Total conversations</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Files View -->
-      <div id="view-files" class="view-panel">
-        <ul class="file-list">
-          <li class="file-item"><i data-lucide="folder"></i><span>nally/</span><span class="file-size">—</span></li>
-          <li class="file-item"><i data-lucide="file-code"></i><span>main.py</span><span class="file-size">4.2 KB</span></li>
-          <li class="file-item"><i data-lucide="file-code"></i><span>config.py</span><span class="file-size">2.1 KB</span></li>
-          <li class="file-item"><i data-lucide="file-code"></i><span>app.py</span><span class="file-size">8.7 KB</span></li>
-          <li class="file-item"><i data-lucide="folder"></i><span>web/</span><span class="file-size">—</span></li>
-          <li class="file-item"><i data-lucide="file-text"></i><span>README.md</span><span class="file-size">3.5 KB</span></li>
-          <li class="file-item"><i data-lucide="file-json"></i><span>requirements.txt</span><span class="file-size">0.4 KB</span></li>
-        </ul>
-      </div>
-
-      <!-- Settings View -->
-      <div id="view-settings" class="view-panel">
-        <div class="settings-group">
-          <div class="settings-label">General</div>
-          <div class="settings-option">
-            <span class="settings-option-name">Rate Limiting</span>
-            <div class="settings-toggle on" onclick="this.classList.toggle('on')"></div>
-          </div>
-          <div class="settings-option">
-            <span class="settings-option-name">Sound Effects</span>
-            <div class="settings-toggle" onclick="this.classList.toggle('on')"></div>
-          </div>
-          <div class="settings-option">
-            <span class="settings-option-name">Auto-scroll Chat</span>
-            <div class="settings-toggle on" onclick="this.classList.toggle('on')"></div>
-          </div>
-        </div>
-        <div class="settings-group">
-          <div class="settings-label">Provider</div>
-          <div class="settings-option">
-            <span class="settings-option-name">OpenCode Zen</span>
-            <div class="settings-toggle on" onclick="this.classList.toggle('on')"></div>
-          </div>
-          <div class="settings-option">
-            <span class="settings-option-name">Groq</span>
-            <div class="settings-toggle" onclick="this.classList.toggle('on')"></div>
-          </div>
-        </div>
-      </div>
+      <div class="titlebar-label">N.A.L.L.Y</div>
+      <div class="titlebar-spacer"></div>
     </div>
+    <div class="drawer-messages" id="chat-messages"></div>
+    <div class="drawer-input-wrap">
+      <input class="drawer-input" id="chat-input" type="text" placeholder="Ask Nally anything..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="drawer-send" onclick="sendChat()"><i data-lucide="send"></i></button>
+    </div>
+    <!-- Resize handles -->
+    <div class="resize-handle resize-n" data-dir="n"></div>
+    <div class="resize-handle resize-s" data-dir="s"></div>
+    <div class="resize-handle resize-e" data-dir="e"></div>
+    <div class="resize-handle resize-w" data-dir="w"></div>
+    <div class="resize-handle resize-ne" data-dir="ne"></div>
+    <div class="resize-handle resize-nw" data-dir="nw"></div>
+    <div class="resize-handle resize-se" data-dir="se"></div>
+    <div class="resize-handle resize-sw" data-dir="sw"></div>
   </div>
 
 
@@ -892,76 +788,186 @@
       _speakTimers.push(t);
     }
 
-    // ─── Demo: Click Orb to speak ────────────────
-    var demos = [
-      "Hello! I'm Nally, your personal AI assistant.",
-      "I can help you with code, files, and system tasks.",
-      "Ready when you are. Ask me anything!",
-      "What's the weather like today?",
-      "That's interesting! Let me look into it.",
-    ];
-    var demoIdx = 0;
-    orb.el.addEventListener('click', function() {
-      speak(demos[demoIdx % demos.length]);
-      demoIdx++;
-    });
-
-    // Auto-speak on load
-    setTimeout(function() {
-      speak("Hello! I'm Nally. Click me to hear more.");
-    }, 2200);
-
-    // ─── View Overlay ────────────────────────────
-    var viewOverlay = document.getElementById('view-overlay');
-    var overlayTitle = document.getElementById('overlay-title');
-    var activeView = 'chat';
-
-    function openView(viewName) {
-      activeView = viewName;
-      document.querySelectorAll('.view-panel').forEach(function(p) { p.classList.remove('active'); });
-      var panel = document.getElementById('view-' + viewName);
-      if (panel) panel.classList.add('active');
-      var titles = { chat: 'Chat', dashboard: 'Dashboard', files: 'Files', settings: 'Settings' };
-      overlayTitle.textContent = titles[viewName] || viewName;
-      viewOverlay.classList.add('open');
-    }
-
-    function closeOverlay() {
-      viewOverlay.classList.remove('open');
-    }
-
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') closeOverlay();
-    });
-
-    // ─── Chat Functionality ──────────────────────
+    // ─── Chat Drawer (Desktop Window) ─────────────
+    var chatDrawer = document.getElementById('chat-drawer');
     var chatMessages = document.getElementById('chat-messages');
     var chatInput = document.getElementById('chat-input');
-    var msgCount = 0;
+    var titlebar = document.getElementById('drawer-titlebar');
+    var drawerOpen = false;
+    var isMaximized = false;
+    var savedBounds = null;
 
-    function addChatMsg(text, isUser) {
+    function toggleDrawer() {
+      drawerOpen = !drawerOpen;
+      chatDrawer.classList.toggle('open', drawerOpen);
+      if (drawerOpen) {
+        chatDrawer.style.top = '50%';
+        chatDrawer.style.left = '50%';
+        chatDrawer.style.transform = 'translate(-50%, -50%)';
+        setTimeout(function() { chatInput.focus(); }, 300);
+      }
+    }
+    function closeDrawer() {
+      drawerOpen = false;
+      chatDrawer.classList.remove('open', 'maximized');
+      isMaximized = false;
+    }
+    function minimizeDrawer() {
+      chatDrawer.classList.remove('open');
+      drawerOpen = false;
+    }
+    function maximizeDrawer() {
+      if (isMaximized) {
+        chatDrawer.classList.remove('maximized');
+        if (savedBounds) {
+          chatDrawer.style.top = savedBounds.top;
+          chatDrawer.style.left = savedBounds.left;
+          chatDrawer.style.width = savedBounds.width;
+          chatDrawer.style.height = savedBounds.height;
+          chatDrawer.style.transform = 'none';
+        }
+        isMaximized = false;
+      } else {
+        savedBounds = {
+          top: chatDrawer.style.top || '50%',
+          left: chatDrawer.style.left || '50%',
+          width: chatDrawer.style.width || '560px',
+          height: chatDrawer.style.height || '480px',
+        };
+        chatDrawer.classList.add('maximized');
+        isMaximized = true;
+      }
+    }
+
+    // Double-click title bar to maximize/restore
+    titlebar.addEventListener('dblclick', function(e) {
+      if (e.target.classList.contains('dot')) return;
+      maximizeDrawer();
+    });
+
+    // ─── Drag ─────────────────────────────────────
+    var dragState = { active: false, offsetX: 0, offsetY: 0 };
+
+    titlebar.addEventListener('mousedown', function(e) {
+      if (e.target.classList.contains('dot')) return;
+      if (isMaximized) return;
+      dragState.active = true;
+      var rect = chatDrawer.getBoundingClientRect();
+      dragState.offsetX = e.clientX - rect.left;
+      dragState.offsetY = e.clientY - rect.top;
+      chatDrawer.style.transform = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!dragState.active) return;
+      var x = e.clientX - dragState.offsetX;
+      var y = e.clientY - dragState.offsetY;
+      chatDrawer.style.left = x + 'px';
+      chatDrawer.style.top = y + 'px';
+    });
+
+    document.addEventListener('mouseup', function() {
+      dragState.active = false;
+    });
+
+    // ─── Resize ───────────────────────────────────
+    var resizeState = { active: false, dir: '', startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0 };
+
+    document.querySelectorAll('.resize-handle').forEach(function(handle) {
+      handle.addEventListener('mousedown', function(e) {
+        if (isMaximized) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var rect = chatDrawer.getBoundingClientRect();
+        resizeState.active = true;
+        resizeState.dir = handle.dataset.dir;
+        resizeState.startX = e.clientX;
+        resizeState.startY = e.clientY;
+        resizeState.startW = rect.width;
+        resizeState.startH = rect.height;
+        resizeState.startL = rect.left;
+        resizeState.startT = rect.top;
+        chatDrawer.style.transform = 'none';
+      });
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!resizeState.active) return;
+      var dx = e.clientX - resizeState.startX;
+      var dy = e.clientY - resizeState.startY;
+      var dir = resizeState.dir;
+      var minW = 320, minH = 260;
+      var newW = resizeState.startW, newH = resizeState.startH;
+      var newL = resizeState.startL, newT = resizeState.startT;
+
+      if (dir.includes('e')) newW = Math.max(minW, resizeState.startW + dx);
+      if (dir.includes('w')) { newW = Math.max(minW, resizeState.startW - dx); newL = resizeState.startL + (resizeState.startW - newW); }
+      if (dir.includes('s')) newH = Math.max(minH, resizeState.startH + dy);
+      if (dir.includes('n')) { newH = Math.max(minH, resizeState.startH - dy); newT = resizeState.startT + (resizeState.startH - newH); }
+
+      chatDrawer.style.width = newW + 'px';
+      chatDrawer.style.height = newH + 'px';
+      chatDrawer.style.left = newL + 'px';
+      chatDrawer.style.top = newT + 'px';
+    });
+
+    document.addEventListener('mouseup', function() {
+      resizeState.active = false;
+    });
+
+    // ─── Chat Logic ───────────────────────────────
+    function addChatMsg(text, isNally) {
       var msg = document.createElement('div');
-      msg.style.cssText = 'padding:10px 14px;margin:6px 0;border-radius:8px;font-size:14px;line-height:1.5;max-width:85%;'
-        + (isUser
-          ? 'background:rgba(124,106,239,0.15);color:rgba(228,226,220,0.85);margin-left:auto;border:1px solid rgba(124,106,239,0.2);'
-          : 'background:rgba(255,255,255,0.04);color:rgba(228,226,220,0.7);border:1px solid rgba(255,255,255,0.05);');
-      msg.textContent = text;
+      msg.className = 'drawer-msg ' + (isNally ? 'nally' : 'user');
+      if (isNally) {
+        var label = document.createElement('div');
+        label.className = 'msg-label';
+        label.textContent = 'NALLY';
+        msg.appendChild(label);
+      }
+      var body = document.createElement('div');
+      body.textContent = text;
+      msg.appendChild(body);
       chatMessages.appendChild(msg);
       chatMessages.scrollTop = chatMessages.scrollHeight;
-      msgCount++;
-      document.getElementById('dash-requests').textContent = msgCount;
     }
+
+    var responses = [
+      "I hear you. Let me think about that.",
+      "Interesting. Give me a moment.",
+      "On it. Processing your request now.",
+      "Got it. I'll look into that for you.",
+      "Roger that. Working on it.",
+    ];
 
     function sendChat() {
       var text = chatInput.value.trim();
       if (!text) return;
-      addChatMsg(text, true);
+      addChatMsg(text, false);
       chatInput.value = '';
-      // Simulate response
+
+      var phrase = thinkPhrases[Math.floor(Math.random() * thinkPhrases.length)];
+      think(phrase);
+
       setTimeout(function() {
-        addChatMsg("I received your message. Backend integration coming soon.", false);
-      }, 800);
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        var reply = responses[Math.floor(Math.random() * responses.length)];
+        addChatMsg(reply, true);
+        speak(reply);
+      }, 1200 + Math.random() * 800);
     }
+
+    // Orb click toggles drawer
+    orb.el.addEventListener('click', function() {
+      toggleDrawer();
+    });
+
+    // Escape to close
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && drawerOpen) closeDrawer();
+    });
 
     // ─── Uptime Counter ──────────────────────────
     var startTime = Date.now();
