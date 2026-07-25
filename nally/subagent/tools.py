@@ -36,7 +36,7 @@ class Agent(Tool):
                         },
                         "required": ["goal"],
                     },
-                    "description": "List of tasks for spawn (each has goal + optional context)",
+                    "description": "List of tasks for spawn. Each item MUST be an object with a goal key, e.g. {\"goal\": \"read file X\", \"context\": \"optional background\"}. Do NOT send plain strings.",
                 },
                 "task_ids": {
                     "type": "array",

@@ -29,7 +29,11 @@ class SubAgentPool:
 
     def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None) -> List[str]:
         """Spawn multiple sub-agents in parallel. Each task: {goal, context}"""
-        return [self.spawn(t.get("goal", ""), t.get("context", ""), emit) for t in tasks]
+        return [self.spawn(
+            t.get("goal", "") if isinstance(t, dict) else str(t),
+            t.get("context", "") if isinstance(t, dict) else "",
+            emit
+        ) for t in tasks]
 
     def get_status(self, agent_id: str) -> Optional[dict]:
         """Get status of a single sub-agent."""
