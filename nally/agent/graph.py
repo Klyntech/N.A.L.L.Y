@@ -275,9 +275,23 @@ def llm_call(state: AgentState) -> AgentState:
 
     if tool_calls_total >= MAX_TOOL_CALLS:
         logger.warning(f"Circuit breaker: {tool_calls_total} total tool calls, stopping agent")
-        fallback = AIMessage(
-            content="I've reached the maximum number of tool calls for this session. Here's what I found so far."
-        )
+        # Make one final LLM call to summarize findings — no tools, no recursion
+        try:
+            summary_msgs = _convert_to_openai(messages) + [{
+                "role": "system",
+                "content": (
+                    "You have reached the maximum number of tool calls. "
+                    "Do NOT call any more tools. Instead, summarize everything you have found so far "
+                    "based on the conversation history and tool results. Be thorough and specific — "
+                    "reference actual findings, not generic placeholders."
+                ),
+            }]
+            response = llm.chat(summary_msgs, tools=None, cache_key=cache_key)
+            summary = response.choices[0].message.content or "I've reached the tool call limit. Here's what I found so far."
+        except Exception as e:
+            logger.warning(f"Circuit breaker summary call failed: {e}")
+            summary = "I've reached the maximum number of tool calls. Please try again or rephrase your request."
+        fallback = AIMessage(content=summary)
         return {"messages": [fallback], "iteration": iteration + 1}
 
     emit = _get_emit()
