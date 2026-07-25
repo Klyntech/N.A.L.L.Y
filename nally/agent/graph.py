@@ -3,6 +3,7 @@
 State machine using LangGraph. ReAct pattern:
 Think -> Use Tool -> Observe -> Think -> ... -> Finish
 """
+import difflib
 import json
 import re
 import threading
@@ -20,6 +21,48 @@ from ..tools.permissions import gate as permission_gate
 from ..core.errors import LLMError, ToolError, PermissionDenied
 from ..config import DATABASE_URL, ensure_data_dir
 from ..utils.logger import logger
+
+
+def _compute_file_diff(tool_args: dict) -> Optional[str]:
+    """Compute a unified diff for file_ops write operations.
+
+    Reads the current file (if it exists) and diffs it against the proposed content.
+    Returns None if not applicable (not a write, file not readable, etc.).
+    """
+    try:
+        if tool_args.get("action") != "write":
+            return None
+        file_path = tool_args.get("file_path", "")
+        new_content = tool_args.get("content", "")
+        if not file_path or new_content is None:
+            return None
+
+        path = Path(file_path)
+        if path.exists() and path.is_file():
+            old_content = path.read_text(encoding="utf-8")
+        else:
+            old_content = ""  # new file
+
+        old_lines = old_content.splitlines(keepends=True)
+        new_lines = new_content.splitlines(keepends=True)
+
+        diff = list(difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{file_path}",
+            tofile=f"b/{file_path}",
+            lineterm="",
+        ))
+
+        if not diff:
+            return None
+
+        # Cap at 100 lines to avoid massive payloads
+        if len(diff) > 100:
+            diff = diff[:100] + [f"\n... ({len(diff) - 100} more lines)"]
+
+        return "".join(diff)
+    except Exception:
+        return None
 
 
 def _parse_text_tool_calls(text: str) -> tuple:
@@ -346,14 +389,20 @@ def tool_executor(state: AgentState) -> AgentState:
             approval_event = threading.Event()
             _approval_events[tool_id] = approval_event
 
+            # Compute diff preview for file write operations
+            diff = _compute_file_diff(tool_args)
+
             if emit:
                 try:
-                    emit("confirmation_required", {
+                    payload = {
                         "tool_call_id": tool_id,
                         "name": tool_name,
                         "args": tool_args,
                         "permission": "ask",
-                    })
+                    }
+                    if diff:
+                        payload["diff"] = diff
+                    emit("confirmation_required", payload)
                 except Exception:
                     pass
 

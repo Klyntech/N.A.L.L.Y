@@ -214,6 +214,25 @@ function ApprovalModal(props) {
           <div style=${{ fontSize: '12px', color: 'rgba(124,106,239,0.7)', fontFamily: 'var(--mono)', marginBottom: '6px' }}>${approval.name}</div>
           <div style=${{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)', wordBreak: 'break-all', maxHeight: '80px', overflow: 'auto' }}>${JSON.stringify(approval.args, null, 2)}</div>
         </div>
+        ${approval.diff ? html`
+          <div style=${{ background: 'rgba(0,0,0,0.4)', borderRadius: '10px', padding: '12px 14px', marginBottom: '20px', border: '1px solid var(--border)', maxHeight: '200px', overflow: 'auto' }}>
+            <div style=${{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)', marginBottom: '6px' }}>Changes:</div>
+            <pre style=${{ margin: 0, fontSize: '11px', fontFamily: 'var(--mono)', lineHeight: '1.5', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>${
+              approval.diff.split('\n').map(function(line) {
+                if (line.startsWith('+') && !line.startsWith('+++')) {
+                  return html`<div style=${{ color: '#4ADE80', background: 'rgba(74,222,128,0.08)' }}>${line}</div>`;
+                }
+                if (line.startsWith('-') && !line.startsWith('---')) {
+                  return html`<div style=${{ color: '#F87171', background: 'rgba(248,113,113,0.08)' }}>${line}</div>`;
+                }
+                if (line.startsWith('@@')) {
+                  return html`<div style=${{ color: 'var(--text-dim)', fontStyle: 'italic' }}>${line}</div>`;
+                }
+                return html`<div>${line}</div>`;
+              })
+            }</pre>
+          </div>
+        ` : ''}
         <div style=${{ display: 'flex', gap: '10px' }}>
           <button onClick=${onDeny} style=${{ flex: 1, padding: '11px', borderRadius: '10px', border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '13px', fontWeight: 500, transition: 'all 0.15s' }}>Deny</button>
           <button onClick=${onApprove} style=${{ flex: 1, padding: '11px', borderRadius: '10px', border: 'none', background: 'var(--iris)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, transition: 'all 0.15s' }}>Allow</button>

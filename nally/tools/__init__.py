@@ -91,6 +91,27 @@ def load_all_tools():
         )
         registry.register(tool)
 
+    # --- Memory Stats (1 tool) ---
+    class MemoryStats(Tool):
+        def __init__(self, mem_store):
+            super().__init__(
+                name="memory_stats",
+                description="Get statistics about stored memories: total count, category breakdown, confidence distribution.",
+            )
+            self.mem_store = mem_store
+
+        def execute(self, **kwargs) -> str:
+            stats = self.mem_store.get_memory_stats()
+            lines = [f"Total memories: {stats['total_memories']}"]
+            if stats.get("by_category"):
+                cats = ", ".join(f"{k}: {v}" for k, v in stats["by_category"].items())
+                lines.append(f"By category: {cats}")
+            lines.append(f"High confidence (>=0.8): {stats.get('high_confidence', 0)}")
+            lines.append(f"Low confidence (<0.5): {stats.get('low_confidence', 0)}")
+            return "\n".join(lines)
+
+    registry.register(MemoryStats(mem_store))
+
     # --- SubAgents (1 tool) ---
     from ..subagent.tools import register_tools as register_subagent_tools
     register_subagent_tools()
