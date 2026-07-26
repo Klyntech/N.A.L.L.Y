@@ -208,11 +208,22 @@ function ServicesPanel(props) {
     github: { icon: 'Github', color: '#E4E2DC', hint: 'Create a PAT at github.com/settings/tokens with repo scope' },
     fetch: { icon: 'Globe', color: '#3ECFB8', hint: 'No token needed — public web access' },
     filesystem: { icon: 'HardDrive', color: '#D4944C', hint: 'Local file access' },
+    notion: { icon: 'FileText', color: '#FFFFFF', hint: 'Log in to Notion — zero config needed' },
+    gmail: { icon: 'Mail', color: '#EA4335', hint: 'Log in with Google — read and compose emails' },
+    gdrive: { icon: 'FolderOpen', color: '#4285F4', hint: 'Log in with Google — access Drive files' },
+    gcalendar: { icon: 'Calendar', color: '#34A853', hint: 'Log in with Google — manage events' },
+    telegram: { icon: 'Send', color: '#26A5E4', hint: 'Bot token from @BotFather' },
   };
 
   function handleConnect(name) {
     var cfg = serviceIcons[name] || {};
-    if (name === 'fetch') {
+    var svc = services.find(function(s) { return s.name === name; });
+    var authMode = svc ? svc.auth_mode : '';
+
+    if (authMode === 'oauth') {
+      // OAuth — redirect to backend which returns auth_url
+      onConnect(name);
+    } else if (name === 'fetch') {
       onConnect(name);
     } else {
       setTokenService(name);
@@ -322,7 +333,7 @@ function ServicesPanel(props) {
                   <${Li} name=${cfg.icon} size=${18} color=${s.connected ? '#3ECFB8' : cfg.color} />
                 </div>
                 <div style=${{ flex: 1, minWidth: 0 }}>
-                  <div style=${{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', textTransform: 'capitalize' }}>${s.name}</div>
+                  <div style=${{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: '6px' }}>${s.name}${s.auth_mode === 'oauth' ? html`<span style=${{ fontSize: '9px', padding: '1px 5px', borderRadius: '4px', background: 'rgba(124,106,239,0.15)', color: 'var(--iris)', fontFamily: 'var(--mono)', letterSpacing: '0.5px', fontWeight: 600 }}>OAUTH</span>` : ''}</div>
                   <div style=${{ fontSize: '11px', color: 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>${s.description || s.transport}</div>
                 </div>
                 <div style=${{
@@ -457,6 +468,22 @@ function App() {
       .then(function(data) { if (data && data.services) setServices(data.services); })
       .catch(function() {});
   }, [connected]);
+
+  // ─── Handle OAuth callback redirect ──────────────
+  useEffect(function() {
+    var params = new URLSearchParams(window.location.search);
+    var oauthStatus = params.get('oauth');
+    var serviceName = params.get('service');
+    if (oauthStatus === 'success' && serviceName) {
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+      // Refresh services
+      fetch('/api/mcp/services', { headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) { if (data && data.services) setServices(data.services); })
+        .catch(function() {});
+    }
+  }, []);
 
   function handleServiceConnect(name) {
     fetch('/api/mcp/connect/' + name, { method: 'POST', headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } })

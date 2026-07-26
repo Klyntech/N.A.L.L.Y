@@ -41,7 +41,7 @@ class MCPTool(Tool):
 
     async def _call_stdio(self, arguments: dict) -> str:
         """Call via stdio transport (subprocess)."""
-        from mcp import Client, StdioServerParameters
+        from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
         config = self._server_config
@@ -51,29 +51,41 @@ class MCPTool(Tool):
             env=config.get("env"),
         )
 
-        async with Client(stdio_client(server)) as client:
-            result = await client.call_tool(self.name, arguments)
-            return _extract_result(result)
+        async with stdio_client(server) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(self.name, arguments)
+                return _extract_result(result)
 
     async def _call_http(self, arguments: dict) -> str:
         """Call via HTTP transport with stored token as Bearer header."""
-        from mcp import Client
-        from mcp.client.streamable_http import streamablehttp_client
         from nally.mcp.oauth import SQLiteTokenStorage
-        from mcp.shared.auth import OAuthToken
+        import httpx, json
 
         config = self._server_config
         db = str(DATA_DIR / "nally.db")
         storage = SQLiteTokenStorage(db, config["name"])
         token = await storage.get_tokens()
 
-        headers = {}
+        headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
         if token:
             headers["Authorization"] = f"Bearer {token.access_token}"
 
-        async with Client(streamablehttp_client(config["url"], headers=headers)) as client:
-            result = await client.call_tool(self.name, arguments)
-            return _extract_result(result)
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": self.name.removeprefix(f"mcp_{config['name']}_"), "arguments": arguments},
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(config["url"], headers=headers, json=payload, timeout=30.0)
+            result = _parse_sse_response(resp.text)
+            if result and "result" in result:
+                content = result["result"].get("content", [])
+                parts = [b.get("text", "") for b in content if b.get("type") == "text"]
+                return "\n".join(parts) if parts else "MCP tool returned no content"
+            return f"MCP tool error: {result}"
 
 
 def _extract_result(result) -> str:
@@ -90,6 +102,22 @@ def _extract_result(result) -> str:
         if hasattr(block, "text"):
             parts.append(block.text)
     return "\n".join(parts) if parts else "MCP tool returned no content"
+
+
+def _parse_sse_response(text: str) -> dict | None:
+    """Parse SSE-formatted MCP response into a dict."""
+    import json
+    for line in text.strip().split("\n"):
+        if line.startswith("data: "):
+            try:
+                return json.loads(line[6:])
+            except json.JSONDecodeError:
+                continue
+    # Try plain JSON
+    try:
+        return json.loads(text.strip())
+    except (json.JSONDecodeError, ValueError):
+        return None
 
 
 def _wrap_mcp_schema(tool_info) -> dict:
@@ -116,8 +144,8 @@ def _wrap_mcp_schema(tool_info) -> dict:
 def connect_mcp_servers(reg):
     """Connect to all configured MCP servers and register their tools.
 
-    Stdio servers: connects immediately, fetches tools.
-    HTTP servers: skipped at startup (tools discovered after OAuth login).
+    Stdio servers: connects with timeout, fetches tools.
+    HTTP servers: skipped at startup (tools registered after user connects).
     """
     if not MCP_SERVERS:
         return
@@ -128,12 +156,13 @@ def connect_mcp_servers(reg):
         permission = server_config.get("permission", "write")
 
         if transport == "http":
-            # HTTP servers need OAuth — tools registered after user connects
-            logger.info(f"MCP server '{name}': HTTP transport, awaiting OAuth connection")
+            logger.info(f"MCP server '{name}': HTTP transport, awaiting connection")
             continue
 
         try:
             _connect_stdio_server(reg, server_config, permission)
+        except TimeoutError:
+            logger.warning(f"MCP server '{name}': connection timed out, skipping")
         except Exception as e:
             logger.error(f"MCP server '{name}' failed to connect: {type(e).__name__}: {e}")
 
@@ -143,7 +172,7 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
     name = server_config.get("name", "unknown")
 
     async def _fetch_tools():
-        from mcp import Client, StdioServerParameters
+        from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
         server = StdioServerParameters(
@@ -152,11 +181,13 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
             env=server_config.get("env"),
         )
 
-        async with Client(stdio_client(server)) as client:
-            result = await client.list_tools()
-            return result.tools
+        async with stdio_client(server) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.list_tools()
+                return result.tools
 
-    tools = asyncio.run(_fetch_tools())
+    tools = asyncio.run(asyncio.wait_for(_fetch_tools(), timeout=15.0))
     count = 0
 
     for tool_info in tools:
@@ -178,7 +209,7 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
 
 async def connect_http_server(server_config: dict, reg=None):
     """Connect to an HTTP MCP server after auth, fetch and register its tools."""
-    from mcp import Client
+    from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
     from nally.mcp.oauth import SQLiteTokenStorage
 
@@ -194,23 +225,52 @@ async def connect_http_server(server_config: dict, reg=None):
         headers["Authorization"] = f"Bearer {token.access_token}"
 
     try:
-        async with Client(streamablehttp_client(server_config["url"], headers=headers)) as client:
-            result = await client.list_tools()
-            count = 0
-            for tool_info in result.tools:
-                tool_name = f"mcp_{name}_{tool_info.name}"
-                params = _wrap_mcp_schema(tool_info)
-                mcp_tool = MCPTool(
-                    name=tool_name,
-                    description=tool_info.description or f"MCP tool: {tool_info.name}",
-                    parameters=params,
-                    server_config=server_config,
-                    permission=server_config.get("permission", "write"),
-                )
-                reg.register(mcp_tool)
-                count += 1
-            logger.info(f"MCP HTTP server '{name}': registered {count} tools")
-            return count
+        async with streamablehttp_client(server_config["url"], headers=headers) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.list_tools()
+                count = 0
+                for tool_info in result.tools:
+                    tool_name = f"mcp_{name}_{tool_info.name}"
+                    params = _wrap_mcp_schema(tool_info)
+                    mcp_tool = MCPTool(
+                        name=tool_name,
+                        description=tool_info.description or f"MCP tool: {tool_info.name}",
+                        parameters=params,
+                        server_config=server_config,
+                        permission=server_config.get("permission", "write"),
+                    )
+                    reg.register(mcp_tool)
+                    count += 1
+                logger.info(f"MCP HTTP server '{name}': registered {count} tools")
+                return count
     except Exception as e:
         logger.error(f"MCP HTTP server '{name}' failed: {type(e).__name__}: {e}")
+        return 0
+
+
+def connect_stdio_with_token(server_config: dict, reg=None) -> int:
+    """Connect to a stdio MCP server that needs an env var token (e.g. Telegram).
+
+    Reads the token from the env var specified in server_config['env_key'],
+    passes it to the subprocess, fetches and registers tools.
+    Returns tool count, or 0 if env var is missing or connection fails.
+    """
+    import os
+    name = server_config.get("name", "unknown")
+    env_key = server_config.get("env_key", "")
+    token_value = os.getenv(env_key, "")
+
+    if not token_value:
+        logger.info(f"MCP stdio '{name}': no {env_key} set, skipping")
+        return 0
+
+    env = {**os.environ, env_key: token_value}
+    config_with_env = {**server_config, "env": env}
+
+    try:
+        _connect_stdio_server(reg or registry, config_with_env, server_config.get("permission", "write"))
+        return len([t for t in (reg or registry).tools if t.name.startswith(f"mcp_{name}_")])
+    except Exception as e:
+        logger.error(f"MCP stdio '{name}' failed: {type(e).__name__}: {e}")
         return 0

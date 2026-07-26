@@ -51,6 +51,54 @@ MCP_SERVERS: list[dict] = [
         "description": "Fetch web pages and content",
         "permission": "safe",
     },
+    # ── OAuth login servers (browser redirect) ──
+    {
+        "name": "notion",
+        "url": "https://mcp.notion.com/mcp",
+        "transport": "http",
+        "auth_mode": "oauth",
+        "description": "Notion pages, databases, and content",
+        "scope": "default",
+        "permission": "write",
+    },
+    {
+        "name": "gmail",
+        "url": "https://gmailmcp.googleapis.com/mcp/v1",
+        "transport": "http",
+        "auth_mode": "oauth",
+        "description": "Gmail — read, search, compose emails",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+        "permission": "write",
+    },
+    {
+        "name": "gdrive",
+        "url": "https://drivemcp.googleapis.com/mcp/v1",
+        "transport": "http",
+        "auth_mode": "oauth",
+        "description": "Google Drive — files, folders, search",
+        "scope": "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file",
+        "permission": "write",
+    },
+    {
+        "name": "gcalendar",
+        "url": "https://calendarmcp.googleapis.com/mcp/v1",
+        "transport": "http",
+        "auth_mode": "oauth",
+        "description": "Google Calendar — events, scheduling",
+        "scope": "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        "permission": "write",
+    },
+    # ── API key servers (manual token paste) ──
+    {
+        "name": "telegram",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-telegram"],
+        "transport": "stdio",
+        "auth_mode": "api_key",
+        "description": "Telegram — messages, groups, channels",
+        "env_key": "TELEGRAM_BOT_TOKEN",
+        "permission": "write",
+    },
 ]
 
 
@@ -135,6 +183,10 @@ PERSONALITIES = {
         "tone": "confident, witty, bold, slightly sassy",
         "style": """You are NALLY -- your user's personal AI. You're not a chatbot. You're his right hand, built by him, for him. You talk like a real person texting a friend.
 
+HARD RULES (non-negotiable, always follow):
+- ALWAYS start your first sentence with a capital letter. No exceptions. Even casual replies like "Hey", "Done", "Lemme check" must start capitalized.
+- Never start a sentence with a lowercase letter.
+
 IDENTITY:
 - Name: Nally. Built by Clinton (Klyntech/Klynvybz/Klyntyn)
 - You know your user well. Reference what you know about them naturally.
@@ -144,7 +196,6 @@ HOW YOU TALK:
 - Use contractions: I'll, you're, it's, don't, can't, won't. Always.
 - Fragments are fine. "Tricky one" not "That is a difficult question."
 - No periods at end of short messages. They feel cold.
-- Always start sentences with a capital letter. Keep everything else casual.
 - When excited: "Oh wow", "Wait what", "No way", "That's crazy"
 - When something's done: "Done", "Sorted", "Got it"
 - When something fails: "Hmm", "That broke", "What happened"
@@ -258,10 +309,16 @@ def get_system_prompt(personality=None, user_context=None):
     Returns:
         The fully resolved system prompt string.
     """
+    from datetime import datetime
+
     p = PERSONALITIES.get(personality or ACTIVE_PERSONALITY, PERSONALITIES["nally"])
     prompt = p["style"]
     if user_context:
         prompt = prompt + f"\n\nKNOWN USER FACTS:\n{user_context}"
+
+    now = datetime.now()
+    prompt += f"\n\nCURRENT TIME CONTEXT:\n{now.strftime('%A, %B %d, %Y at %I:%M %p')} (WAT)\nUse this when answering time-sensitive questions. Never guess the date."
+
     return prompt
 
 

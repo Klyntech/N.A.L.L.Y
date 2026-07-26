@@ -12,7 +12,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse, HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -355,36 +355,76 @@ async def mcp_services(_auth=Depends(verify_auth)):
     """List available MCP services and their connection status."""
     from nally.config import MCP_SERVERS
     from nally.mcp.oauth import get_existing_tokens
+    import os
 
     db = str(DATA_DIR / "nally.db")
     services = []
     for server in MCP_SERVERS:
         name = server["name"]
-        token = await get_existing_tokens(name, db)
-        services.append({
-            "name": name,
-            "transport": server["transport"],
-            "description": server.get("description", ""),
-            "connected": token is not None,
-        })
+        auth_mode = server.get("auth_mode", "")
+        transport = server["transport"]
+
+        if transport == "stdio" and auth_mode == "api_key":
+            # Stdio services with env var token — check if env var is set
+            env_key = server.get("env_key", "")
+            token_set = bool(os.getenv(env_key, ""))
+            services.append({
+                "name": name,
+                "transport": transport,
+                "auth_mode": auth_mode,
+                "description": server.get("description", ""),
+                "connected": token_set,
+            })
+        else:
+            token = await get_existing_tokens(name, db)
+            services.append({
+                "name": name,
+                "transport": transport,
+                "auth_mode": auth_mode,
+                "description": server.get("description", ""),
+                "connected": token is not None,
+            })
     return {"services": services}
 
 
 @app.post("/api/mcp/connect/{service}")
 async def mcp_connect(service: str, _auth=Depends(verify_auth)):
-    """Check connection status for an HTTP MCP service."""
+    """Initiate connection for an MCP service.
+
+    OAuth services: returns auth_url for browser redirect.
+    API key services: returns status.
+    """
     from nally.config import MCP_SERVERS, DATA_DIR
-    from nally.mcp.oauth import SQLiteTokenStorage
+    from nally.mcp.oauth import SQLiteTokenStorage, get_existing_tokens
 
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
     if server_cfg is None:
         raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
 
     db = str(DATA_DIR / "nally.db")
-    storage = SQLiteTokenStorage(db, service)
-    token = await storage.get_tokens()
-    if token:
+    auth_mode = server_cfg.get("auth_mode", "")
+
+    # Check if already connected
+    existing = await get_existing_tokens(service, db)
+    if existing:
         return {"status": "connected", "service": service}
+
+    if auth_mode == "oauth":
+        # Start OAuth flow — return auth_url for browser redirect
+        if service == "notion":
+            from nally.mcp.oauth import start_notion_oauth
+            auth_url = await start_notion_oauth(db)
+            return {"status": "auth_required", "auth_url": auth_url, "service": service}
+        elif service in ("gmail", "gdrive", "gcalendar"):
+            from nally.mcp.oauth import start_google_oauth
+            try:
+                auth_url = await start_google_oauth(service, db)
+                return {"status": "auth_required", "auth_url": auth_url, "service": service}
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        else:
+            raise HTTPException(status_code=400, detail=f"OAuth not configured for {service}")
+
     return {"status": "disconnected", "service": service}
 
 
@@ -393,7 +433,7 @@ class TokenSubmit(BaseModel):
 
 @app.post("/api/mcp/token/{service}")
 async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify_auth)):
-    """Submit a PAT/API token for an HTTP MCP service."""
+    """Submit a PAT/API token for an HTTP MCP service, or bot token for stdio."""
     from nally.config import MCP_SERVERS, DATA_DIR
     from nally.mcp.oauth import SQLiteTokenStorage
     from mcp.shared.auth import OAuthToken
@@ -403,11 +443,26 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
         raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
 
     db = str(DATA_DIR / "nally.db")
+    transport = server_cfg.get("transport", "http")
+
+    if transport == "stdio":
+        # Stdio service (e.g. Telegram) — store token in env and connect
+        env_key = server_cfg.get("env_key", "")
+        if env_key:
+            import os
+            os.environ[env_key] = body.token
+        from nally.mcp.client import connect_stdio_with_token
+        try:
+            count = connect_stdio_with_token(server_cfg)
+        except Exception:
+            count = 0
+        return {"status": "connected", "service": service, "tools": count}
+
+    # HTTP service — store as OAuthToken
     storage = SQLiteTokenStorage(db, service)
     token = OAuthToken(access_token=body.token, token_type="bearer")
     await storage.set_tokens(token)
 
-    # Try to connect and fetch tools (may fail with invalid token — that's OK)
     from nally.mcp.client import connect_http_server
     try:
         count = await connect_http_server(server_cfg)
@@ -417,87 +472,93 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
     return {"status": "connected", "service": service, "tools": count}
 
 
-@app.get("/api/oauth/callback")
-async def oauth_callback(code: str = "", state: str = "", error: str = ""):
-    """OAuth callback endpoint — exchanges authorization code for tokens."""
-    from nally.config import MCP_SERVERS, DATA_DIR
-    from nally.mcp.oauth import SQLiteTokenStorage
-    import httpx
+# ── API: OAuth Callbacks ──────────────────────────────────
 
+REDIRECT_HTML = """<!DOCTYPE html>
+<html><head><title>Authorized</title>
+<style>body{background:#0a0a0a;color:#3ECFB8;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
+.msg{text-align:center;}.check{font-size:48px;margin-bottom:16px;}</style>
+</head><body>
+<div class="msg"><div class="check">✓</div><div>SERVICE authorized successfully</div>
+<div style="color:#666;font-size:12px;margin-top:8px;">Redirecting...</div></div>
+<script>setTimeout(function(){window.location='/?oauth=success&service=SERVICE';},800);</script>
+</body></html>"""
+
+
+@app.get("/api/oauth/notion/callback")
+async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Notion OAuth callback — exchanges code for tokens."""
     if error:
-        return JSONResponse(
-            status_code=400,
-            content={"error": error, "message": "Authorization failed"},
-        )
+        return JSONResponse(status_code=400, content={"error": error})
     if not code:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "missing_code", "message": "No authorization code received"},
-        )
+        return JSONResponse(status_code=400, content={"error": "missing_code"})
 
-    for server in MCP_SERVERS:
-        if server["transport"] != "http":
-            continue
-        name = server["name"]
-        db = str(DATA_DIR / "nally.db")
-        storage = SQLiteTokenStorage(db, name)
-        client_info = await storage.get_client_info()
-        if not client_info:
-            continue
+    from nally.config import DATA_DIR
+    from nally.mcp.oauth import exchange_notion_code
+    from nally.mcp.client import connect_http_server
+    from nally.config import MCP_SERVERS
 
-        server_url = server["url"]
-        well_known_url = server_url.rstrip("/") + "/.well-known/oauth-protected-resource"
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+    db = str(DATA_DIR / "nally.db")
+    success = await exchange_notion_code(code, db)
+    if not success:
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+
+    # Connect and fetch tools
+    server_cfg = next((s for s in MCP_SERVERS if s["name"] == "notion"), None)
+    if server_cfg:
+        try:
+            await connect_http_server(server_cfg)
+        except Exception:
+            pass
+
+    html = REDIRECT_HTML.replace("SERVICE", "Notion")
+    return HTMLResponse(content=html)
+
+
+@app.get("/api/oauth/google/callback")
+async def google_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Google OAuth callback — exchanges code for tokens (shared by Gmail/Drive/Calendar)."""
+    if error:
+        return JSONResponse(status_code=400, content={"error": error})
+    if not code:
+        return JSONResponse(status_code=400, content={"error": "missing_code"})
+
+    from nally.config import DATA_DIR, MCP_SERVERS
+    from nally.mcp.oauth import exchange_google_code, GOOGLE_SERVICES
+    from nally.mcp.client import connect_http_server
+
+    db = str(DATA_DIR / "nally.db")
+    success = await exchange_google_code(code, db)
+    if not success:
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+
+    # Connect and fetch tools for all Google services
+    for svc_name in GOOGLE_SERVICES:
+        server_cfg = next((s for s in MCP_SERVERS if s["name"] == svc_name), None)
+        if server_cfg:
             try:
-                resp = await client.get(well_known_url, timeout=10.0)
-                prm = resp.json()
-                auth_server_url = prm.get("authorization_server", server_url.rstrip("/") + "/.well-known/oauth-authorization-server")
-                resp2 = await client.get(auth_server_url, timeout=10.0)
-                as_meta = resp2.json()
+                await connect_http_server(server_cfg)
             except Exception:
-                continue
+                pass
 
-        token_endpoint = as_meta.get("token_endpoint")
-        if not token_endpoint:
-            continue
-
-        redirect_uri = client_info.redirect_uris[0] if client_info.redirect_uris else "http://localhost:5000/api/oauth/callback"
-        async with httpx.AsyncClient() as client:
-            token_resp = await client.post(token_endpoint, data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "client_id": client_info.client_id,
-                "client_secret": client_info.client_secret,
-            }, timeout=10.0)
-
-            if token_resp.status_code == 200:
-                token_data = token_resp.json()
-                from mcp.shared.auth import OAuthToken
-                token = OAuthToken(
-                    access_token=token_data["access_token"],
-                    token_type=token_data.get("token_type", "bearer"),
-                    expires_in=token_data.get("expires_in"),
-                    refresh_token=token_data.get("refresh_token"),
-                )
-                await storage.set_tokens(token)
-                from nally.mcp.client import connect_http_server
-                await connect_http_server(server)
-                return {"status": "authorized", "service": name}
-
-    return JSONResponse(
-        status_code=400,
-        content={"error": "exchange_failed", "message": "Token exchange failed for all services"},
-    )
+    html = REDIRECT_HTML.replace("SERVICE", "Google Workspace")
+    return HTMLResponse(content=html)
 
 
 @app.post("/api/mcp/disconnect/{service}")
 async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
     """Disconnect an MCP service by removing stored tokens."""
     from nally.config import DATA_DIR
-    from nally.mcp.oauth import revoke_service
+    from nally.mcp.oauth import revoke_service, GOOGLE_SERVICES
 
     db = str(DATA_DIR / "nally.db")
+
+    # Google services share one token — disconnect all
+    if service in GOOGLE_SERVICES:
+        for svc in GOOGLE_SERVICES:
+            revoke_service(svc, db)
+        return {"status": "disconnected"}
+
     removed = revoke_service(service, db)
     return {"status": "disconnected" if removed else "not_connected"}
 

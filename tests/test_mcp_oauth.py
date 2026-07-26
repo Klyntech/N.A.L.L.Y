@@ -1,5 +1,7 @@
-"""Tests for OAuth manager: token storage, callback flow, provider creation."""
+"""Tests for OAuth manager: token storage, callback flow, provider creation, PKCE, Notion/Google flows."""
 import asyncio
+import base64
+import hashlib
 import os
 import sqlite3
 import tempfile
@@ -13,6 +15,8 @@ from nally.mcp.oauth import (
     get_auth_url,
     revoke_service,
     get_existing_tokens,
+    generate_pkce,
+    _pending_pkce,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -149,3 +153,198 @@ def test_create_oauth_provider(tmp_db):
         db_path=tmp_db,
     ))
     assert isinstance(provider, OAuthClientProvider)
+
+
+# ── PKCE ─────────────────────────────────────────────────
+
+def test_generate_pkce_returns_two_strings():
+    """generate_pkce returns (code_verifier, code_challenge) tuple."""
+    verifier, challenge = generate_pkce()
+    assert isinstance(verifier, str)
+    assert isinstance(challenge, str)
+    assert len(verifier) > 0
+    assert len(challenge) > 0
+
+
+def test_generate_pkce_challenge_is_s256():
+    """code_challenge is BASE64URL(SHA-256(code_verifier))."""
+    verifier, challenge = generate_pkce()
+    expected = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    assert challenge == expected
+
+
+def test_generate_pkce_unique():
+    """Each call produces different verifiers."""
+    v1, c1 = generate_pkce()
+    v2, c2 = generate_pkce()
+    assert v1 != v2
+    assert c1 != c2
+
+
+# ── Notion OAuth ─────────────────────────────────────────
+
+def test_start_notion_oauth_builds_auth_url(tmp_db):
+    """start_notion_oauth performs DCR and returns a Notion authorize URL."""
+    from nally.mcp.oauth import start_notion_oauth, NOTION_AUTH_ENDPOINT
+
+    mock_dcr = {"client_id": "test_client_123", "client_id_issued_at": 12345}
+    mock_response = MagicMock()
+    mock_response.json.return_value = mock_dcr
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.post = AsyncMock(return_value=mock_response)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        auth_url = asyncio.run(start_notion_oauth(tmp_db))
+
+    assert auth_url.startswith(NOTION_AUTH_ENDPOINT)
+    assert "client_id=test_client_123" in auth_url
+    assert "code_challenge=" in auth_url
+    assert "code_challenge_method=S256" in auth_url
+    assert "state=" in auth_url
+    # Verify PKCE state was stored
+    assert "notion" in _pending_pkce
+    assert _pending_pkce["notion"]["client_id"] == "test_client_123"
+
+
+def test_exchange_notion_code_success(tmp_db):
+    """exchange_notion_code exchanges code and stores token."""
+    from nally.mcp.oauth import exchange_notion_code
+
+    # Set up pending state
+    _pending_pkce["notion"] = {
+        "code_verifier": "test_verifier",
+        "client_id": "test_client",
+        "state": "test_state",
+    }
+
+    mock_token_resp = MagicMock()
+    mock_token_resp.status_code = 200
+    mock_token_resp.json.return_value = {
+        "access_token": "ntn_test_token",
+        "token_type": "bearer",
+        "expires_in": 28800,
+        "refresh_token": "ntn_refresh",
+    }
+
+    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.post = AsyncMock(return_value=mock_token_resp)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        result = asyncio.run(exchange_notion_code("auth_code_123", tmp_db))
+
+    assert result is True
+    assert "notion" not in _pending_pkce
+    # Verify token was stored
+    storage = SQLiteTokenStorage(tmp_db, "notion")
+    token = asyncio.run(storage.get_tokens())
+    assert token is not None
+    assert token.access_token == "ntn_test_token"
+
+
+def test_exchange_notion_code_no_pending():
+    """exchange_notion_code returns False when no pending state."""
+    from nally.mcp.oauth import exchange_notion_code
+    # Ensure no pending state for notion
+    _pending_pkce.pop("notion", None)
+    result = asyncio.run(exchange_notion_code("code", "/tmp/nonexistent.db"))
+    assert result is False
+
+
+# ── Google OAuth ─────────────────────────────────────────
+
+def test_get_google_credentials_missing():
+    """_get_google_credentials returns None when env vars missing."""
+    from nally.mcp.oauth import _get_google_credentials
+    with patch.dict(os.environ, {}, clear=True):
+        # Remove google vars if present
+        os.environ.pop("GOOGLE_CLIENT_ID", None)
+        os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+        result = _get_google_credentials()
+        assert result is None
+
+
+def test_get_google_credentials_present():
+    """_get_google_credentials returns (client_id, client_secret) when set."""
+    from nally.mcp.oauth import _get_google_credentials
+    env = {"GOOGLE_CLIENT_ID": "my_id", "GOOGLE_CLIENT_SECRET": "my_secret"}
+    with patch.dict(os.environ, env, clear=False):
+        result = _get_google_credentials()
+        assert result == ("my_id", "my_secret")
+
+
+def test_start_google_oauth_builds_auth_url(tmp_db):
+    """start_google_oauth returns a Google authorize URL."""
+    from nally.mcp.oauth import start_google_oauth, GOOGLE_AUTH_ENDPOINT
+
+    env = {"GOOGLE_CLIENT_ID": "g_id", "GOOGLE_CLIENT_SECRET": "g_secret"}
+    with patch.dict(os.environ, env, clear=False):
+        auth_url = asyncio.run(start_google_oauth("gmail", tmp_db))
+
+    assert auth_url.startswith(GOOGLE_AUTH_ENDPOINT)
+    assert "client_id=g_id" in auth_url
+    assert "code_challenge=" in auth_url
+    assert "access_type=offline" in auth_url
+    assert "prompt=consent" in auth_url
+    assert "google" in _pending_pkce
+    assert _pending_pkce["google"]["service"] == "gmail"
+
+
+def test_start_google_oauth_raises_without_creds(tmp_db):
+    """start_google_oauth raises ValueError when credentials missing."""
+    from nally.mcp.oauth import start_google_oauth
+    with patch.dict(os.environ, {}, clear=True):
+        os.environ.pop("GOOGLE_CLIENT_ID", None)
+        os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+        with pytest.raises(ValueError, match="GOOGLE_CLIENT_ID"):
+            asyncio.run(start_google_oauth("gmail", tmp_db))
+
+
+def test_exchange_google_code_success(tmp_db):
+    """exchange_google_code exchanges code and stores token for all Google services."""
+    from nally.mcp.oauth import exchange_google_code, GOOGLE_SERVICES
+
+    _pending_pkce["google"] = {
+        "code_verifier": "g_verifier",
+        "client_id": "g_client",
+        "state": "g_state",
+        "service": "gmail",
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "access_token": "google_token_abc",
+        "token_type": "bearer",
+        "expires_in": 3600,
+        "refresh_token": "google_refresh",
+    }
+
+    env = {"GOOGLE_CLIENT_ID": "g_client", "GOOGLE_CLIENT_SECRET": "g_secret"}
+    with patch.dict(os.environ, env, clear=False), \
+         patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.post = AsyncMock(return_value=mock_resp)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        result = asyncio.run(exchange_google_code("g_code", tmp_db))
+
+    assert result is True
+    assert "google" not in _pending_pkce
+    # Verify token stored for all Google services
+    for svc in GOOGLE_SERVICES:
+        storage = SQLiteTokenStorage(tmp_db, svc)
+        token = asyncio.run(storage.get_tokens())
+        assert token is not None
+        assert token.access_token == "google_token_abc"
