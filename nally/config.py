@@ -24,6 +24,18 @@ DATA_DIR = BASE_DIR / "data"
 PLUGINS_DIR = BASE_DIR / "plugins"
 ALLOWED_PLUGINS: list[str] = []  # e.g. ["my_tools.py", "custom_agent.py"]
 
+# MCP servers (Model Context Protocol)
+MCP_SERVERS: list[dict] = [
+    {
+        "name": "filesystem",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem",
+                 str(BASE_DIR)],
+        "transport": "stdio",
+        "permission": "write",
+    }
+]
+
 
 def ensure_data_dir():
     """Create data directory if it doesn't exist. Call explicitly, not at import."""

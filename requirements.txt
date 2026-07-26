@@ -25,3 +25,6 @@ Pillow>=10.0.0
 # Windows audio control
 pycaw>=20230407
 comtypes>=1.4.0
+
+# MCP (Model Context Protocol)
+mcp>=1.27,<2

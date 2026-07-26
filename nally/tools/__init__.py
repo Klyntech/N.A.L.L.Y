@@ -187,6 +187,10 @@ def load_all_tools():
     # --- Load user plugins ---
     registry.load_plugins()
 
+    # --- Connect MCP servers ---
+    from ..mcp.client import connect_mcp_servers
+    connect_mcp_servers(registry)
+
     logger.info(f"Nally loaded {len(registry.tools)} tools")
 
 
