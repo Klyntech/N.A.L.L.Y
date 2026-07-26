@@ -38,7 +38,7 @@ MCP_SERVERS: list[dict] = [
     # ── HTTP/OAuth servers (remote, user-authorized) ──
     {
         "name": "github",
-        "url": "https://github.com/github/mcp-server",
+        "url": "https://api.githubcopilot.com/mcp/",
         "transport": "http",
         "description": "GitHub repos, issues, PRs, code search",
         "scope": "repo",

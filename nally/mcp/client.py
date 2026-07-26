@@ -56,22 +56,22 @@ class MCPTool(Tool):
             return _extract_result(result)
 
     async def _call_http(self, arguments: dict) -> str:
-        """Call via HTTP transport with OAuth tokens."""
+        """Call via HTTP transport with stored token as Bearer header."""
         from mcp import Client
         from mcp.client.streamable_http import streamablehttp_client
-        from nally.mcp.oauth import create_oauth_provider
+        from nally.mcp.oauth import SQLiteTokenStorage
+        from mcp.shared.auth import OAuthToken
 
         config = self._server_config
         db = str(DATA_DIR / "nally.db")
+        storage = SQLiteTokenStorage(db, config["name"])
+        token = await storage.get_tokens()
 
-        provider = await create_oauth_provider(
-            service=config["name"],
-            server_url=config["url"],
-            db_path=db,
-            scope=config.get("scope"),
-        )
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token.access_token}"
 
-        async with Client(streamablehttp_client(config["url"], auth=provider)) as client:
+        async with Client(streamablehttp_client(config["url"], headers=headers)) as client:
             result = await client.call_tool(self.name, arguments)
             return _extract_result(result)
 
@@ -177,24 +177,24 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
 
 
 async def connect_http_server(server_config: dict, reg=None):
-    """Connect to an HTTP MCP server after OAuth, fetch and register its tools."""
+    """Connect to an HTTP MCP server after auth, fetch and register its tools."""
     from mcp import Client
     from mcp.client.streamable_http import streamablehttp_client
-    from nally.mcp.oauth import create_oauth_provider
+    from nally.mcp.oauth import SQLiteTokenStorage
 
     name = server_config["name"]
     db = str(DATA_DIR / "nally.db")
     reg = reg or registry
 
-    provider = await create_oauth_provider(
-        service=name,
-        server_url=server_config["url"],
-        db_path=db,
-        scope=server_config.get("scope"),
-    )
+    storage = SQLiteTokenStorage(db, name)
+    token = await storage.get_tokens()
+
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token.access_token}"
 
     try:
-        async with Client(streamablehttp_client(server_config["url"], auth=provider)) as client:
+        async with Client(streamablehttp_client(server_config["url"], headers=headers)) as client:
             result = await client.list_tools()
             count = 0
             for tool_info in result.tools:

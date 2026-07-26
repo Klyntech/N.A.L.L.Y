@@ -191,17 +191,100 @@ function ServicesPanel(props) {
   var services = props.services;
   var onConnect = props.onConnect;
   var onDisconnect = props.onDisconnect;
+  var onSubmitToken = props.onSubmitToken;
+
+  var _tokenService = useState(null);
+  var tokenService = _tokenService[0], setTokenService = _tokenService[1];
+  var _tokenValue = useState('');
+  var tokenValue = _tokenValue[0], setTokenValue = _tokenValue[1];
+  var _tokenError = useState('');
+  var tokenError = _tokenError[0], setTokenError = _tokenError[1];
+  var _tokenLoading = useState(false);
+  var tokenLoading = _tokenLoading[0], setTokenLoading = _tokenLoading[1];
 
   if (!visible) return null;
 
   var serviceIcons = {
-    github: { icon: 'Github', color: '#E4E2DC' },
-    fetch: { icon: 'Globe', color: '#3ECFB8' },
-    filesystem: { icon: 'HardDrive', color: '#D4944C' },
+    github: { icon: 'Github', color: '#E4E2DC', hint: 'Create a PAT at github.com/settings/tokens with repo scope' },
+    fetch: { icon: 'Globe', color: '#3ECFB8', hint: 'No token needed — public web access' },
+    filesystem: { icon: 'HardDrive', color: '#D4944C', hint: 'Local file access' },
   };
 
+  function handleConnect(name) {
+    var cfg = serviceIcons[name] || {};
+    if (name === 'fetch') {
+      onConnect(name);
+    } else {
+      setTokenService(name);
+      setTokenValue('');
+      setTokenError('');
+    }
+  }
+
+  function handleSubmitToken() {
+    if (!tokenValue.trim()) { setTokenError('Token is required'); return; }
+    setTokenLoading(true);
+    setTokenError('');
+    onSubmitToken(tokenService, tokenValue.trim(), function(err) {
+      setTokenLoading(false);
+      if (err) { setTokenError(err); return; }
+      setTokenService(null);
+    });
+  }
+
   return html`
-    <div class="approval-overlay" onClick=${function(e) { if (e.target === e.currentTarget) onClose(); }}>
+    <div class="approval-overlay" onClick=${function(e) { if (e.target === e.currentTarget) { onClose(); setTokenService(null); } }}>
+      ${tokenService && html`
+        <div style=${{
+          position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1100,
+        }}>
+          <div style=${{
+            width: '360px', background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: '16px', padding: '24px', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+          }}>
+            <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style=${{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--space)', letterSpacing: '1px' }}>
+                CONNECT $${tokenService.toUpperCase()}
+              </div>
+              <button onClick=${function() { setTokenService(null); }} style=${{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer' }}>
+                <${Li} name="X" size=${16} />
+              </button>
+            </div>
+            <div style=${{ fontSize: '12px', color: 'var(--text-faint)', marginBottom: '12px', lineHeight: '1.5' }}>
+              ${(serviceIcons[tokenService] || {}).hint || 'Enter your API token'}
+            </div>
+            <input
+              type="password"
+              value=${tokenValue}
+              onInput=${function(e) { setTokenValue(e.target.value); }}
+              onKeyDown=${function(e) { if (e.key === 'Enter') handleSubmitToken(); }}
+              placeholder="Paste your token..."
+              style=${{
+                width: '100%', padding: '10px 12px', borderRadius: '10px',
+                border: '1px solid ' + (tokenError ? '#F87171' : 'var(--border)'),
+                background: 'rgba(255,255,255,0.04)', color: 'var(--text)',
+                fontSize: '13px', fontFamily: 'var(--mono)', outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+            ${tokenError && html`<div style=${{ fontSize: '11px', color: '#F87171', marginTop: '6px' }}>${tokenError}</div>`}
+            <button
+              onClick=${handleSubmitToken}
+              disabled=${tokenLoading}
+              style=${{
+                width: '100%', padding: '10px', marginTop: '12px', borderRadius: '10px',
+                border: 'none', background: tokenLoading ? 'var(--iris-dim)' : 'var(--iris)',
+                color: '#fff', fontSize: '13px', fontWeight: 600, cursor: tokenLoading ? 'wait' : 'pointer',
+                fontFamily: 'var(--space)',
+              }}
+            >
+              ${tokenLoading ? 'Connecting...' : 'Connect'}
+            </button>
+          </div>
+        </div>
+      `}
+
       <div style=${{
         position: 'absolute', right: '16px', top: '60px',
         width: '320px', maxHeight: '70vh',
@@ -212,13 +295,13 @@ function ServicesPanel(props) {
       }}>
         <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div style=${{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', letterSpacing: '2px', fontFamily: 'var(--space)' }}>SERVICES</div>
-          <button onClick=${onClose} style=${{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', padding: '4px' }}>
+          <button onClick=${function() { onClose(); setTokenService(null); }} style=${{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', padding: '4px' }}>
             <${Li} name="X" size=${16} />
           </button>
         </div>
         <div style=${{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           ${services.map(function(s) {
-            var cfg = serviceIcons[s.name] || { icon: 'Plug', color: 'var(--iris)' };
+            var cfg = serviceIcons[s.name] || { icon: 'Plug', color: 'var(--iris)', hint: '' };
             return html`
               <div key=${s.name} style=${{
                 display: 'flex', alignItems: 'center', gap: '12px',
@@ -227,7 +310,7 @@ function ServicesPanel(props) {
                 border: '1px solid var(--border)',
                 cursor: 'pointer', transition: 'all 0.2s',
               }}
-              onClick=${function() { s.connected ? onDisconnect(s.name) : onConnect(s.name); }}
+              onClick=${function() { s.connected ? onDisconnect(s.name) : handleConnect(s.name); }}
               onMouseEnter=${function(e) { e.currentTarget.style.borderColor = 'var(--iris)'; }}
               onMouseLeave=${function(e) { e.currentTarget.style.borderColor = 'var(--border)'; }}
               >
@@ -381,14 +464,26 @@ function App() {
       .then(function(data) {
         if (data.auth_url) {
           window.location.href = data.auth_url;
-        } else {
-          // Refresh services list
-          return fetch('/api/mcp/services', { headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } });
         }
       })
-      .then(function(r) { return r ? r.json() : null; })
-      .then(function(data) { if (data && data.services) setServices(data.services); })
       .catch(function() {});
+  }
+
+  function handleServiceSubmitToken(name, token, cb) {
+    fetch('/api/mcp/token/' + name, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (window._nallyToken || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token }),
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) { cb(data.detail || data.error); return; }
+        // Refresh services list
+        return fetch('/api/mcp/services', { headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } });
+      })
+      .then(function(r) { return r ? r.json() : null; })
+      .then(function(data) { if (data && data.services) setServices(data.services); cb(null); })
+      .catch(function() { cb('Connection failed'); });
   }
 
   function handleServiceDisconnect(name) {
@@ -841,7 +936,7 @@ function App() {
       </main>
 
       <${ApprovalModal} approval=${pendingApproval} onApprove=${function() { handleApproval(true); }} onDeny=${function() { handleApproval(false); }} />
-      <${ServicesPanel} visible=${servicesVisible} onClose=${function() { setServicesVisible(false); }} services=${services} onConnect=${handleServiceConnect} onDisconnect=${handleServiceDisconnect} />
+      <${ServicesPanel} visible=${servicesVisible} onClose=${function() { setServicesVisible(false); }} services=${services} onConnect=${handleServiceConnect} onDisconnect=${handleServiceDisconnect} onSubmitToken=${handleServiceSubmitToken} />
     </div>
   `;
 }

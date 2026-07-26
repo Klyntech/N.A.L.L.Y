@@ -372,47 +372,57 @@ async def mcp_services(_auth=Depends(verify_auth)):
 
 @app.post("/api/mcp/connect/{service}")
 async def mcp_connect(service: str, _auth=Depends(verify_auth)):
-    """Initiate OAuth connection for an HTTP-based MCP service."""
+    """Check connection status for an HTTP MCP service."""
     from nally.config import MCP_SERVERS, DATA_DIR
-    from nally.mcp.oauth import create_oauth_provider, get_auth_url
+    from nally.mcp.oauth import SQLiteTokenStorage
 
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
     if server_cfg is None:
         raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
-    if server_cfg["transport"] != "http":
-        raise HTTPException(status_code=400, detail=f"Service {service} is not HTTP-based")
 
     db = str(DATA_DIR / "nally.db")
-    provider = await create_oauth_provider(
-        service=service,
-        server_url=server_cfg["url"],
-        db_path=db,
-        scope=server_cfg.get("scope"),
-    )
+    storage = SQLiteTokenStorage(db, service)
+    token = await storage.get_tokens()
+    if token:
+        return {"status": "connected", "service": service}
+    return {"status": "disconnected", "service": service}
 
-    # Kick off a test request to trigger the OAuth flow
-    import httpx
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(
-                server_cfg["url"],
-                auth=provider,
-                follow_redirects=True,
-                timeout=10.0,
-            )
-        except Exception:
-            pass  # The auth flow may not complete synchronously — that's OK
 
-    auth_url = get_auth_url(service)
-    if auth_url:
-        return {"auth_url": auth_url, "status": "authorization_required"}
-    return {"status": "connected", "message": "Already authenticated or no auth needed"}
+class TokenSubmit(BaseModel):
+    token: str
+
+@app.post("/api/mcp/token/{service}")
+async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify_auth)):
+    """Submit a PAT/API token for an HTTP MCP service."""
+    from nally.config import MCP_SERVERS, DATA_DIR
+    from nally.mcp.oauth import SQLiteTokenStorage
+    from mcp.shared.auth import OAuthToken
+
+    server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
+    if server_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
+
+    db = str(DATA_DIR / "nally.db")
+    storage = SQLiteTokenStorage(db, service)
+    token = OAuthToken(access_token=body.token, token_type="bearer")
+    await storage.set_tokens(token)
+
+    # Try to connect and fetch tools (may fail with invalid token — that's OK)
+    from nally.mcp.client import connect_http_server
+    try:
+        count = await connect_http_server(server_cfg)
+    except Exception:
+        count = 0
+
+    return {"status": "connected", "service": service, "tools": count}
 
 
 @app.get("/api/oauth/callback")
 async def oauth_callback(code: str = "", state: str = "", error: str = ""):
-    """OAuth callback endpoint — receives authorization code."""
-    from nally.mcp.oauth import complete_callback
+    """OAuth callback endpoint — exchanges authorization code for tokens."""
+    from nally.config import MCP_SERVERS, DATA_DIR
+    from nally.mcp.oauth import SQLiteTokenStorage
+    import httpx
 
     if error:
         return JSONResponse(
@@ -425,16 +435,59 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
             content={"error": "missing_code", "message": "No authorization code received"},
         )
 
-    # Try all services — the callback doesn't carry which service it's for
-    # (the state param could, but we keep it simple for now)
-    from nally.config import MCP_SERVERS
     for server in MCP_SERVERS:
-        if complete_callback(server["name"], code):
-            return {"status": "authorized", "service": server["name"]}
+        if server["transport"] != "http":
+            continue
+        name = server["name"]
+        db = str(DATA_DIR / "nally.db")
+        storage = SQLiteTokenStorage(db, name)
+        client_info = await storage.get_client_info()
+        if not client_info:
+            continue
+
+        server_url = server["url"]
+        well_known_url = server_url.rstrip("/") + "/.well-known/oauth-protected-resource"
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            try:
+                resp = await client.get(well_known_url, timeout=10.0)
+                prm = resp.json()
+                auth_server_url = prm.get("authorization_server", server_url.rstrip("/") + "/.well-known/oauth-authorization-server")
+                resp2 = await client.get(auth_server_url, timeout=10.0)
+                as_meta = resp2.json()
+            except Exception:
+                continue
+
+        token_endpoint = as_meta.get("token_endpoint")
+        if not token_endpoint:
+            continue
+
+        redirect_uri = client_info.redirect_uris[0] if client_info.redirect_uris else "http://localhost:5000/api/oauth/callback"
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(token_endpoint, data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "client_id": client_info.client_id,
+                "client_secret": client_info.client_secret,
+            }, timeout=10.0)
+
+            if token_resp.status_code == 200:
+                token_data = token_resp.json()
+                from mcp.shared.auth import OAuthToken
+                token = OAuthToken(
+                    access_token=token_data["access_token"],
+                    token_type=token_data.get("token_type", "bearer"),
+                    expires_in=token_data.get("expires_in"),
+                    refresh_token=token_data.get("refresh_token"),
+                )
+                await storage.set_tokens(token)
+                from nally.mcp.client import connect_http_server
+                await connect_http_server(server)
+                return {"status": "authorized", "service": name}
 
     return JSONResponse(
         status_code=400,
-        content={"error": "no_pending_flow", "message": "No pending OAuth flow found"},
+        content={"error": "exchange_failed", "message": "Token exchange failed for all services"},
     )
 
 
