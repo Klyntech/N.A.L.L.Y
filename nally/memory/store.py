@@ -19,6 +19,16 @@ from .models import Memory, Episode, ConversationSummary, SemanticPattern
 from .confidence import decay_confidence, boost_confidence, days_since, initial_confidence
 
 
+# ── Profile Keys ───────────────────────────────────────────
+
+RECOGNIZED_PROFILE_KEYS = {
+    "name", "preferred_name", "aliases", "age", "location", "occupation",
+    "education", "communication_style", "timezone", "languages_spoken",
+    "languages_to_learn", "coding_level", "coding_languages", "projects",
+    "goals", "interests", "favorite_apps", "work_hours", "notes",
+}
+
+
 # ── Schema ────────────────────────────────────────────────
 
 _SCHEMA = """
@@ -133,6 +143,13 @@ class MemoryRepository:
 
     def remember(self, key: str, value: str, category: str = "general") -> str:
         """Store a fact. Boosts confidence if key already exists."""
+        # Warn when storing profile facts with unrecognized keys
+        if category == "profile" and key not in RECOGNIZED_PROFILE_KEYS:
+            import logging
+            logging.getLogger("nally.memory").warning(
+                f"Profile fact '{key}' is not a recognized profile key. "
+                f"Recognized keys: {', '.join(sorted(RECOGNIZED_PROFILE_KEYS))}"
+            )
         now = self._now()
         with self._connection() as conn:
             existing = conn.execute(
@@ -475,6 +492,44 @@ class MemoryRepository:
                 return row["session_id"] if row else None
             except sqlite3.OperationalError:
                 return None
+
+
+# ── Profile Migration ─────────────────────────────────────
+
+def migrate_profile(store: "MemoryRepository"):
+    """One-time migration: read data/user_profile.json into memory store.
+
+    Writes each field with category="profile", then renames the file
+    to user_profile.json.migrated so it's not re-imported.
+    """
+    profile_path = DATA_DIR / "user_profile.json"
+    if not profile_path.exists():
+        return
+
+    try:
+        data = json.loads(profile_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError):
+        return
+
+    if not isinstance(data, dict):
+        return
+
+    count = 0
+    for key, value in data.items():
+        # Serialize complex types (lists, dicts) to JSON strings
+        if isinstance(value, (list, dict)):
+            value = json.dumps(value, default=str)
+        else:
+            value = str(value)
+        store.remember(key, value, category="profile")
+        count += 1
+
+    # Rename to prevent re-import
+    migrated_path = profile_path.with_suffix(".json.migrated")
+    try:
+        profile_path.rename(migrated_path)
+    except OSError:
+        pass
 
 
 # ── Tool Definitions (OpenAI function schemas) ─────────────

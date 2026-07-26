@@ -1,4 +1,5 @@
 """Nally Tools Package - Core tool registry"""
+import json
 from .registry import registry, Tool
 
 
@@ -67,6 +68,69 @@ def load_all_tools():
                         key = kwargs.get("key", "")
                         category = kwargs.get("category", "")
                         search = kwargs.get("search", "")
+
+                        # Profile summary: return formatted profile view
+                        if category == "profile" and not key:
+                            result = self.mem_store.recall(category="profile")
+                            if not result or not isinstance(result, dict):
+                                return "No profile data found."
+                            lines = []
+                            if result.get("name"):
+                                lines.append(f"Name: {result['name']}")
+                            if result.get("preferred_name") and result["preferred_name"] != result.get("name"):
+                                lines.append(f"Preferred name: {result['preferred_name']}")
+                            if result.get("aliases"):
+                                try:
+                                    aliases = json.loads(result["aliases"]) if isinstance(result["aliases"], str) else result["aliases"]
+                                    lines.append(f"Also known as: {', '.join(aliases)}")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            if result.get("age"):
+                                lines.append(f"Age: {result['age']}")
+                            if result.get("location"):
+                                lines.append(f"Location: {result['location']}")
+                            if result.get("occupation"):
+                                lines.append(f"Occupation: {result['occupation']}")
+                            if result.get("education"):
+                                lines.append(f"Education: {result['education']}")
+                            if result.get("timezone"):
+                                lines.append(f"Timezone: {result['timezone']}")
+                            if result.get("languages_spoken"):
+                                try:
+                                    langs = json.loads(result["languages_spoken"]) if isinstance(result["languages_spoken"], str) else result["languages_spoken"]
+                                    lines.append(f"Languages: {', '.join(langs)}")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            if result.get("coding_level"):
+                                lines.append(f"Coding level: {result['coding_level']}")
+                            if result.get("coding_languages"):
+                                try:
+                                    langs = json.loads(result["coding_languages"]) if isinstance(result["coding_languages"], str) else result["coding_languages"]
+                                    lines.append(f"Coding languages: {', '.join(langs)}")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            if result.get("projects"):
+                                try:
+                                    proj = json.loads(result["projects"]) if isinstance(result["projects"], str) else result["projects"]
+                                    lines.append(f"Projects: {', '.join(proj)}")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            if result.get("goals"):
+                                try:
+                                    goals = json.loads(result["goals"]) if isinstance(result["goals"], str) else result["goals"]
+                                    lines.append(f"Goals: {', '.join(goals)}")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            if result.get("interests"):
+                                try:
+                                    interests = json.loads(result["interests"]) if isinstance(result["interests"], str) else result["interests"]
+                                    lines.append(f"Interests: {', '.join(interests)}")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            if result.get("notes"):
+                                lines.append(f"Notes: {result['notes']}")
+                            return "\n".join(lines) if lines else "No profile data found."
+
                         result = self.mem_store.recall(key, category, search)
                         if result is None:
                             return "Nothing found in memory."
@@ -111,6 +175,10 @@ def load_all_tools():
             return "\n".join(lines)
 
     registry.register(MemoryStats(mem_store))
+
+    # --- One-time profile migration ---
+    from ..memory.store import migrate_profile
+    migrate_profile(mem_store)
 
     # --- SubAgents (1 tool) ---
     from ..subagent.tools import register_tools as register_subagent_tools
