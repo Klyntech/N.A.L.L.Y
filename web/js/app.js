@@ -184,6 +184,81 @@ function playWarmChime() {
   } catch(e) {}
 }
 
+// ─── Services Panel (MCP OAuth) ─────────────────────
+function ServicesPanel(props) {
+  var visible = props.visible;
+  var onClose = props.onClose;
+  var services = props.services;
+  var onConnect = props.onConnect;
+  var onDisconnect = props.onDisconnect;
+
+  if (!visible) return null;
+
+  var serviceIcons = {
+    github: { icon: 'Github', color: '#E4E2DC' },
+    fetch: { icon: 'Globe', color: '#3ECFB8' },
+    filesystem: { icon: 'HardDrive', color: '#D4944C' },
+  };
+
+  return html`
+    <div class="approval-overlay" onClick=${function(e) { if (e.target === e.currentTarget) onClose(); }}>
+      <div style=${{
+        position: 'absolute', right: '16px', top: '60px',
+        width: '320px', maxHeight: '70vh',
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: '16px', padding: '20px',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+        zIndex: 1000, overflow: 'auto',
+      }}>
+        <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style=${{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', letterSpacing: '2px', fontFamily: 'var(--space)' }}>SERVICES</div>
+          <button onClick=${onClose} style=${{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', padding: '4px' }}>
+            <${Li} name="X" size=${16} />
+          </button>
+        </div>
+        <div style=${{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          ${services.map(function(s) {
+            var cfg = serviceIcons[s.name] || { icon: 'Plug', color: 'var(--iris)' };
+            return html`
+              <div key=${s.name} style=${{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                padding: '12px', borderRadius: '12px',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid var(--border)',
+                cursor: 'pointer', transition: 'all 0.2s',
+              }}
+              onClick=${function() { s.connected ? onDisconnect(s.name) : onConnect(s.name); }}
+              onMouseEnter=${function(e) { e.currentTarget.style.borderColor = 'var(--iris)'; }}
+              onMouseLeave=${function(e) { e.currentTarget.style.borderColor = 'var(--border)'; }}
+              >
+                <div style=${{
+                  width: '36px', height: '36px', borderRadius: '10px',
+                  background: s.connected ? 'rgba(62,207,184,0.12)' : 'rgba(255,255,255,0.05)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <${Li} name=${cfg.icon} size=${18} color=${s.connected ? '#3ECFB8' : cfg.color} />
+                </div>
+                <div style=${{ flex: 1, minWidth: 0 }}>
+                  <div style=${{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', textTransform: 'capitalize' }}>${s.name}</div>
+                  <div style=${{ fontSize: '11px', color: 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>${s.description || s.transport}</div>
+                </div>
+                <div style=${{
+                  fontSize: '10px', padding: '3px 8px', borderRadius: '6px',
+                  background: s.connected ? 'rgba(62,207,184,0.15)' : 'rgba(255,255,255,0.06)',
+                  color: s.connected ? '#3ECFB8' : 'var(--text-faint)',
+                  fontFamily: 'var(--mono)', letterSpacing: '1px',
+                }}>
+                  ${s.connected ? 'ON' : 'OFF'}
+                </div>
+              </div>
+            `;
+          })}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // ─── Approval Modal ─────────────────────────────────
 function ApprovalModal(props) {
   var approval = props.approval;
@@ -263,6 +338,12 @@ function App() {
   var _music = useState({ track: { title: 'No track', artist: '' }, playing: false, progress: 0 });
   var music = _music[0], setMusic = _music[1];
 
+  // ─── MCP Services State ───────────────────────────
+  var _services = useState([]);
+  var services = _services[0], setServices = _services[1];
+  var _servicesVisible = useState(false);
+  var servicesVisible = _servicesVisible[0], setServicesVisible = _servicesVisible[1];
+
   // ─── Cinematic Phase State ──────────────────────
   // phase 0: static (canvas noise, scanlines)
   // phase 1: resolve (chars lock to text, noise thins)
@@ -284,6 +365,41 @@ function App() {
   useEffect(function() { lssave('messages', messages); }, [messages]);
   useEffect(function() { lssave('tasks', tasks); }, [tasks]);
   useEffect(function() { lssave('notes', notes); }, [notes]);
+
+  // ─── Fetch MCP services on connect ───────────────
+  useEffect(function() {
+    if (!connected) return;
+    fetch('/api/mcp/services', { headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) { if (data && data.services) setServices(data.services); })
+      .catch(function() {});
+  }, [connected]);
+
+  function handleServiceConnect(name) {
+    fetch('/api/mcp/connect/' + name, { method: 'POST', headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.auth_url) {
+          window.location.href = data.auth_url;
+        } else {
+          // Refresh services list
+          return fetch('/api/mcp/services', { headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } });
+        }
+      })
+      .then(function(r) { return r ? r.json() : null; })
+      .then(function(data) { if (data && data.services) setServices(data.services); })
+      .catch(function() {});
+  }
+
+  function handleServiceDisconnect(name) {
+    fetch('/api/mcp/disconnect/' + name, { method: 'POST', headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } })
+      .then(function() {
+        return fetch('/api/mcp/services', { headers: { 'Authorization': 'Bearer ' + (window._nallyToken || '') } });
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { if (data && data.services) setServices(data.services); })
+      .catch(function() {});
+  }
 
   // Voice
   var voice = useVoiceInput(
@@ -704,9 +820,14 @@ function App() {
                   </div>
                 </div>
               </div>
-              <button onClick=${handleClearChat} style=${{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--text-faint)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} title="Clear chat">
-                <${Li} name="Trash2" size=${15} color="var(--text-faint)" />
-              </button>
+              <div style=${{ display: 'flex', gap: '6px' }}>
+                <button onClick=${function() { setServicesVisible(function(v) { return !v; }); }} style=${{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border)', background: servicesVisible ? 'rgba(124,106,239,0.12)' : 'rgba(255,255,255,0.03)', color: servicesVisible ? 'var(--iris)' : 'var(--text-faint)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} title="Services">
+                  <${Li} name="Plug" size=${15} color=${servicesVisible ? 'var(--iris)' : 'var(--text-faint)'} />
+                </button>
+                <button onClick=${handleClearChat} style=${{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--text-faint)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} title="Clear chat">
+                  <${Li} name="Trash2" size=${15} color="var(--text-faint)" />
+                </button>
+              </div>
             </div>
             <${ChatHistory} messages=${messages} thinking=${thinking} activeTool=${activeTool} onRetry=${handleRetry} cards=${cards} onDismissCard=${handleDismissCard} />
           </div>
@@ -720,6 +841,7 @@ function App() {
       </main>
 
       <${ApprovalModal} approval=${pendingApproval} onApprove=${function() { handleApproval(true); }} onDeny=${function() { handleApproval(false); }} />
+      <${ServicesPanel} visible=${servicesVisible} onClose=${function() { setServicesVisible(false); }} services=${services} onConnect=${handleServiceConnect} onDisconnect=${handleServiceDisconnect} />
     </div>
   `;
 }

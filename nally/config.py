@@ -26,6 +26,7 @@ ALLOWED_PLUGINS: list[str] = []  # e.g. ["my_tools.py", "custom_agent.py"]
 
 # MCP servers (Model Context Protocol)
 MCP_SERVERS: list[dict] = [
+    # ── Stdio servers (local subprocess) ──
     {
         "name": "filesystem",
         "command": "npx",
@@ -33,7 +34,23 @@ MCP_SERVERS: list[dict] = [
                  str(BASE_DIR)],
         "transport": "stdio",
         "permission": "write",
-    }
+    },
+    # ── HTTP/OAuth servers (remote, user-authorized) ──
+    {
+        "name": "github",
+        "url": "https://github.com/github/mcp-server",
+        "transport": "http",
+        "description": "GitHub repos, issues, PRs, code search",
+        "scope": "repo",
+        "permission": "write",
+    },
+    {
+        "name": "fetch",
+        "url": "https://modelcontextprotocol.io/sse",
+        "transport": "http",
+        "description": "Fetch web pages and content",
+        "permission": "safe",
+    },
 ]
 
 

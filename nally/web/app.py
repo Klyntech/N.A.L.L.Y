@@ -246,6 +246,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         raise HTTPException(status_code=400, detail="No message provided")
 
     queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
 
     def stream_event(event, payload):
         try:
@@ -256,7 +257,6 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             pass
 
     async def event_generator():
-        loop = asyncio.get_event_loop()
 
         def run_agent():
             try:
@@ -346,6 +346,107 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
 async def get_permissions(_auth=Depends(verify_auth)):
     from nally.tools.permissions import get_config
     return {"permissions": get_config()}
+
+
+# ── API: MCP Services ────────────────────────────────────
+
+@app.get("/api/mcp/services")
+async def mcp_services(_auth=Depends(verify_auth)):
+    """List available MCP services and their connection status."""
+    from nally.config import MCP_SERVERS
+    from nally.mcp.oauth import get_existing_tokens
+
+    db = str(DATA_DIR / "nally.db")
+    services = []
+    for server in MCP_SERVERS:
+        name = server["name"]
+        token = await get_existing_tokens(name, db)
+        services.append({
+            "name": name,
+            "transport": server["transport"],
+            "description": server.get("description", ""),
+            "connected": token is not None,
+        })
+    return {"services": services}
+
+
+@app.post("/api/mcp/connect/{service}")
+async def mcp_connect(service: str, _auth=Depends(verify_auth)):
+    """Initiate OAuth connection for an HTTP-based MCP service."""
+    from nally.config import MCP_SERVERS, DATA_DIR
+    from nally.mcp.oauth import create_oauth_provider, get_auth_url
+
+    server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
+    if server_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
+    if server_cfg["transport"] != "http":
+        raise HTTPException(status_code=400, detail=f"Service {service} is not HTTP-based")
+
+    db = str(DATA_DIR / "nally.db")
+    provider = await create_oauth_provider(
+        service=service,
+        server_url=server_cfg["url"],
+        db_path=db,
+        scope=server_cfg.get("scope"),
+    )
+
+    # Kick off a test request to trigger the OAuth flow
+    import httpx
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(
+                server_cfg["url"],
+                auth=provider,
+                follow_redirects=True,
+                timeout=10.0,
+            )
+        except Exception:
+            pass  # The auth flow may not complete synchronously — that's OK
+
+    auth_url = get_auth_url(service)
+    if auth_url:
+        return {"auth_url": auth_url, "status": "authorization_required"}
+    return {"status": "connected", "message": "Already authenticated or no auth needed"}
+
+
+@app.get("/api/oauth/callback")
+async def oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """OAuth callback endpoint — receives authorization code."""
+    from nally.mcp.oauth import complete_callback
+
+    if error:
+        return JSONResponse(
+            status_code=400,
+            content={"error": error, "message": "Authorization failed"},
+        )
+    if not code:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "missing_code", "message": "No authorization code received"},
+        )
+
+    # Try all services — the callback doesn't carry which service it's for
+    # (the state param could, but we keep it simple for now)
+    from nally.config import MCP_SERVERS
+    for server in MCP_SERVERS:
+        if complete_callback(server["name"], code):
+            return {"status": "authorized", "service": server["name"]}
+
+    return JSONResponse(
+        status_code=400,
+        content={"error": "no_pending_flow", "message": "No pending OAuth flow found"},
+    )
+
+
+@app.post("/api/mcp/disconnect/{service}")
+async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
+    """Disconnect an MCP service by removing stored tokens."""
+    from nally.config import DATA_DIR
+    from nally.mcp.oauth import revoke_service
+
+    db = str(DATA_DIR / "nally.db")
+    removed = revoke_service(service, db)
+    return {"status": "disconnected" if removed else "not_connected"}
 
 
 # ── Run server ────────────────────────────────────────────
