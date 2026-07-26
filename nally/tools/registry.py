@@ -4,9 +4,11 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-from ..config import PLUGINS_DIR
+from ..config import PLUGINS_DIR, ALLOWED_PLUGINS
 
 MAX_TOOL_OUTPUT = 4000  # Max chars before truncation (~1000 tokens)
+
+VALID_PERMISSIONS = {"safe", "destructive", "write", "read_only"}
 
 logger = logging.getLogger("nally.registry")
 
@@ -50,7 +52,12 @@ class ToolRegistry:
         self.tools: Dict[str, Tool] = {}
     
     def register(self, tool: Tool):
-        """Register a tool (warn if overwriting existing)"""
+        """Register a tool (warn if overwriting, validate permission)"""
+        if tool.permission not in VALID_PERMISSIONS:
+            raise ValueError(
+                f"Tool '{tool.name}' has invalid permission '{tool.permission}'. "
+                f"Must be one of: {', '.join(sorted(VALID_PERMISSIONS))}"
+            )
         if tool.name in self.tools:
             logger.warning(f"Tool '{tool.name}' already registered — overwriting")
         self.tools[tool.name] = tool
@@ -83,15 +90,18 @@ class ToolRegistry:
             return f"Error executing {name}: {type(e).__name__}: {e}"
     
     def load_plugins(self):
-        """Load all plugins from the plugins directory (safe import)"""
+        """Load plugins from the plugins directory (allowlist-gated, safe import)"""
         if not PLUGINS_DIR.exists():
             PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
             return
-        
+
         for plugin_file in PLUGINS_DIR.glob("*.py"):
             if plugin_file.name.startswith("_"):
                 continue
-            
+            if ALLOWED_PLUGINS and plugin_file.name not in ALLOWED_PLUGINS:
+                logger.debug(f"Skipping plugin '{plugin_file.name}' — not in allowlist")
+                continue
+
             try:
                 spec = importlib.util.spec_from_file_location(
                     f"nally_plugin_{plugin_file.stem}", plugin_file
@@ -101,7 +111,7 @@ class ToolRegistry:
                     continue
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-                
+
                 if hasattr(module, "register_tools"):
                     module.register_tools(self)
                     logger.info(f"Loaded plugin: {plugin_file.name}")

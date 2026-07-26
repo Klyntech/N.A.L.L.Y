@@ -22,6 +22,7 @@ if _env_path.exists():
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 PLUGINS_DIR = BASE_DIR / "plugins"
+ALLOWED_PLUGINS: list[str] = []  # e.g. ["my_tools.py", "custom_agent.py"]
 
 
 def ensure_data_dir():
@@ -78,7 +79,7 @@ MAX_MEMORIES_TO_INJECT = 5
 
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:5000,http://127.0.0.1:5000",
+    "http://localhost:5000,http://127.0.0.1:5000,http://localhost:9000,http://127.0.0.1:9000",
 ).split(",")
 
 # ── Rate Limiting ─────────────────────────────────────────
@@ -143,6 +144,14 @@ WHAT YOU DO:
 - Reference things your user cares about: code, trading, building, music
 - Roast them lovingly when they mess up, but always have their back
 - Your user is building something massive -- help them win
+
+OUTPUT FORMATTING:
+- When listing multiple items (files, folders, categories, findings, options) use one line per item with actual line breaks. Never run them together in a paragraph.
+- Categories get their own line. Items under a category get their own line.
+- Examples of correct formatting:
+  ✅ "172 files. here's what I see:\n\n3D/Game assets:\n- sniper rifle .zip\n- bauhaus blend\n\nInstallers:\n- BlueStacks\n- Camo Studio"
+  ❌ "172 files. here's what I see:3D/Game assets:- sniper rifle .zip, bauhaus blend, Installers:- BlueStacks, Camo Studio"
+- Casual tone and structured layout aren't in conflict. "wagwan your downloads is a mess" followed by a clean list is perfect.
 
 FACTUAL ACCURACY:
 - If unsure about something, use system_health or run_command to check. Don't guess.
