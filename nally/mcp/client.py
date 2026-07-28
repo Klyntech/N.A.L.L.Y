@@ -51,14 +51,25 @@ class MCPTool(Tool):
             env=config.get("env"),
         )
 
-        async with stdio_client(server) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool(self.name.removeprefix(f"mcp_{config['name']}_"), arguments)
-                return _extract_result(result)
+        try:
+            async with stdio_client(server) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(self.name.removeprefix(f"mcp_{config['name']}_"), arguments)
+                    return _extract_result(result)
+        except ExceptionGroup as eg:
+            # Unwrap the sub-exception from the TaskGroup
+            for exc in eg.exceptions:
+                return f"MCP tool error: {type(exc).__name__}: {exc}"
+            return f"MCP tool error: {type(eg).__name__}: {eg}"
+        except Exception as e:
+            return f"MCP tool error: {type(e).__name__}: {e}"
 
     async def _call_http(self, arguments: dict) -> str:
-        """Call via HTTP transport with stored token as Bearer header."""
+        """Call via HTTP transport with stored token as Bearer header.
+
+        Tries raw HTTP POST first, falls back to SSE client if that fails.
+        """
         from nally.mcp.oauth import SQLiteTokenStorage
         import httpx, json
 
@@ -71,21 +82,44 @@ class MCPTool(Tool):
         if token:
             headers["Authorization"] = f"Bearer {token.access_token}"
 
+        tool_name = self.name.removeprefix(f"mcp_{config['name']}_")
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": self.name.removeprefix(f"mcp_{config['name']}_"), "arguments": arguments},
+            "params": {"name": tool_name, "arguments": arguments},
         }
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(config["url"], headers=headers, json=payload, timeout=30.0)
-            result = _parse_sse_response(resp.text)
-            if result and "result" in result:
-                content = result["result"].get("content", [])
-                parts = [b.get("text", "") for b in content if b.get("type") == "text"]
-                return "\n".join(parts) if parts else "MCP tool returned no content"
-            return f"MCP tool error: {result}"
+        # Try raw HTTP POST first (works for stateless Streamable HTTP servers)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(config["url"], headers=headers, json=payload, timeout=30.0)
+                result = _parse_sse_response(resp.text)
+                if result and "result" in result:
+                    content = result["result"].get("content", [])
+                    parts = [b.get("text", "") for b in content if b.get("type") == "text"]
+                    return "\n".join(parts) if parts else "MCP tool returned no content"
+                # If we got an error response, try SSE fallback below
+        except Exception as e:
+            logger.debug(f"Raw HTTP POST failed for {config['name']}: {type(e).__name__}: {e}")
+
+        # Fallback: use SSE client (for servers like Notion that need a session)
+        try:
+            from mcp import ClientSession
+            from mcp.client.sse import sse_client
+            sse_url = config["url"].rstrip("/mcp") + "/sse" if config["url"].endswith("/mcp") else config["url"] + "/sse"
+            sse_headers = {}
+            if token:
+                sse_headers["Authorization"] = f"Bearer {token.access_token}"
+            async with sse_client(sse_url, headers=sse_headers) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(tool_name, arguments)
+                    return _extract_result(result)
+        except Exception as e:
+            logger.debug(f"SSE fallback failed for {config['name']}: {type(e).__name__}: {e}")
+
+        return f"MCP tool error: all transports failed for {config['name']}/{tool_name}"
 
 
 def _extract_result(result) -> str:
@@ -144,12 +178,32 @@ def _wrap_mcp_schema(tool_info) -> dict:
     return params
 
 
+def _wrap_mcp_schema_dict(schema: dict) -> dict:
+    """Convert a raw inputSchema dict to NALLY's parameter format."""
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+
+    params = {}
+    for name, prop in properties.items():
+        params[name] = {
+            "type": prop.get("type", "string"),
+            "description": prop.get("description", ""),
+            "required": name in required,
+        }
+        if "enum" in prop:
+            params[name]["enum"] = prop["enum"]
+        if "default" in prop:
+            params[name]["default"] = prop["default"]
+
+    return params
+
+
 def connect_mcp_servers(reg):
     """Connect to all configured MCP servers and register their tools.
 
     Stdio servers: connects with timeout, fetches tools.
-    HTTP servers: skipped at startup (tools registered after user connects).
-    API key servers: skipped at startup (connected on-demand via connect_stdio_with_token).
+    HTTP servers: tries reconnecting if tokens exist, otherwise awaits user connection.
+    API key servers: tries reconnecting if env var set, otherwise awaits user connection.
     """
     if not MCP_SERVERS:
         return
@@ -161,10 +215,16 @@ def connect_mcp_servers(reg):
         auth_mode = server_config.get("auth_mode", "")
 
         if transport == "http":
+            # Try reconnecting if tokens already stored
+            if _try_reconnect_http(server_config, reg):
+                continue
             logger.info(f"MCP server '{name}': HTTP transport, awaiting connection")
             continue
 
         if auth_mode == "api_key":
+            # Try reconnecting if env var is set
+            if _try_reconnect_stdio_token(server_config, reg):
+                continue
             logger.info(f"MCP server '{name}': API key auth, awaiting connection")
             continue
 
@@ -174,6 +234,61 @@ def connect_mcp_servers(reg):
             logger.warning(f"MCP server '{name}': connection timed out, skipping")
         except Exception as e:
             logger.error(f"MCP server '{name}' failed to connect: {type(e).__name__}: {e}")
+
+
+def _try_reconnect_http(server_config: dict, reg) -> bool:
+    """Try to reconnect to an HTTP MCP server if tokens exist. Returns True if tools loaded."""
+    import asyncio
+    import concurrent.futures
+
+    name = server_config.get("name", "unknown")
+    db = str(DATA_DIR / "nally.db")
+
+    try:
+        from nally.mcp.oauth import get_existing_tokens
+        tokens = asyncio.run(get_existing_tokens(name, db))
+    except Exception:
+        return False
+
+    if not tokens:
+        return False
+
+    logger.info(f"MCP server '{name}': tokens found, reconnecting...")
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            count = pool.submit(
+                asyncio.run,
+                connect_http_server(server_config, reg)
+            ).result(timeout=30)
+        if count and count > 0:
+            logger.info(f"MCP server '{name}': reconnected with {count} tools")
+            return True
+        else:
+            logger.warning(f"MCP server '{name}': reconnect failed, awaiting manual connection")
+            return False
+    except Exception as e:
+        logger.warning(f"MCP server '{name}': reconnect failed ({type(e).__name__}: {e})")
+        return False
+
+
+def _try_reconnect_stdio_token(server_config: dict, reg) -> bool:
+    """Try to reconnect to a stdio MCP server if env var token is set. Returns True if tools loaded."""
+    import os
+    name = server_config.get("name", "unknown")
+    env_key = server_config.get("env_key", "")
+    if not env_key or not os.getenv(env_key):
+        return False
+
+    logger.info(f"MCP server '{name}': token found, reconnecting...")
+    try:
+        count = connect_stdio_with_token(server_config, reg)
+        if count and count > 0:
+            logger.info(f"MCP server '{name}': reconnected with {count} tools")
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"MCP server '{name}': reconnect failed ({type(e).__name__}: {e})")
+        return False
 
 
 def _connect_stdio_server(reg, server_config: dict, default_permission: str):
@@ -222,9 +337,11 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
 
 
 async def connect_http_server(server_config: dict, reg=None):
-    """Connect to an HTTP MCP server after auth, fetch and register its tools."""
+    """Connect to an HTTP MCP server after auth, fetch and register its tools.
+
+    Tries MCP SDK transports first, falls back to raw HTTP POST for stateless servers.
+    """
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
     from nally.mcp.oauth import SQLiteTokenStorage
 
     name = server_config["name"]
@@ -238,29 +355,102 @@ async def connect_http_server(server_config: dict, reg=None):
     if token:
         headers["Authorization"] = f"Bearer {token.access_token}"
 
+    # Try Streamable HTTP first, fall back to SSE
+    transport_errors = []
+    for transport_name, connect_fn in _http_transport_fallback(server_config, headers):
+        try:
+            async with connect_fn() as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.list_tools()
+                    count = 0
+                    for tool_info in result.tools:
+                        tool_name = f"mcp_{name}_{tool_info.name}"
+                        params = _wrap_mcp_schema(tool_info)
+                        mcp_tool = MCPTool(
+                            name=tool_name,
+                            description=tool_info.description or f"MCP tool: {tool_info.name}",
+                            parameters=params,
+                            server_config=server_config,
+                            permission=server_config.get("permission", "write"),
+                        )
+                        reg.register(mcp_tool)
+                        count += 1
+                    logger.info(f"MCP HTTP server '{name}': registered {count} tools via {transport_name}")
+                    return count
+        except Exception as e:
+            logger.debug(f"MCP HTTP server '{name}' {transport_name} failed: {type(e).__name__}: {e}")
+            transport_errors.append(f"{transport_name}: {type(e).__name__}: {e}")
+            continue
+
+    # Fallback: raw HTTP POST for stateless servers (e.g. Google MCP)
+    count = await _connect_http_stateless(server_config, headers, reg)
+    if count:
+        return count
+
+    logger.error(f"MCP HTTP server '{name}' failed on all transports: {'; '.join(transport_errors)}")
+    return 0
+
+
+async def _connect_http_stateless(server_config: dict, headers: dict, reg) -> int:
+    """Connect to stateless MCP servers via raw HTTP POST (no session init)."""
+    import httpx
+
+    name = server_config["name"]
+    url = server_config["url"]
+    h = {**headers, "Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+
     try:
-        async with streamablehttp_client(server_config["url"], headers=headers) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.list_tools()
-                count = 0
-                for tool_info in result.tools:
-                    tool_name = f"mcp_{name}_{tool_info.name}"
-                    params = _wrap_mcp_schema(tool_info)
-                    mcp_tool = MCPTool(
-                        name=tool_name,
-                        description=tool_info.description or f"MCP tool: {tool_info.name}",
-                        parameters=params,
-                        server_config=server_config,
-                        permission=server_config.get("permission", "write"),
-                    )
-                    reg.register(mcp_tool)
-                    count += 1
-                logger.info(f"MCP HTTP server '{name}': registered {count} tools")
-                return count
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=h, json={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+            }, timeout=15.0)
+
+        result = _parse_sse_response(resp.text)
+        if not result or "result" not in result:
+            logger.debug(f"Stateless HTTP tools/list failed for '{name}': {resp.text[:200]}")
+            return 0
+
+        tools = result["result"].get("tools", [])
+        count = 0
+        for tool_info in tools:
+            tool_name = f"mcp_{name}_{tool_info['name']}"
+            desc = tool_info.get("description", f"MCP tool: {tool_info['name']}")
+            schema = tool_info.get("inputSchema", {"type": "object", "properties": {}})
+            params = _wrap_mcp_schema_dict(schema)
+            mcp_tool = MCPTool(
+                name=tool_name,
+                description=desc,
+                parameters=params,
+                server_config=server_config,
+                permission=server_config.get("permission", "write"),
+            )
+            reg.register(mcp_tool)
+            count += 1
+
+        logger.info(f"MCP HTTP server '{name}': registered {count} tools via stateless-raw-http")
+        return count
     except Exception as e:
-        logger.error(f"MCP HTTP server '{name}' failed: {type(e).__name__}: {e}")
+        logger.debug(f"Stateless HTTP failed for '{name}': {type(e).__name__}: {e}")
         return 0
+
+
+def _http_transport_fallback(server_config: dict, headers: dict):
+    """Yield (transport_name, context_manager_factory) pairs for HTTP fallback."""
+    from mcp.client.streamable_http import streamablehttp_client
+
+    url = server_config["url"]
+
+    # 1. Try Streamable HTTP at configured URL
+    yield "streamable-http", lambda: streamablehttp_client(url, headers=headers)
+
+    # 2. Try SSE at /sse endpoint (for servers like Notion that support both)
+    try:
+        from mcp.client.sse import sse_client
+        sse_url = url.rstrip("/mcp") + "/sse" if url.endswith("/mcp") else url + "/sse"
+        yield "sse", lambda: sse_client(sse_url, headers=headers)
+    except ImportError:
+        logger.debug("sse_client not available, skipping SSE fallback")
 
 
 def connect_stdio_with_token(server_config: dict, reg=None) -> int:
@@ -286,7 +476,7 @@ def connect_stdio_with_token(server_config: dict, reg=None) -> int:
 
     try:
         _connect_stdio_server(reg or registry, config_with_env, server_config.get("permission", "write"))
-        return len([t for t in (reg or registry).tools if t.name.startswith(f"mcp_{name}_")])
+        return len([t for t in (reg or registry).tools.values() if t.name.startswith(f"mcp_{name}_")])
     except Exception as e:
         logger.error(f"MCP stdio '{name}' failed: {type(e).__name__}: {e}")
         return 0

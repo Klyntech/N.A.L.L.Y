@@ -9,32 +9,39 @@ _loaded = False
 def load_all_tools():
     """Load all built-in tools"""
     global _loaded
-    if _loaded:
-        return
-    _loaded = True
-
     from ..utils.logger import logger
 
-    # --- System (2 tools) ---
-    from .system import RunCommand, SystemHealth
-    registry.register(RunCommand())
-    registry.register(SystemHealth())
+    if not _loaded:
+        _loaded = True
 
-    # --- Files (2 tools) ---
-    from .files import ReadFile, FileOps
-    registry.register(ReadFile())
-    registry.register(FileOps())
+        # --- System (2 tools) ---
+        from .system import RunCommand, SystemHealth
+        registry.register(RunCommand())
+        registry.register(SystemHealth())
 
-    # --- Code (2 tools) ---
-    from .code import RunCode, CodeAnalysis
-    registry.register(RunCode())
-    registry.register(CodeAnalysis())
+        # --- MCP Status (1 tool) ---
+        from .mcp import McpStatus
+        registry.register(McpStatus())
 
-    # --- Web Search (1 tool) ---
-    from .websearch import WebSearch
-    registry.register(WebSearch())
+        # --- Files (2 tools) ---
+        from .files import ReadFile, FileOps
+        registry.register(ReadFile())
+        registry.register(FileOps())
 
-    # --- Memory (3 tools) ---
+        # --- Code (2 tools) ---
+        from .code import RunCode, CodeAnalysis
+        registry.register(RunCode())
+        registry.register(CodeAnalysis())
+
+        # --- Web Search (1 tool) ---
+        from .websearch import WebSearch
+        registry.register(WebSearch())
+
+        # --- Gmail Direct (4 tools — bypasses broken MCP server) ---
+        from . import gmail
+        gmail.register()
+
+        # --- Memory (3 tools) ---
     from ..memory.store_v2 import memory_v2 as mem_store, memory_tools_v2 as mem_tools
 
     for tool_def in mem_tools.to_tool_list():
@@ -199,11 +206,11 @@ def load_all_tools():
     # --- Load user plugins ---
     registry.load_plugins()
 
-    # --- Connect MCP servers ---
+    logger.info(f"Nally loaded {len(registry.tools)} tools")
+
+    # --- Connect MCP servers (runs every call, retries if previous timed out) ---
     from ..mcp.client import connect_mcp_servers
     connect_mcp_servers(registry)
-
-    logger.info(f"Nally loaded {len(registry.tools)} tools")
 
 
 __all__ = ["registry", "Tool", "load_all_tools"]

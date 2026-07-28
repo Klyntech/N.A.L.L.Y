@@ -2,6 +2,9 @@
 
 Handles dynamic client registration, authorization, token storage,
 and provides OAuthClientProvider instances for the MCP SDK.
+
+Includes RFC 9470/8414 OAuth discovery for Notion MCP and
+SQLite-backed PKCE state persistence to survive server restarts.
 """
 import asyncio
 import base64
@@ -217,23 +220,155 @@ def generate_pkce() -> tuple[str, str]:
     return code_verifier, code_challenge
 
 
-# ── Notion OAuth (DCR — zero config) ─────────────────────
+# ── OAuth State Persistence (SQLite) ──────────────────────
 
-NOTION_AUTH_ENDPOINT = "https://mcp.notion.com/authorize"
-NOTION_TOKEN_ENDPOINT = "https://mcp.notion.com/token"
-NOTION_REGISTER_ENDPOINT = "https://mcp.notion.com/register"
+_OAUTH_STATE_TABLE = "mcp_oauth_state"
+
+
+def _ensure_state_table(db_path: str):
+    """Create the oauth_state table if it doesn't exist."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {_OAUTH_STATE_TABLE} (
+            service TEXT PRIMARY KEY,
+            code_verifier TEXT,
+            client_id TEXT,
+            state TEXT,
+            token_endpoint TEXT,
+            auth_endpoint TEXT,
+            created_at REAL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def save_oauth_state(db_path: str, service: str, code_verifier: str,
+                     client_id: str, state: str, token_endpoint: str,
+                     auth_endpoint: str) -> None:
+    """Persist OAuth state to SQLite so it survives server restarts."""
+    _ensure_state_table(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        f"INSERT OR REPLACE INTO {_OAUTH_STATE_TABLE} "
+        "(service, code_verifier, client_id, state, token_endpoint, auth_endpoint, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (service, code_verifier, client_id, state, token_endpoint, auth_endpoint, time.time()),
+    )
+    conn.commit()
+    conn.close()
+    logger.debug(f"Saved OAuth state for {service}")
+
+
+def load_oauth_state(db_path: str, service: str) -> dict | None:
+    """Load persisted OAuth state from SQLite. Returns None if not found."""
+    _ensure_state_table(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        f"SELECT code_verifier, client_id, state, token_endpoint, auth_endpoint "
+        f"FROM {_OAUTH_STATE_TABLE} WHERE service = ?",
+        (service,),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "code_verifier": row["code_verifier"],
+        "client_id": row["client_id"],
+        "state": row["state"],
+        "token_endpoint": row["token_endpoint"],
+        "auth_endpoint": row["auth_endpoint"],
+    }
+
+
+def clear_oauth_state(db_path: str, service: str) -> None:
+    """Remove persisted OAuth state after successful exchange."""
+    _ensure_state_table(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(f"DELETE FROM {_OAUTH_STATE_TABLE} WHERE service = ?", (service,))
+    conn.commit()
+    conn.close()
+
+
+# ── OAuth Discovery (RFC 9470/8414) ──────────────────────
+
+# Hardcoded fallback endpoints (used if discovery fails)
+NOTION_AUTH_ENDPOINT_FALLBACK = "https://mcp.notion.com/authorize"
+NOTION_TOKEN_ENDPOINT_FALLBACK = "https://mcp.notion.com/token"
+NOTION_REGISTER_ENDPOINT_FALLBACK = "https://mcp.notion.com/register"
 NOTION_REDIRECT_URI = "http://localhost:5000/api/oauth/notion/callback"
 
 
+async def discover_notion_metadata(mcp_server_url: str = "https://mcp.notion.com/mcp") -> dict:
+    """Discover Notion OAuth endpoints via RFC 9470 (Protected Resource) + RFC 8414 (Auth Server).
+
+    Returns dict with keys: authorization_endpoint, token_endpoint, registration_endpoint.
+    Falls back to hardcoded Notion endpoints if discovery fails.
+    """
+    fallback = {
+        "authorization_endpoint": NOTION_AUTH_ENDPOINT_FALLBACK,
+        "token_endpoint": NOTION_TOKEN_ENDPOINT_FALLBACK,
+        "registration_endpoint": NOTION_REGISTER_ENDPOINT_FALLBACK,
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Step 1: RFC 9470 — Fetch Protected Resource Metadata
+            pr_url = f"{mcp_server_url.rstrip('/')}/.well-known/oauth-protected-resource"
+            logger.debug(f"Fetching protected resource metadata: {pr_url}")
+            resp = await client.get(pr_url, timeout=10.0)
+            if resp.status_code != 200:
+                logger.warning(f"Protected resource metadata returned {resp.status_code}, using fallback endpoints")
+                return fallback
+            pr_data = resp.json()
+
+            auth_servers = pr_data.get("authorization_servers", [])
+            if not auth_servers:
+                logger.warning("No authorization_servers in protected resource metadata, using fallback")
+                return fallback
+            auth_server_url = auth_servers[0]
+
+            # Step 2: RFC 8414 — Fetch Authorization Server Metadata
+            as_url = f"{auth_server_url.rstrip('/')}/.well-known/oauth-authorization-server"
+            logger.debug(f"Fetching auth server metadata: {as_url}")
+            resp2 = await client.get(as_url, timeout=10.0)
+            if resp2.status_code != 200:
+                logger.warning(f"Auth server metadata returned {resp2.status_code}, using fallback")
+                return fallback
+            as_data = resp2.json()
+
+            result = {
+                "authorization_endpoint": as_data.get("authorization_endpoint", fallback["authorization_endpoint"]),
+                "token_endpoint": as_data.get("token_endpoint", fallback["token_endpoint"]),
+                "registration_endpoint": as_data.get("registration_endpoint", fallback["registration_endpoint"]),
+            }
+            logger.info(f"Notion OAuth discovery succeeded: auth={result['authorization_endpoint']}")
+            return result
+
+    except Exception as e:
+        logger.warning(f"Notion OAuth discovery failed ({type(e).__name__}: {e}), using fallback endpoints")
+        return fallback
+
+
+# ── Notion OAuth (DCR + Discovery) ────────────────────────
+
+
 async def start_notion_oauth(db_path: str) -> str:
-    """Start Notion OAuth: DCR → build auth URL → return it for browser redirect."""
+    """Start Notion OAuth: discover endpoints → DCR → build auth URL → return it."""
 
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(16)
 
+    # Discover OAuth endpoints (RFC 9470/8414)
+    metadata = await discover_notion_metadata()
+    auth_endpoint = metadata["authorization_endpoint"]
+    token_endpoint = metadata["token_endpoint"]
+    register_endpoint = metadata["registration_endpoint"]
+
     # Dynamic Client Registration
     async with httpx.AsyncClient() as client:
-        resp = await client.post(NOTION_REGISTER_ENDPOINT, json={
+        resp = await client.post(register_endpoint, json={
             "client_name": "Nally",
             "client_uri": "http://localhost:5000",
             "redirect_uris": [NOTION_REDIRECT_URI],
@@ -241,17 +376,25 @@ async def start_notion_oauth(db_path: str) -> str:
             "response_types": ["code"],
             "token_endpoint_auth_method": "none",
         }, timeout=15.0)
-        resp.raise_for_status()
+        if resp.status_code not in (200, 201):
+            logger.error(f"Notion DCR failed: {resp.status_code} {resp.text[:500]}")
+            raise ValueError(f"Notion client registration failed ({resp.status_code}): {resp.text[:200]}")
         dcr_data = resp.json()
+        logger.info(f"Notion DCR succeeded: client_id={dcr_data.get('client_id', '?')[:8]}...")
 
     client_id = dcr_data["client_id"]
 
-    # Store state for callback
-    _pending_pkce["notion"] = {
+    # Store state in memory (fast path) + SQLite (survives restarts)
+    state_entry = {
         "code_verifier": code_verifier,
         "client_id": client_id,
         "state": state,
+        "token_endpoint": token_endpoint,
+        "auth_endpoint": auth_endpoint,
     }
+    _pending_pkce["notion"] = state_entry
+    save_oauth_state(db_path, "notion", code_verifier, client_id, state,
+                     token_endpoint, auth_endpoint)
 
     # Build authorization URL
     from urllib.parse import urlencode
@@ -265,19 +408,26 @@ async def start_notion_oauth(db_path: str) -> str:
         "code_challenge_method": "S256",
         "prompt": "consent",
     }
-    return f"{NOTION_AUTH_ENDPOINT}?{urlencode(params)}"
+    return f"{auth_endpoint}?{urlencode(params)}"
 
 
 async def exchange_notion_code(code: str, db_path: str) -> bool:
     """Exchange Notion authorization code for tokens. Returns True on success."""
 
+    # Try in-memory first (same-process fast path), fall back to SQLite
     state_data = _pending_pkce.pop("notion", None)
     if not state_data:
-        logger.warning("No pending Notion OAuth state")
-        return False
+        state_data = load_oauth_state(db_path, "notion")
+        if state_data:
+            logger.debug("Loaded Notion OAuth state from SQLite")
+        else:
+            logger.warning("No pending Notion OAuth state (memory or SQLite)")
+            return False
+
+    token_endpoint = state_data.get("token_endpoint", NOTION_TOKEN_ENDPOINT_FALLBACK)
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(NOTION_TOKEN_ENDPOINT, data={
+        resp = await client.post(token_endpoint, data={
             "grant_type": "authorization_code",
             "code": code,
             "client_id": state_data["client_id"],
@@ -286,7 +436,7 @@ async def exchange_notion_code(code: str, db_path: str) -> bool:
         }, timeout=15.0)
 
         if resp.status_code != 200:
-            logger.error(f"Notion token exchange failed: {resp.status_code} {resp.text}")
+            logger.error(f"Notion token exchange failed: {resp.status_code} {resp.text[:500]}")
             return False
 
         token_data = resp.json()
@@ -300,6 +450,10 @@ async def exchange_notion_code(code: str, db_path: str) -> bool:
 
     storage = SQLiteTokenStorage(db_path, "notion")
     await storage.set_tokens(token)
+
+    # Clean up persisted state
+    clear_oauth_state(db_path, "notion")
+
     logger.info("Notion OAuth successful — token stored")
     return True
 
@@ -330,7 +484,11 @@ def _get_google_credentials() -> tuple[str, str] | None:
 
 
 async def start_google_oauth(service: str, db_path: str) -> str:
-    """Start Google OAuth: build auth URL → return it for browser redirect."""
+    """Start Google OAuth: build auth URL → return it for browser redirect.
+
+    Always requests ALL Google scopes (gmail + drive + calendar) so one
+    token covers all Workspace services.
+    """
     creds = _get_google_credentials()
     if not creds:
         raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env")
@@ -338,7 +496,9 @@ async def start_google_oauth(service: str, db_path: str) -> str:
 
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(16)
-    scope = GOOGLE_SCOPES.get(service, GOOGLE_SCOPES["gmail"])
+
+    # Combine all scopes — one OAuth flow covers all Google services
+    all_scopes = " ".join(GOOGLE_SCOPES.values())
 
     # Store state — all Google services share the same OAuth token
     _pending_pkce["google"] = {
@@ -353,7 +513,7 @@ async def start_google_oauth(service: str, db_path: str) -> str:
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": GOOGLE_REDIRECT_URI,
-        "scope": scope,
+        "scope": all_scopes,
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",

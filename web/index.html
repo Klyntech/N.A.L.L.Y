@@ -490,20 +490,52 @@
       margin: 10px 0;
       width: 100%;
       font-size: 13px;
+      overflow-x: auto;
+      display: table;
     }
     .msg-text th, .msg-text td {
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 6px 10px;
+      padding: 7px 10px;
       text-align: left;
+      white-space: nowrap;
     }
+    .msg-text thead { border-bottom: 1px solid rgba(255,255,255,0.1); }
     .msg-text th {
-      background: rgba(255,255,255,0.04);
-      color: rgba(228,226,220,0.9);
-      font-weight: 600;
+      color: rgba(228,226,220,0.5);
+      font-weight: 500;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     .msg-text td {
-      color: rgba(228,226,220,0.7);
+      color: rgba(228,226,220,0.85);
+      border-top: 1px solid rgba(255,255,255,0.04);
     }
+    .msg-text tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    /* Compact mode */
+    body.compact .drawer-messages { padding: 8px 10px; }
+    body.compact .msg-text { font-size: 12px; line-height: 1.5; }
+    body.compact .msg-text pre { padding: 8px 10px; margin: 6px 0; }
+    body.compact .msg-text pre code { font-size: 11px; }
+    body.compact .msg-text code { font-size: 11px; padding: 1px 4px; }
+    body.compact .msg-text h1 { font-size: 15px; }
+    body.compact .msg-text h2 { font-size: 14px; }
+    body.compact .msg-text h3 { font-size: 13px; }
+    body.compact .tool-card { margin: 4px 0; }
+    body.compact .tool-card-header { padding: 6px 10px; }
+    body.compact .tool-card-summary { font-size: 12px; }
+    body.compact .tool-card-code { font-size: 11px; padding: 6px 8px; }
+    body.compact .drawer-input { padding: 8px 12px; font-size: 13px; }
+
+    /* Lock mode — disable interactive elements */
+    body.lock-mode .drawer-input { pointer-events: none; opacity: 0.4; }
+    body.lock-mode .drawer-send { pointer-events: none; opacity: 0.4; }
+    body.lock-mode .settings-overlay { pointer-events: auto; }
+    body.lock-mode .settings-dropdown-row:not(.lock-row) { pointer-events: none; opacity: 0.4; }
+    body.lock-mode .mobile-settings { pointer-events: none; opacity: 0.4; }
+    body.lock-mode .desktop-settings { pointer-events: none; opacity: 0.4; }
 
     /* Copy button */
     .msg-copy {
@@ -1015,6 +1047,8 @@
     }
     .svc-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
     .svc-card.connected { border-color: rgba(52,211,153,0.2); }
+    .svc-card.coming-soon-card { opacity: 0.4; cursor: default; }
+    .svc-badge.coming-soon { background: rgba(255,255,255,0.06); color: rgba(228,226,220,0.4); }
 
     .svc-icon {
       width: 22px; height: 22px;
@@ -1120,7 +1154,6 @@
       animation: spin 0.7s linear infinite;
       margin: 0 auto 12px;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
     .auth-modal-success {
       display: none;
@@ -1502,7 +1535,7 @@
         <svg class="settings-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
       <div class="settings-body">
-        <div class="settings-dropdown-row">
+        <div class="settings-dropdown-row lock-row">
           <span class="settings-dropdown-label">Lock UI</span>
           <label class="settings-toggle">
             <input type="checkbox" id="lock-toggle" onchange="setLockMode(this.checked)">
@@ -1594,6 +1627,7 @@
           rip.className = 'ripple';
           rip.style.animationDelay = (r * 0.35) + 's';
           inner.appendChild(rip);
+          rip.addEventListener('animationend', function() { this.remove(); });
         }
         var colors = ['#3ECFB8', '#7C6AEF', '#A78BFA'];
         for (var p = 0; p < 16; p++) {
@@ -1607,6 +1641,7 @@
           part.style.background = colors[p % 3];
           part.style.boxShadow = '0 0 6px ' + colors[p % 3];
           inner.appendChild(part);
+          part.addEventListener('animationend', function() { this.remove(); });
         }
       }
 
@@ -1673,7 +1708,7 @@
       ringCW.setAttribute('r', '125'); ringCW.setAttribute('fill', 'none');
       ringCW.setAttribute('stroke', reactStroke); ringCW.setAttribute('stroke-width', '5');
       ringCW.setAttribute('filter', 'url(#og2)'); ringCW.setAttribute('stroke-dasharray', '780 5');
-      ringCW.classList.add('orb-reactor', 'orb-ring-cw');
+      ringCW.classList.add('orb-ring-cw');
       ringCW.style.transformOrigin = '250px 250px'; ringCW.style.transition = 'stroke 0.6s ease';
       svg.appendChild(ringCW);
 
@@ -1928,15 +1963,21 @@
     }
 
     // ─── Markdown Renderer ────────────────────────
-    // Configure marked
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    });
+    // Configure marked with fallback
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({ breaks: true, gfm: true });
+    }
 
     function renderMd(text) {
       if (!text) return '';
-      return marked.parse(text);
+      if (typeof marked !== 'undefined') return marked.parse(text);
+      // Fallback: basic markdown if CDN failed
+      return text
+        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, '<br>');
     }
 
     // ─── Chat Drawer (Desktop Window) ─────────────
@@ -2137,7 +2178,7 @@
 
       var textEl = document.createElement('div');
       textEl.className = 'msg-text';
-      textEl.innerHTML = isNally ? renderMd(text) : text;
+      textEl.innerHTML = isNally ? renderMd(text) : text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
       msg.appendChild(textEl);
 
@@ -2586,10 +2627,6 @@
         },
         body: JSON.stringify({ tool_call_id: toolCallId, approved: approved }),
       });
-      // Remove the approval card
-      var cards = chatMessages.querySelectorAll('.tool-card');
-      var last = cards[cards.length - 1];
-      if (last) last.remove();
     }
 
     function addChatMsgStream() {
@@ -2628,7 +2665,7 @@
       var m = Math.floor(elapsed / 60);
       var h = Math.floor(m / 60);
       var s = elapsed % 60;
-      var el = document.getElementById('dash-uptime');
+      var el = document.getElementById('settings-uptime');
       if (el) {
         el.textContent = h > 0 ? h + 'h ' + (m % 60) + 'm' : m + 'm ' + s + 's';
       }
@@ -2677,7 +2714,10 @@
 
     // Theme switcher
     function setTheme(name) {
-      document.body.className = 'theme-' + name;
+      document.body.className = '';
+      document.body.classList.add('theme-' + name);
+      if (document.getElementById('compact-toggle').checked) document.body.classList.add('compact');
+      if (document.getElementById('lock-toggle').checked) document.body.classList.add('lock-mode');
       localStorage.setItem('nally-theme', name);
       document.querySelectorAll('.theme-swatch').forEach(function(s) {
         s.classList.toggle('active', s.dataset.theme === name);
@@ -2774,7 +2814,7 @@
       { id:'gdrive',    name:'Google Drive',  auth:'oauth',  desc:'File storage', mcp:true },
       { id:'gcal',      name:'Calendar',      auth:'oauth',  desc:'Scheduling', mcp:true, backendId:'gcalendar' },
       { id:'telegram',  name:'Telegram',      auth:'token',  desc:'Chat access', tokenLabel:'Bot Token', mcp:true },
-      { id:'filesystem',name:'Filesystem',    auth:'none',   desc:'Local file access', mcp:true },
+      { id:'filesystem',name:'Filesystem',    auth:'none',   desc:'Local file access', mcp:false },
       { id:'fetch',     name:'Fetch',         auth:'none',   desc:'Web content fetching', mcp:true },
       // Coming soon
       { id:'slack',     name:'Slack',         auth:'oauth',  desc:'Team messaging', mcp:false },
@@ -2796,8 +2836,6 @@
       higgsfield:'#FF6B35', twitter:'#000', spotify:'#1DB954', youtube:'#FF0000',
       dropbox:'#0061FF', filesystem:'#607D8B', fetch:'#FF6F00',
     };
-
-    var NALLY_API = 'http://localhost:5000';
 
     function getConnected() {
       try { return JSON.parse(localStorage.getItem('nally-svc') || '{}'); }
@@ -2901,19 +2939,40 @@
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN, 'Content-Type': 'application/json' }
         })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
+        .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, data: j }; }); })
+        .then(function(res) {
+          if (!res.ok) {
+            authSpinner.style.display = 'none';
+            authSub.textContent = res.data.detail || res.data.error || 'Backend error';
+            authBody.innerHTML = '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Close</button>';
+            return;
+          }
+          var data = res.data;
+          if (data.status === 'connected') {
+            authSpinner.style.display = 'none';
+            authSuccess.classList.add('show');
+            authSub.textContent = svc.name + ' already connected';
+            authBody.innerHTML = '<button class="auth-modal-btn" onclick="closeAuth(\'' + svc.id + '\')">Done</button>';
+            return;
+          }
           if (data.auth_url) {
             authSub.textContent = 'Opening ' + svc.name + '...';
             // Open OAuth in popup
             var w = 600, h = 700;
             var left = (screen.width - w) / 2, top = (screen.height - h) / 2;
-            window.open(data.auth_url, 'oauth_' + svc.id, 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top);
+            var popup = window.open(data.auth_url, 'oauth_' + svc.id, 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top);
+            if (!popup) {
+              authSpinner.style.display = 'none';
+              authSub.textContent = 'Popup blocked — allow popups for this site';
+              authBody.innerHTML = '<button class="auth-modal-btn" onclick="window.open(\'' + data.auth_url + '\')">Open in new tab</button><button class="auth-modal-btn secondary" onclick="closeAuthModal()">Close</button>';
+              return;
+            }
             // Poll for connection status
             pollConnection(svc.id);
           } else {
             authSpinner.style.display = 'none';
-            authSub.textContent = 'Failed to start OAuth flow';
+            var errMsg = data.detail || data.error || 'Failed to start OAuth flow';
+            authSub.textContent = errMsg;
             authBody.innerHTML = '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Close</button>';
           }
         })
@@ -2965,9 +3024,12 @@
       });
     }
 
+    var _pollInterval = null;
+
     function pollConnection(id) {
+      if (_pollInterval) clearInterval(_pollInterval);
       var checks = 0;
-      var interval = setInterval(function() {
+      _pollInterval = setInterval(function() {
         checks++;
         fetch(NALLY_API + '/api/mcp/services', {
           headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
@@ -2976,7 +3038,7 @@
         .then(function(data) {
           var svc = data.services ? data.services.find(function(s){ return s.name === id || s.id === id; }) : null;
           if (svc && svc.connected) {
-            clearInterval(interval);
+            clearInterval(_pollInterval); _pollInterval = null;
             authSpinner.style.display = 'none';
             authSuccess.classList.add('show');
             authSub.textContent = findSvc(id).name + ' connected successfully';
@@ -2984,8 +3046,8 @@
           }
         })
         .catch(function(){});
-        if (checks > 30) { // 30s timeout
-          clearInterval(interval);
+        if (checks > 30) {
+          clearInterval(_pollInterval); _pollInterval = null;
           authSpinner.style.display = 'none';
           authSub.textContent = 'Timed out — try again';
           authBody.innerHTML = '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Close</button>';
@@ -3002,6 +3064,7 @@
     }
 
     function closeAuthModal() {
+      if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
       authOverlay.classList.remove('open');
       authBody.innerHTML = '';
     }
@@ -3057,15 +3120,12 @@
     authOverlay.addEventListener('click', function(e) {
       if (e.target === authOverlay) closeAuthModal();
     });
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && authOverlay.classList.contains('open')) closeAuthModal();
-    });
 
     // Handle OAuth redirect
     (function() {
       var params = new URLSearchParams(window.location.search);
       if (params.get('oauth') === 'success') {
-        var svcId = params.get('service');
+        var svcId = (params.get('service') || '').toLowerCase();
         if (svcId) {
           var connected = getConnected();
           connected[svcId] = { at: Date.now() };
@@ -3078,6 +3138,16 @@
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' && authOverlay.classList.contains('open')) closeAuthModal();
       if (e.key === 'Escape' && diffPanel.classList.contains('open')) closeDiff();
+    });
+
+    // ─── Lock shortcut ─────────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+        e.preventDefault();
+        var lockToggle = document.getElementById('lock-toggle');
+        lockToggle.checked = !lockToggle.checked;
+        setLockMode(lockToggle.checked);
+      }
     });
 
     // ─── Init Lucide Icons ───────────────────────

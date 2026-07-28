@@ -17,6 +17,10 @@ from nally.mcp.oauth import (
     get_existing_tokens,
     generate_pkce,
     _pending_pkce,
+    discover_notion_metadata,
+    save_oauth_state,
+    load_oauth_state,
+    clear_oauth_state,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -183,45 +187,201 @@ def test_generate_pkce_unique():
     assert c1 != c2
 
 
+# ── OAuth State Persistence ──────────────────────────────
+
+def test_save_load_oauth_state(tmp_db):
+    """save_oauth_state persists and load_oauth_state retrieves."""
+    save_oauth_state(tmp_db, "notion", "verifier123", "client456",
+                     "state789", "https://token.ep", "https://auth.ep")
+    state = load_oauth_state(tmp_db, "notion")
+    assert state is not None
+    assert state["code_verifier"] == "verifier123"
+    assert state["client_id"] == "client456"
+    assert state["state"] == "state789"
+    assert state["token_endpoint"] == "https://token.ep"
+    assert state["auth_endpoint"] == "https://auth.ep"
+
+
+def test_load_oauth_state_missing(tmp_db):
+    """load_oauth_state returns None when not found."""
+    state = load_oauth_state(tmp_db, "nonexistent")
+    assert state is None
+
+
+def test_clear_oauth_state(tmp_db):
+    """clear_oauth_state removes the stored state."""
+    save_oauth_state(tmp_db, "notion", "v", "c", "s", "t", "a")
+    assert load_oauth_state(tmp_db, "notion") is not None
+    clear_oauth_state(tmp_db, "notion")
+    assert load_oauth_state(tmp_db, "notion") is None
+
+
+def test_save_oauth_state_overwrites(tmp_db):
+    """save_oauth_state overwrites existing state for same service."""
+    save_oauth_state(tmp_db, "notion", "v1", "c1", "s1", "t1", "a1")
+    save_oauth_state(tmp_db, "notion", "v2", "c2", "s2", "t2", "a2")
+    state = load_oauth_state(tmp_db, "notion")
+    assert state["code_verifier"] == "v2"
+    assert state["client_id"] == "c2"
+
+
+# ── Notion OAuth Discovery ────────────────────────────────
+
+def test_discover_notion_metadata_success():
+    """discover_notion_metadata returns endpoints from discovery."""
+    mock_pr = {
+        "authorization_servers": ["https://auth.notion.com"]
+    }
+    mock_as = {
+        "authorization_endpoint": "https://auth.notion.com/authorize",
+        "token_endpoint": "https://auth.notion.com/token",
+        "registration_endpoint": "https://auth.notion.com/register",
+    }
+
+    mock_pr_resp = MagicMock()
+    mock_pr_resp.status_code = 200
+    mock_pr_resp.json.return_value = mock_pr
+
+    mock_as_resp = MagicMock()
+    mock_as_resp.status_code = 200
+    mock_as_resp.json.return_value = mock_as
+
+    async def mock_get(url, timeout=None):
+        if "oauth-protected-resource" in url:
+            return mock_pr_resp
+        return mock_as_resp
+
+    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.get = AsyncMock(side_effect=mock_get)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        result = asyncio.run(discover_notion_metadata())
+
+    assert result["authorization_endpoint"] == "https://auth.notion.com/authorize"
+    assert result["token_endpoint"] == "https://auth.notion.com/token"
+    assert result["registration_endpoint"] == "https://auth.notion.com/register"
+
+
+def test_discover_notion_metadata_fallback_on_error():
+    """discover_notion_metadata falls back to hardcoded on network error."""
+    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.get = AsyncMock(side_effect=Exception("Connection refused"))
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        result = asyncio.run(discover_notion_metadata())
+
+    assert result["authorization_endpoint"] == "https://mcp.notion.com/authorize"
+    assert result["token_endpoint"] == "https://mcp.notion.com/token"
+    assert result["registration_endpoint"] == "https://mcp.notion.com/register"
+
+
+def test_discover_notion_metadata_fallback_on_bad_status():
+    """discover_notion_metadata falls back when discovery returns non-200."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+
+    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.get = AsyncMock(return_value=mock_resp)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        result = asyncio.run(discover_notion_metadata())
+
+    assert result["authorization_endpoint"] == "https://mcp.notion.com/authorize"
+
+
 # ── Notion OAuth ─────────────────────────────────────────
 
 def test_start_notion_oauth_builds_auth_url(tmp_db):
     """start_notion_oauth performs DCR and returns a Notion authorize URL."""
-    from nally.mcp.oauth import start_notion_oauth, NOTION_AUTH_ENDPOINT
+    from nally.mcp.oauth import start_notion_oauth
 
     mock_dcr = {"client_id": "test_client_123", "client_id_issued_at": 12345}
-    mock_response = MagicMock()
-    mock_response.json.return_value = mock_dcr
-    mock_response.raise_for_status = MagicMock()
+    mock_dcr_resp = MagicMock()
+    mock_dcr_resp.status_code = 201
+    mock_dcr_resp.json.return_value = mock_dcr
 
-    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+    # Mock discovery to return known endpoints
+    mock_discovery = {
+        "authorization_endpoint": "https://mcp.notion.com/authorize",
+        "token_endpoint": "https://mcp.notion.com/token",
+        "registration_endpoint": "https://mcp.notion.com/register",
+    }
+
+    with patch("nally.mcp.oauth.discover_notion_metadata", new_callable=AsyncMock, return_value=mock_discovery), \
+         patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
         instance = AsyncMock()
-        instance.post = AsyncMock(return_value=mock_response)
+        instance.post = AsyncMock(return_value=mock_dcr_resp)
         instance.__aenter__ = AsyncMock(return_value=instance)
         instance.__aexit__ = AsyncMock(return_value=False)
         MockClient.return_value = instance
 
         auth_url = asyncio.run(start_notion_oauth(tmp_db))
 
-    assert auth_url.startswith(NOTION_AUTH_ENDPOINT)
+    assert auth_url.startswith("https://mcp.notion.com/authorize")
     assert "client_id=test_client_123" in auth_url
     assert "code_challenge=" in auth_url
     assert "code_challenge_method=S256" in auth_url
     assert "state=" in auth_url
-    # Verify PKCE state was stored
+    # Verify PKCE state was stored in memory
     assert "notion" in _pending_pkce
     assert _pending_pkce["notion"]["client_id"] == "test_client_123"
+    # Verify PKCE state was persisted to SQLite
+    state = load_oauth_state(tmp_db, "notion")
+    assert state is not None
+    assert state["client_id"] == "test_client_123"
+
+
+def test_start_notion_oauth_uses_discovered_token_endpoint(tmp_db):
+    """start_notion_oauth uses discovered token_endpoint for DCR."""
+    from nally.mcp.oauth import start_notion_oauth
+
+    mock_dcr = {"client_id": "disc_client"}
+    mock_dcr_resp = MagicMock()
+    mock_dcr_resp.status_code = 200
+    mock_dcr_resp.json.return_value = mock_dcr
+
+    mock_discovery = {
+        "authorization_endpoint": "https://custom.auth/authorize",
+        "token_endpoint": "https://custom.auth/token",
+        "registration_endpoint": "https://custom.auth/register",
+    }
+
+    with patch("nally.mcp.oauth.discover_notion_metadata", new_callable=AsyncMock, return_value=mock_discovery), \
+         patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.post = AsyncMock(return_value=mock_dcr_resp)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        auth_url = asyncio.run(start_notion_oauth(tmp_db))
+
+    # Auth URL should use discovered auth endpoint
+    assert auth_url.startswith("https://custom.auth/authorize")
+    # DCR should have been called with discovered register endpoint
+    call_args = instance.post.call_args
+    assert "custom.auth/register" in str(call_args)
 
 
 def test_exchange_notion_code_success(tmp_db):
     """exchange_notion_code exchanges code and stores token."""
     from nally.mcp.oauth import exchange_notion_code
 
-    # Set up pending state
+    # Set up pending state (in-memory)
     _pending_pkce["notion"] = {
         "code_verifier": "test_verifier",
         "client_id": "test_client",
         "state": "test_state",
+        "token_endpoint": "https://mcp.notion.com/token",
     }
 
     mock_token_resp = MagicMock()
@@ -251,12 +411,73 @@ def test_exchange_notion_code_success(tmp_db):
     assert token.access_token == "ntn_test_token"
 
 
-def test_exchange_notion_code_no_pending():
+def test_exchange_notion_code_from_sqlite(tmp_db):
+    """exchange_notion_code loads state from SQLite when not in memory."""
+    from nally.mcp.oauth import exchange_notion_code
+
+    # Ensure no in-memory state
+    _pending_pkce.pop("notion", None)
+
+    # Persist state to SQLite
+    save_oauth_state(tmp_db, "notion", "db_verifier", "db_client",
+                     "db_state", "https://db.token/ep", "https://db.auth/ep")
+
+    mock_token_resp = MagicMock()
+    mock_token_resp.status_code = 200
+    mock_token_resp.json.return_value = {
+        "access_token": "db_token_123",
+        "token_type": "bearer",
+        "expires_in": 3600,
+    }
+
+    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.post = AsyncMock(return_value=mock_token_resp)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        result = asyncio.run(exchange_notion_code("auth_code_db", tmp_db))
+
+    assert result is True
+    # Verify the token endpoint from SQLite was used
+    call_args = instance.post.call_args
+    assert "db.token/ep" in str(call_args)
+    # Verify state was cleared from SQLite
+    assert load_oauth_state(tmp_db, "notion") is None
+
+
+def test_exchange_notion_code_uses_discovered_token_endpoint(tmp_db):
+    """exchange_notion_code uses token_endpoint from persisted state."""
+    from nally.mcp.oauth import exchange_notion_code
+
+    _pending_pkce.pop("notion", None)
+    save_oauth_state(tmp_db, "notion", "v", "c", "s",
+                     "https://discovered.token/ep", "https://auth/ep")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+    with patch("nally.mcp.oauth.httpx.AsyncClient") as MockClient:
+        instance = AsyncMock()
+        instance.post = AsyncMock(return_value=mock_resp)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value = instance
+
+        asyncio.run(exchange_notion_code("code", tmp_db))
+
+    call_args = instance.post.call_args
+    assert "discovered.token/ep" in str(call_args)
+
+
+def test_exchange_notion_code_no_pending(tmp_db):
     """exchange_notion_code returns False when no pending state."""
     from nally.mcp.oauth import exchange_notion_code
     # Ensure no pending state for notion
     _pending_pkce.pop("notion", None)
-    result = asyncio.run(exchange_notion_code("code", "/tmp/nonexistent.db"))
+    result = asyncio.run(exchange_notion_code("code", tmp_db))
     assert result is False
 
 

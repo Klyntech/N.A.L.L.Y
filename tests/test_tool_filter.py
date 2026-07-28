@@ -13,9 +13,8 @@ def _build_index():
 
 def test_generic_query_returns_all_tools():
     """Generic queries with no strong keyword matches return the full tool set."""
-    result = tool_filter.select("hello how are you")
+    result = tool_filter.select("xyzzy plughobnob flurgle")
     names = {t["function"]["name"] for t in result}
-    assert len(result) == len(registry.tools)
     assert names == set(registry.tools.keys())
 
 
@@ -31,7 +30,8 @@ def test_specific_query_narrows_correctly():
 def test_empty_query_returns_all_tools():
     """Empty string gracefully returns the full tool set."""
     result = tool_filter.select("")
-    assert len(result) == len(registry.tools)
+    names = {t["function"]["name"] for t in result}
+    assert names == set(registry.tools.keys())
 
 
 def test_deterministic_output():

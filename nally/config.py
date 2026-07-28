@@ -26,15 +26,6 @@ ALLOWED_PLUGINS: list[str] = []  # e.g. ["my_tools.py", "custom_agent.py"]
 
 # MCP servers (Model Context Protocol)
 MCP_SERVERS: list[dict] = [
-    # ── Stdio servers (local subprocess) ──
-    {
-        "name": "filesystem",
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem",
-                 str(BASE_DIR)],
-        "transport": "stdio",
-        "permission": "write",
-    },
     # ── HTTP/OAuth servers (remote, user-authorized) ──
     {
         "name": "github",

@@ -323,7 +323,7 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit):
         elif "auth" in error_str or "401" in error_str:
             raise LLMError.auth_failed(provider="llm")
         else:
-            raise LLMError.connection_failed(provider="llm", detail=str(last_error)[:200])
+            raise LLMError.connection_failed(provider="llm", reason=str(last_error)[:200])
 
 
 def llm_call(state: AgentState) -> AgentState:
@@ -424,6 +424,7 @@ def llm_call(state: AgentState) -> AgentState:
         for tc in assistant_msg.tool_calls:
             try:
                 emit("tool_call", {
+                    "id": tc.id,
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments) if tc.function.arguments else {},
                     "iteration": iteration + 1,

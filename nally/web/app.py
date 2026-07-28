@@ -392,7 +392,10 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
         # Start OAuth flow — return auth_url for browser redirect
         if service == "notion":
             from nally.mcp.oauth import start_notion_oauth
-            auth_url = await start_notion_oauth(db)
+            try:
+                auth_url = await start_notion_oauth(db)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
             return {"status": "auth_required", "auth_url": auth_url, "service": service}
         elif service in ("gmail", "gdrive", "gcalendar"):
             from nally.mcp.oauth import start_google_oauth
@@ -490,7 +493,7 @@ async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""
         except Exception:
             pass
 
-    html = REDIRECT_HTML.replace("SERVICE", "Notion")
+    html = REDIRECT_HTML.replace("SERVICE", "notion")
     return HTMLResponse(content=html)
 
 
@@ -520,7 +523,7 @@ async def google_oauth_callback(code: str = "", state: str = "", error: str = ""
             except Exception:
                 pass
 
-    html = REDIRECT_HTML.replace("SERVICE", "Google Workspace")
+    html = REDIRECT_HTML.replace("SERVICE", "gmail")
     return HTMLResponse(content=html)
 
 
