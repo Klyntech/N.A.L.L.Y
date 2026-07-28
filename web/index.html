@@ -2,58 +2,3086 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#09090F">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Nally</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>N.A.L.L.Y</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* ─── Themes ──────────────────────────────── */
+    :root {
+      --teal: #3ECFB8;
+      --green: #34D399;
+    }
+    body, body.theme-midnight {
+      --iris: #7C6AEF;
+      --iris-glow: rgba(124,106,239,0.35);
+      --bg: #0a0a0a;
+      --orb-speed: 4s;
+      --orb-glow-a: rgba(124,106,239,0.2);
+      --orb-glow-b: rgba(124,106,239,0.4);
+    }
+    body.theme-emerald {
+      --iris: #34D399;
+      --iris-glow: rgba(52,211,153,0.35);
+      --bg: #080f0a;
+      --orb-speed: 2s;
+      --orb-glow-a: rgba(52,211,153,0.2);
+      --orb-glow-b: rgba(52,211,153,0.4);
+    }
+    body.theme-crimson {
+      --iris: #EF4444;
+      --iris-glow: rgba(239,68,68,0.35);
+      --bg: #0f0a0a;
+      --orb-speed: 3s;
+      --orb-glow-a: rgba(239,68,68,0.2);
+      --orb-glow-b: rgba(239,68,68,0.4);
+    }
+    body.theme-ocean {
+      --iris: #38BDF8;
+      --iris-glow: rgba(56,189,248,0.35);
+      --bg: #0a0a0f;
+      --orb-speed: 5s;
+      --orb-glow-a: rgba(56,189,248,0.2);
+      --orb-glow-b: rgba(56,189,248,0.4);
+    }
+    body.theme-gold {
+      --iris: #F59E0B;
+      --iris-glow: rgba(245,158,11,0.35);
+      --bg: #0f0d0a;
+      --orb-speed: 3.5s;
+      --orb-glow-a: rgba(245,158,11,0.2);
+      --orb-glow-b: rgba(245,158,11,0.4);
+    }
+
+    html, body { background: var(--bg); height: 100%; width: 100%; overflow: hidden; font-family: 'Space Grotesk', sans-serif; transition: background 0.4s ease; }
+    #root { height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 40px; }
+
+    /* ─── Orb Keyframes ─────────────────────────── */
+    @keyframes orbSpinCW {
+      0% { transform: rotate(0deg); }
+      50% { transform: rotate(180deg) scale(1.02); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes orbSpinCCW {
+      0% { transform: rotate(360deg); }
+      50% { transform: rotate(180deg) scale(0.98); }
+      100% { transform: rotate(0deg); }
+    }
+    @keyframes orbCorePulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 18px var(--iris-glow)) drop-shadow(0 0 35px var(--orb-glow-a)); }
+      50% { transform: scale(1.05); filter: drop-shadow(0 0 35px var(--iris-glow)) drop-shadow(0 0 60px var(--orb-glow-b)); }
+    }
+    @keyframes orbAmbientPulse {
+      0%, 100% { transform: scale(0.88); opacity: 0.3; filter: blur(55px) saturate(1.2); }
+      50% { transform: scale(1.15); opacity: 0.75; filter: blur(40px) saturate(1.8); }
+    }
+    @keyframes orbListening {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(62,207,184,0.5)) drop-shadow(0 0 50px rgba(62,207,184,0.25)); }
+      50% { transform: scale(1.08); filter: drop-shadow(0 0 50px rgba(62,207,184,0.85)) drop-shadow(0 0 90px rgba(62,207,184,0.4)); }
+    }
+    @keyframes orbThinkingPulse {
+      0%   { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+      8%   { transform: scale(1.07); filter: drop-shadow(0 0 35px var(--iris-glow)) drop-shadow(0 0 60px var(--orb-glow-a)); }
+      18%  { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+      26%  { transform: scale(1.1); filter: drop-shadow(0 0 45px var(--iris-glow)) drop-shadow(0 0 80px var(--orb-glow-b)); }
+      40%  { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+      100% { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+    }
+    @keyframes orbThinkingRingPulse {
+      0%   { opacity: 0; transform: scale(1); }
+      10%  { opacity: 0.6; transform: scale(1.05); }
+      40%  { opacity: 0; transform: scale(1.4); }
+      100% { opacity: 0; transform: scale(1); }
+    }
+    @keyframes orbThinkingRipple {
+      0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.5; border-color: var(--iris-glow); }
+      100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; border-color: var(--orb-glow-a); }
+    }
+    @keyframes orbSpeaking {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)) drop-shadow(0 0 50px rgba(52,211,153,0.35)); }
+      50% { transform: scale(1.1); filter: drop-shadow(0 0 45px rgba(52,211,153,0.9)) drop-shadow(0 0 80px rgba(52,211,153,0.55)); }
+    }
+    @keyframes orbBreathe {
+      0%   { transform: scale(0.3); opacity: 0; filter: blur(20px) brightness(0.3); }
+      25%  { transform: scale(0.6); opacity: 0.5; filter: blur(8px) brightness(0.7); }
+      50%  { transform: scale(0.9); opacity: 0.9; filter: blur(2px) brightness(1.1); }
+      70%  { transform: scale(1.08); opacity: 1; filter: blur(0px) brightness(1.3); }
+      85%  { transform: scale(0.96); opacity: 1; filter: blur(0px) brightness(1); }
+      100% { transform: scale(1); opacity: 1; filter: blur(0px) brightness(1); }
+    }
+    @keyframes rippleExpand {
+      0%   { transform: translate(-50%, -50%) scale(0); opacity: 0.8; border-width: 3px; }
+      100% { transform: translate(-50%, -50%) scale(4); opacity: 0; border-width: 1px; }
+    }
+    @keyframes particleFly {
+      0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+      100% { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; }
+    }
+    @keyframes wordPulse {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+    @keyframes emphasisFlare {
+      0% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)); }
+      30% { transform: scale(1.15); filter: drop-shadow(0 0 60px rgba(52,211,153,1)) drop-shadow(0 0 100px rgba(52,211,153,0.6)); }
+      100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)); }
+    }
+
+    /* ─── Orb Classes ───────────────────────────── */
+    .orb-wrapper {
+      position: relative;
+      width: 312px; height: 312px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; user-select: none;
+      transition: transform 0.15s ease-out;
+      transform-style: preserve-3d;
+    }
+    .orb-inner {
+      position: relative;
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.12s ease-out;
+    }
+    .orb-inner.breathe { animation: orbBreathe 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+    .orb-inner.word-pulse { animation: wordPulse 0.25s ease-out; }
+    .orb-inner.emphasis-flare { animation: emphasisFlare 0.4s ease-out; }
+    .orb-ambient {
+      position: absolute;
+      width: 470px; height: 470px;
+      border-radius: 50%;
+      background: var(--iris-glow);
+      filter: blur(40px);
+      pointer-events: none;
+      transition: all 0.6s ease;
+      animation: orbAmbientPulse 8s ease-in-out infinite;
+    }
+    .orb-ring-cw { animation: orbSpinCW 55s linear infinite; transform-origin: 250px 250px; }
+    .orb-ring-ccw { animation: orbSpinCCW 60s linear infinite; transform-origin: 250px 250px; }
+    .orb-reactor { animation: orbCorePulse var(--orb-speed) ease-in-out infinite; transform-origin: 250px 250px; }
+
+    /* State: listening */
+    .orb-state-listening .orb-reactor { animation: orbListening 1.5s ease-in-out infinite; }
+    .orb-state-listening .orb-ring-cw { animation-duration: 8s; }
+    .orb-state-listening .orb-ring-ccw { animation-duration: 10s; }
+    /* State: thinking */
+    .orb-state-thinking .orb-ring-cw { animation: orbSpinCW 2.5s linear infinite; }
+    .orb-state-thinking .orb-ring-ccw { animation: orbSpinCCW 3s linear infinite reverse; }
+    .orb-state-thinking .orb-reactor { animation: orbThinkingPulse 1.2s ease-in-out infinite; }
+    .orb-thinking-ring-pulse {
+      position: absolute; top: 50%; left: 50%;
+      width: 312px; height: 312px; border-radius: 50%;
+      border: 2px solid rgba(124,106,239,0.4);
+      transform: translate(-50%, -50%) scale(1);
+      pointer-events: none; opacity: 0;
+      animation: orbThinkingRingPulse 1.2s ease-out infinite;
+    }
+    .orb-thinking-ripple {
+      position: absolute; top: 50%; left: 50%;
+      width: 120px; height: 120px; border-radius: 50%;
+      border: 1.5px solid rgba(124,106,239,0.5);
+      pointer-events: none;
+      animation: orbThinkingRipple 1.2s ease-out infinite;
+    }
+    /* State: speaking */
+    .orb-state-speaking .orb-reactor { animation: orbSpeaking 2s ease-in-out infinite; }
+    .orb-state-speaking .orb-ring-cw { animation-duration: 20s; }
+    .orb-state-speaking .orb-ring-ccw { animation-duration: 25s; }
+
+    /* Ripple */
+    .ripple {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 100px; height: 100px;
+      border-radius: 50%;
+      border: 2px solid rgba(124,106,239,0.45);
+      pointer-events: none;
+      animation: rippleExpand 1.5s ease-out forwards;
+    }
+    /* Particle */
+    .particle {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: particleFly 1s ease-out forwards;
+    }
+
+    /* ─── Status text ───────────────────────────── */
+    #status-text {
+      font-size: 13px;
+      font-family: 'Space Grotesk', sans-serif;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: rgba(228,226,220,0.25);
+      transition: all 0.4s ease;
+      min-height: 20px;
+    }
+    #thought-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-height: 0;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    #thought-wrap.visible { opacity: 1; }
+    #thought-wrap.collapsed #thought-content { max-height: 0; opacity: 0; padding: 0; margin: 0; overflow: hidden; }
+    #thought-toggle {
+      background: none; border: none; cursor: pointer;
+      color: rgba(124,106,239,0.35);
+      font-size: 11px; letter-spacing: 1px;
+      font-family: 'Space Grotesk', sans-serif;
+      display: flex; align-items: center; gap: 4px;
+      transition: color 0.3s ease;
+      padding: 2px 8px;
+    }
+    #thought-toggle:hover { color: rgba(124,106,239,0.7); }
+    #thought-toggle .chevron {
+      display: inline-block;
+      transition: transform 0.3s ease;
+      font-size: 10px;
+    }
+    #thought-wrap.collapsed #thought-toggle .chevron { transform: rotate(-90deg); }
+    #thought-content {
+      font-size: 14px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-style: italic;
+      letter-spacing: 1px;
+      color: rgba(124,106,239,0.55);
+      text-align: center;
+      max-width: 400px;
+      min-height: 20px;
+      max-height: 40px;
+      transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+      opacity: 1;
+      padding: 2px 0;
+    }
+
+
+
+    /* ─── Chat Drawer (Desktop Window) ────────────── */
+    #chat-drawer {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 560px;
+      height: 480px;
+      min-width: 320px;
+      min-height: 260px;
+      background: rgba(12,12,18,0.94);
+      backdrop-filter: blur(28px) saturate(1.4);
+      -webkit-backdrop-filter: blur(28px) saturate(1.4);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 80;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease, box-shadow 0.3s ease;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+    }
+    #chat-drawer.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #chat-drawer.maximized {
+      top: 0; left: 0;
+      transform: none;
+      width: 100vw !important;
+      height: calc(100vh - 48px) !important;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    /* Title bar */
+    .drawer-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+      height: 38px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      cursor: grab;
+      user-select: none;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .drawer-titlebar:active { cursor: grabbing; }
+    .titlebar-dots {
+      display: flex;
+      gap: 7px;
+    }
+    .dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: filter 0.2s ease, transform 0.15s ease;
+    }
+    .dot:hover { filter: brightness(1.3); transform: scale(1.15); }
+    .dot-close { background: #ff5f57; }
+    .dot-min { background: #febc2e; }
+    .dot-max { background: #28c840; }
+    .titlebar-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(228,226,220,0.45);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .titlebar-spacer { width: auto; flex: 1; }
+
+    /* Messages area */
+    .drawer-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    .drawer-messages::-webkit-scrollbar { width: 4px; }
+    .drawer-messages::-webkit-scrollbar-track { background: transparent; }
+    .drawer-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+    /* ─── Chat Bubbles (Claude-style) ──────────── */
+    .drawer-msg {
+      padding: 12px 0;
+      max-width: 100%;
+      animation-duration: 0.35s;
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+      animation-fill-mode: both;
+    }
+    .drawer-msg + .drawer-msg {
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+    .drawer-msg.user {
+      animation-name: slideInRight;
+      text-align: right;
+    }
+    .drawer-msg.nally {
+      animation-name: slideInLeft;
+    }
+    @keyframes slideInLeft {
+      from { opacity: 0; transform: translateX(-16px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slideInRight {
+      from { opacity: 0; transform: translateX(16px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .msg-name {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 6px;
+    }
+    .drawer-msg.nally .msg-name {
+      color: var(--iris);
+      opacity: 0.5;
+    }
+    .msg-text {
+      font-size: 14px;
+      line-height: 1.7;
+      color: rgba(228,226,220,0.8);
+      word-wrap: break-word;
+    }
+    .drawer-msg.user .msg-text {
+      color: rgba(228,226,220,0.65);
+    }
+    /* Markdown: headings */
+    .msg-text h1, .msg-text h2, .msg-text h3, .msg-text h4 {
+      color: rgba(228,226,220,0.95);
+      font-weight: 600;
+      margin: 14px 0 6px;
+      line-height: 1.3;
+    }
+    .msg-text h1 { font-size: 18px; }
+    .msg-text h2 { font-size: 16px; }
+    .msg-text h3 { font-size: 15px; }
+    .msg-text h4 { font-size: 14px; }
+    /* Markdown: paragraphs */
+    .msg-text p { margin: 6px 0; }
+    /* Markdown: inline code */
+    .msg-text code {
+      background: rgba(124,106,239,0.12);
+      color: rgba(167,139,250,0.9);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      border: 1px solid rgba(124,106,239,0.15);
+    }
+    /* Markdown: code blocks */
+    .msg-text pre {
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 10px 0;
+      overflow-x: auto;
+      position: relative;
+    }
+    .msg-text pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: rgba(228,226,220,0.85);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .msg-text strong {
+      color: rgba(228,226,220,0.95);
+      font-weight: 600;
+    }
+    .msg-text em {
+      color: rgba(228,226,220,0.7);
+      font-style: italic;
+    }
+    .msg-text del {
+      color: rgba(228,226,220,0.4);
+      text-decoration: line-through;
+    }
+    .msg-text a {
+      color: var(--iris);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(124,106,239,0.3);
+      transition: border-color 0.2s ease;
+    }
+    .msg-text a:hover {
+      border-color: var(--iris);
+    }
+    /* Markdown: blockquote */
+    .msg-text blockquote {
+      border-left: 3px solid var(--iris);
+      margin: 8px 0;
+      padding: 6px 14px;
+      background: rgba(124,106,239,0.06);
+      border-radius: 0 6px 6px 0;
+      color: rgba(228,226,220,0.65);
+    }
+    /* Markdown: lists */
+    .msg-text ul, .msg-text ol {
+      padding-left: 20px;
+      margin: 6px 0;
+    }
+    .msg-text li {
+      margin: 3px 0;
+    }
+    /* Markdown: horizontal rule */
+    .msg-text hr {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      margin: 12px 0;
+    }
+    /* Markdown: tables */
+    .msg-text table {
+      border-collapse: collapse;
+      margin: 10px 0;
+      width: 100%;
+      font-size: 13px;
+    }
+    .msg-text th, .msg-text td {
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 6px 10px;
+      text-align: left;
+    }
+    .msg-text th {
+      background: rgba(255,255,255,0.04);
+      color: rgba(228,226,220,0.9);
+      font-weight: 600;
+    }
+    .msg-text td {
+      color: rgba(228,226,220,0.7);
+    }
+
+    /* Copy button */
+    .msg-copy {
+      opacity: 0;
+      background: none; border: none; cursor: pointer;
+      color: rgba(228,226,220,0.2);
+      padding: 4px;
+      border-radius: 4px;
+      transition: opacity 0.2s, color 0.2s, background 0.2s;
+      display: inline-flex; align-items: center;
+      margin-top: 6px;
+    }
+    .msg-copy svg { width: 14px; height: 14px; }
+    .drawer-msg:hover .msg-copy { opacity: 1; }
+    .msg-copy:hover { color: rgba(228,226,220,0.6); background: rgba(255,255,255,0.05); }
+
+    /* Typing indicator — waveform */
+    .typing-indicator {
+      padding: 10px 0;
+      animation: slideInLeft 0.3s ease-out;
+    }
+    .typing-indicator + .drawer-msg {
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+    .typing-wave {
+      display: inline-flex;
+      gap: 3px;
+      align-items: center;
+      height: 24px;
+      padding: 0 16px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 14px 14px 14px 4px;
+    }
+    .typing-bar {
+      width: 3px;
+      border-radius: 2px;
+      background: rgba(124,106,239,0.55);
+      animation: waveBar 1s ease-in-out infinite;
+    }
+    .typing-bar:nth-child(1) { animation-delay: 0s; height: 8px; }
+    .typing-bar:nth-child(2) { animation-delay: 0.1s; height: 14px; }
+    .typing-bar:nth-child(3) { animation-delay: 0.2s; height: 6px; }
+    .typing-bar:nth-child(4) { animation-delay: 0.15s; height: 18px; }
+    .typing-bar:nth-child(5) { animation-delay: 0.05s; height: 10px; }
+    @keyframes waveBar {
+      0%, 100% { transform: scaleY(0.4); opacity: 0.4; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+
+    /* Input area */
+    .drawer-input-wrap {
+      display: flex;
+      gap: 10px;
+      padding: 14px 16px 16px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      flex-shrink: 0;
+    }
+    .drawer-input {
+      flex: 1;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 10px 16px;
+      color: rgba(228,226,220,0.9);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+    .drawer-input:focus { border-color: var(--iris-glow); }
+    .drawer-input::placeholder { color: rgba(228,226,220,0.2); }
+    .drawer-send {
+      background: var(--iris);
+      border: none;
+      border-radius: 10px;
+      width: 42px; height: 42px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: white;
+      transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+      flex-shrink: 0;
+      box-shadow: 0 4px 14px var(--iris-glow), 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .drawer-send svg { width: 18px; height: 18px; }
+    .drawer-send:hover { filter: brightness(1.15); transform: scale(1.08); box-shadow: 0 6px 20px var(--iris-glow), 0 3px 6px rgba(0,0,0,0.4); }
+
+    /* Resize handles */
+    .resize-handle {
+      position: absolute;
+      z-index: 10;
+    }
+    .resize-n  { top: -4px; left: 8px; right: 8px; height: 8px; cursor: n-resize; }
+    .resize-s  { bottom: -4px; left: 8px; right: 8px; height: 8px; cursor: s-resize; }
+    .resize-e  { right: -4px; top: 8px; bottom: 8px; width: 8px; cursor: e-resize; }
+    .resize-w  { left: -4px; top: 8px; bottom: 8px; width: 8px; cursor: w-resize; }
+    .resize-ne { top: -4px; right: -4px; width: 14px; height: 14px; cursor: ne-resize; }
+    .resize-nw { top: -4px; left: -4px; width: 14px; height: 14px; cursor: nw-resize; }
+    .resize-se { bottom: -4px; right: -4px; width: 14px; height: 14px; cursor: se-resize; }
+    .resize-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: sw-resize; }
+
+    /* Tool cards — v2 */
+    /* ─── Tool Card (Claude.ai style) ───────────── */
+    .tool-card {
+      margin: 8px 0;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.03);
+      overflow: hidden;
+      animation: slideInLeft 0.25s ease-out;
+      max-width: 100%;
+      transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .tool-card.running { border-color: rgba(124,106,239,0.2); }
+    .tool-card.success { border-color: rgba(52,211,153,0.15); }
+    .tool-card.error   { border-color: rgba(239,68,68,0.2); }
+    .tool-card.pending { border-color: rgba(251,191,36,0.2); }
+
+    .tool-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+    .tool-card-header:hover { background: rgba(255,255,255,0.03); }
+
+    .tool-card-label {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .tool-card-summary {
+      font-size: 13px;
+      color: rgba(228,226,220,0.85);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .tool-card-name {
+      font-size: 11px;
+      color: rgba(228,226,220,0.35);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tool-card-status {
+      width: 18px; height: 18px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .tool-card-spinner {
+      display: block;
+      width: 14px; height: 14px;
+      border: 1.5px solid rgba(124,106,239,0.15);
+      border-top-color: var(--iris);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .tool-card-check {
+      color: var(--green);
+    }
+    .tool-card-check svg { width: 16px; height: 16px; }
+
+    .tool-card-chevron {
+      width: 16px; height: 16px;
+      color: rgba(228,226,220,0.2);
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+    .tool-card.expanded .tool-card-chevron { transform: rotate(90deg); }
+
+    /* Body — smooth grid animation */
+    .tool-card-body {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 0.25s ease;
+    }
+    .tool-card.expanded .tool-card-body {
+      grid-template-rows: 1fr;
+    }
+    .tool-card-body-inner {
+      overflow: hidden;
+    }
+
+    .tool-card-detail {
+      padding: 0 14px 12px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      padding-top: 10px;
+    }
+
+    .tool-card-zone-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      color: rgba(228,226,220,0.3);
+      margin-bottom: 6px;
+    }
+
+    .tool-card-code {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 6px;
+      padding: 8px 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: rgba(228,226,220,0.65);
+    }
+    .tool-card-code::-webkit-scrollbar { width: 4px; }
+    .tool-card-code::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+    .tool-card-result-section {
+      margin-top: 10px;
+    }
+
+    /* Approval buttons inside pending card */
+    .tool-card-approve-btns {
+      padding: 10px 14px 12px;
+      display: flex;
+      gap: 8px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .tool-card-approve-btns button {
+      flex: 1;
+      padding: 8px 0;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .tool-approve-yes {
+      background: var(--iris);
+      border: none;
+      color: white;
+    }
+    .tool-approve-yes:hover { background: #6a58d9; }
+    .tool-approve-no {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.1);
+      color: rgba(228,226,220,0.5);
+    }
+    .tool-approve-no:hover { border-color: rgba(239,68,68,0.4); color: #EF4444; }
+
+    @keyframes toolPulse {
+      0%, 100% { border-color: rgba(124,106,239,0.15); }
+      50% { border-color: rgba(124,106,239,0.35); }
+    }
+
+    /* ─── Mobile Orb (FAB) ──────────────────────── */
+    #orb-fab {
+      display: none;
+      position: fixed;
+      bottom: 20px; right: 20px;
+      z-index: 90;
+    }
+
+    /* Mobile back button */
+    .mobile-back {
+      display: none;
+      background: none; border: none;
+      color: rgba(228,226,220,0.5);
+      cursor: pointer; padding: 4px;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+      margin-right: 4px;
+    }
+    .mobile-back:hover { color: rgba(228,226,220,0.8); background: rgba(255,255,255,0.05); }
+
+    /* Mobile settings button */
+    .mobile-settings {
+      display: none;
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: rgba(228,226,220,0.4);
+      cursor: pointer;
+      z-index: 91;
+      transition: color 0.2s ease;
+    }
+    .mobile-settings:hover { color: rgba(228,226,220,0.7); }
+    .mobile-settings svg { width: 22px; height: 22px; }
+    .mobile-settings i { display: flex; }
+
+    /* Desktop settings button */
+    .desktop-settings {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      color: rgba(228,226,220,0.3);
+      cursor: pointer;
+      z-index: 91;
+      transition: all 0.2s ease;
+    }
+    .desktop-settings:hover { color: rgba(228,226,220,0.7); }
+    .desktop-settings svg { width: 18px; height: 18px; }
+    .desktop-settings i { display: flex; }
+
+    /* ─── Settings Dropdown ──────────────────────── */
+    .settings-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 99;
+    }
+    .settings-overlay.open { display: block; }
+
+    .settings-dropdown {
+      position: fixed;
+      width: 220px;
+      max-height: 80vh;
+      overflow-y: auto;
+      background: rgba(18,18,24,0.97);
+      backdrop-filter: blur(28px) saturate(1.4);
+      -webkit-backdrop-filter: blur(28px) saturate(1.4);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-8px) scale(0.96);
+      transition: all 0.18s cubic-bezier(0.22,1,0.36,1);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    }
+    .settings-dropdown::-webkit-scrollbar { width: 3px; }
+    .settings-dropdown::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    .settings-dropdown.open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+    }
+
+    /* Desktop: above bottom-right settings icon */
+    .settings-dropdown.pos-desktop {
+      bottom: 56px;
+      right: 20px;
+      top: auto;
+    }
+    /* Mobile: below top-left settings icon */
+    .settings-dropdown.pos-mobile {
+      top: 52px;
+      left: 16px;
+    }
+
+    /* Accordion sections */
+    .settings-section {
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .settings-section:last-child { border-bottom: none; }
+
+    .settings-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background 0.12s;
+      user-select: none;
+    }
+    .settings-head:hover { background: rgba(255,255,255,0.03); }
+
+    .settings-head-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(228,226,220,0.6);
+    }
+    .settings-head-icon {
+      width: 12px; height: 12px;
+      color: rgba(228,226,220,0.2);
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+    .settings-section.open .settings-head-icon {
+      transform: rotate(90deg);
+    }
+
+    .settings-body {
+      display: none;
+      padding: 0 12px 8px;
+    }
+    .settings-section.open .settings-body {
+      display: block;
+    }
+
+    /* Rows */
+    .settings-dropdown-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+    }
+    .settings-dropdown-label {
+      font-size: 12px;
+      color: rgba(228,226,220,0.65);
+    }
+    .settings-dropdown-value {
+      font-size: 11px;
+      color: rgba(228,226,220,0.4);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    /* Color dots */
+    /* Theme swatches */
+    .theme-swatches {
+      display: flex;
+      gap: 5px;
+    }
+    .theme-swatch {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      padding: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+    .theme-swatch:hover { transform: scale(1.2); box-shadow: 0 3px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.2); }
+    .theme-swatch.active { border-color: rgba(255,255,255,0.85); box-shadow: 0 0 8px var(--iris-glow), 0 2px 6px rgba(0,0,0,0.3); }
+
+    /* Toggle */
+    .settings-toggle {
+      position: relative;
+      width: 36px; height: 20px;
+      cursor: pointer;
+    }
+    .settings-toggle input { display: none; }
+    .settings-toggle-track {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      transition: background 0.2s;
+    }
+    .settings-toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: rgba(228,226,220,0.5);
+      transition: all 0.2s;
+    }
+    .settings-toggle input:checked + .settings-toggle-track {
+      background: var(--iris);
+    }
+    .settings-toggle input:checked + .settings-toggle-track::after {
+      transform: translateX(16px);
+      background: white;
+    }
+
+    .settings-dropdown-credit {
+      text-align: center;
+      font-size: 10px;
+      color: rgba(228,226,220,0.15);
+      padding: 6px 10px 8px;
+    }
+
+    .settings-emergency-btn {
+      width: 100%;
+      padding: 6px 0;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 5px;
+      color: #EF4444;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .settings-emergency-btn:hover {
+      background: rgba(239,68,68,0.2);
+      border-color: rgba(239,68,68,0.4);
+    }
+
+    /* Service cards */
+    .svc-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .svc-card {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 7px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+    }
+    .svc-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+    .svc-card.connected { border-color: rgba(52,211,153,0.2); }
+
+    .svc-icon {
+      width: 22px; height: 22px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      flex-shrink: 0;
+      color: white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .svc-card:hover .svc-icon { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.2); }
+
+    .svc-name {
+      font-size: 11px;
+      color: #e4e2dc;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .svc-badge {
+      font-size: 8px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.1);
+      color: rgba(228,226,220,0.7);
+      font-weight: 600;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .svc-card.connected .svc-badge {
+      background: rgba(52,211,153,0.15);
+      color: var(--green);
+    }
+
+    .svc-disconnect {
+      position: absolute;
+      top: 1px; right: 3px;
+      background: none; border: none;
+      color: rgba(228,226,220,0.15);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 2px;
+      display: none;
+      line-height: 1;
+    }
+    .svc-card.connected:hover .svc-disconnect { display: block; }
+    .svc-disconnect:hover { color: #EF4444; }
+
+    /* ─── Auth Modal ──────────────────────────── */
+    .auth-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .auth-modal-overlay.open { display: flex; }
+
+    .auth-modal {
+      background: rgba(18,18,24,0.98);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 24px;
+      width: 280px;
+      text-align: center;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    }
+    .auth-modal-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: white;
+      margin: 0 auto 12px;
+    }
+    .auth-modal-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(228,226,220,0.9);
+      margin-bottom: 4px;
+    }
+    .auth-modal-sub {
+      font-size: 11px;
+      color: rgba(228,226,220,0.35);
+      margin-bottom: 16px;
+    }
+    .auth-modal-spinner {
+      width: 24px; height: 24px;
+      border: 2px solid rgba(255,255,255,0.08);
+      border-top-color: var(--iris);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .auth-modal-success {
+      display: none;
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    .auth-modal-success.show { display: block; }
+
+    .auth-token-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      color: rgba(228,226,220,0.85);
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      outline: none;
+      box-sizing: border-box;
+      margin-bottom: 10px;
+    }
+    .auth-token-input:focus { border-color: var(--iris); }
+    .auth-token-input::placeholder { color: rgba(228,226,220,0.2); }
+
+    .auth-modal-btn {
+      padding: 7px 0;
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: var(--iris);
+      color: white;
+    }
+    .auth-modal-btn:hover { filter: brightness(1.1); }
+    .auth-modal-btn.secondary {
+      background: rgba(255,255,255,0.06);
+      color: rgba(228,226,220,0.5);
+      margin-top: 6px;
+    }
+    .auth-modal-btn.secondary:hover { background: rgba(255,255,255,0.1); }
+
+
+    /* ─── Diff Viewer Panel (Desktop only) ──────── */
+    #diff-panel {
+      position: fixed;
+      top: 50%;
+      right: 20px;
+      transform: translateY(-50%);
+      width: 420px;
+      max-height: 70vh;
+      background: rgba(18,18,24,0.97);
+      backdrop-filter: blur(28px) saturate(1.4);
+      -webkit-backdrop-filter: blur(28px) saturate(1.4);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      z-index: 90;
+      display: none;
+      flex-direction: column;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+      overflow: hidden;
+    }
+    #diff-panel.open { display: flex; }
+    .diff-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+    .diff-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .diff-header-icon {
+      width: 22px; height: 22px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .diff-header-icon svg { width: 12px; height: 12px; color: var(--iris); }
+    .diff-header-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(228,226,220,0.9);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .diff-header-file {
+      font-size: 10px;
+      color: rgba(228,226,220,0.45);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px;
+    }
+    .diff-close {
+      background: none;
+      border: none;
+      color: rgba(228,226,220,0.3);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .diff-close:hover { background: rgba(255,255,255,0.06); color: rgba(228,226,220,0.8); }
+    .diff-close svg { width: 14px; height: 14px; }
+    .diff-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 11px;
+      line-height: 1.55;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .diff-body::-webkit-scrollbar { width: 4px; height: 4px; }
+    .diff-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    .diff-line { display: block; }
+    .diff-line-add { color: #34D399; background: rgba(52,211,153,0.08); }
+    .diff-line-del { color: #EF4444; background: rgba(239,68,68,0.08); }
+    .diff-line-hdr { color: var(--iris); font-weight: 600; margin-top: 6px; }
+    .diff-line-ctx { color: rgba(228,226,220,0.4); }
+    .diff-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+    .diff-stats {
+      display: flex;
+      gap: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .diff-stat-add { color: #34D399; }
+    .diff-stat-del { color: #EF4444; }
+    .diff-minimize {
+      background: none;
+      border: none;
+      color: rgba(228,226,220,0.3);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+    .diff-minimize:hover { background: rgba(255,255,255,0.06); color: rgba(228,226,220,0.8); }
+    .diff-minimize svg { width: 14px; height: 14px; }
+
+
+    /* ─── Mobile Layout ─────────────────────────── */
+    @media (max-width: 640px) {
+      #root {
+        position: fixed !important;
+        top: 0 !important; left: 0 !important;
+        right: 0 !important; bottom: 0 !important;
+        width: 100vw !important;
+        height: 100dvh !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0 !important;
+        pointer-events: none;
+      }
+      #root > * { pointer-events: auto; }
+
+      #orb-mount {
+        transform: scale(0.65);
+        margin: 0;
+        cursor: pointer;
+        pointer-events: auto;
+      }
+      #orb-mount .orb-wrapper {
+        width: 312px !important;
+        height: 312px !important;
+      }
+
+      #status-text { display: none; }
+      #thought-wrap { display: none; }
+      #diff-panel { display: none !important; }
+      .mobile-settings { display: flex; }
+      .desktop-settings { display: none; }
+      #chat-drawer.open ~ .mobile-settings { display: none; }
+      #chat-drawer.open ~ .settings-dropdown { opacity: 0; pointer-events: none; }
+      .settings-dropdown.pos-desktop { display: none; }
+      .settings-dropdown.pos-mobile { display: block; }
+
+      #chat-drawer {
+        position: fixed !important;
+        top: 0 !important; left: 0 !important;
+        transform: none !important;
+        width: 100vw !important;
+        height: 100dvh !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        border-radius: 0 !important;
+        border: none !important;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+      #chat-drawer.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .mobile-back { display: flex; }
+      .titlebar-dots { display: none; }
+
+      .drawer-titlebar {
+        padding: 12px 14px;
+        gap: 8px;
+      }
+
+      .resize-handle { display: none !important; }
+
+      .drawer-messages {
+        padding: 12px;
+      }
+
+      .drawer-input-wrap {
+        padding: 10px 12px 14px;
+        padding-bottom: max(14px, env(safe-area-inset-bottom));
+      }
+    }
+  </style>
 </head>
 <body>
-  <svg style="position:absolute;width:0;height:0" aria-hidden="true">
-    <filter id="noise-filter">
-      <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" result="noise"/>
-      <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise"/>
-      <feBlend in="SourceGraphic" in2="grayNoise" mode="multiply"/>
-    </filter>
-  </svg>
-  <div id="noise-overlay"></div>
-  <div id="root"><noscript style="color:#fff;font-family:monospace;padding:40px;display:block">JavaScript is required to run Nally.</noscript></div>
-  <div id="error-overlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#0a0a0a;color:#ff4444;font-family:monospace;font-size:14px;padding:40px;overflow:auto;white-space:pre-wrap;"></div>
+  <div id="root">
+    <div id="orb-mount"></div>
+    <div id="status-text"></div>
+    <div id="thought-wrap">
+      <button id="thought-toggle" onclick="toggleThought()"><span class="chevron">&#9660;</span> thought</button>
+      <div id="thought-content"></div>
+    </div>
+  </div>
+
+  <!-- Chat Drawer -->
+  <div id="chat-drawer">
+    <div class="drawer-titlebar" id="drawer-titlebar">
+      <button class="mobile-back" id="mobile-back" onclick="closeDrawer()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="titlebar-dots">
+        <span class="dot dot-close" onclick="closeDrawer()"></span>
+        <span class="dot dot-min" onclick="minimizeDrawer()"></span>
+        <span class="dot dot-max" onclick="maximizeDrawer()"></span>
+      </div>
+      <div class="titlebar-label">N.A.L.L.Y</div>
+      <div class="titlebar-spacer"></div>
+    </div>
+    <div class="drawer-messages" id="chat-messages"></div>
+    <div class="drawer-input-wrap">
+      <input class="drawer-input" id="chat-input" type="text" placeholder="Ask Nally anything..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="drawer-send" onclick="sendChat()"><i data-lucide="send"></i></button>
+    </div>
+    <!-- Resize handles -->
+    <div class="resize-handle resize-n" data-dir="n"></div>
+    <div class="resize-handle resize-s" data-dir="s"></div>
+    <div class="resize-handle resize-e" data-dir="e"></div>
+    <div class="resize-handle resize-w" data-dir="w"></div>
+    <div class="resize-handle resize-ne" data-dir="ne"></div>
+    <div class="resize-handle resize-nw" data-dir="nw"></div>
+    <div class="resize-handle resize-se" data-dir="se"></div>
+    <div class="resize-handle resize-sw" data-dir="sw"></div>
+  </div>
+
+  <!-- Diff Viewer Panel (Desktop only) -->
+  <div id="diff-panel">
+    <div class="diff-header">
+      <div class="diff-header-left">
+        <div class="diff-header-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 12h14"/></svg></div>
+        <span class="diff-header-title">File Diff</span>
+        <span class="diff-header-file" id="diff-file"></span>
+      </div>
+      <button class="diff-close" onclick="closeDiff()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="diff-body" id="diff-body"></div>
+    <div class="diff-footer">
+      <div class="diff-stats" id="diff-stats"></div>
+      <button class="diff-minimize" onclick="minimizeDiff()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <!-- Settings Overlay + Dropdown -->
+  <div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+  <div class="settings-dropdown" id="settings-dropdown">
+    <!-- MCP / Plugins -->
+    <div class="settings-section open" data-section="mcp">
+      <div class="settings-head" onclick="toggleSection(this)">
+        <span class="settings-head-title">MCP / Plugins</span>
+        <svg class="settings-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-body">
+        <div class="svc-grid" id="svc-grid"></div>
+      </div>
+    </div>
+
+    <!-- Themes / Appearance -->
+    <div class="settings-section" data-section="theme">
+      <div class="settings-head" onclick="toggleSection(this)">
+        <span class="settings-head-title">Themes / Appearance</span>
+        <svg class="settings-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-body">
+        <div class="settings-dropdown-row">
+          <span class="settings-dropdown-label">Theme</span>
+          <div class="theme-swatches">
+            <button class="theme-swatch active" data-theme="midnight" style="background:#7C6AEF" onclick="setTheme('midnight')" title="Midnight"></button>
+            <button class="theme-swatch" data-theme="emerald" style="background:#34D399" onclick="setTheme('emerald')" title="Emerald"></button>
+            <button class="theme-swatch" data-theme="crimson" style="background:#EF4444" onclick="setTheme('crimson')" title="Crimson"></button>
+            <button class="theme-swatch" data-theme="ocean" style="background:#38BDF8" onclick="setTheme('ocean')" title="Ocean"></button>
+            <button class="theme-swatch" data-theme="gold" style="background:#F59E0B" onclick="setTheme('gold')" title="Gold"></button>
+          </div>
+        </div>
+        <div class="settings-dropdown-row">
+          <span class="settings-dropdown-label">Compact</span>
+          <label class="settings-toggle">
+            <input type="checkbox" id="compact-toggle" onchange="setCompact(this.checked)">
+            <span class="settings-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- API -->
+    <div class="settings-section" data-section="api">
+      <div class="settings-head" onclick="toggleSection(this)">
+        <span class="settings-head-title">API</span>
+        <svg class="settings-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-body">
+        <div class="settings-dropdown-row">
+          <span class="settings-dropdown-label">Provider</span>
+          <span class="settings-dropdown-value">opencode</span>
+        </div>
+        <div class="settings-dropdown-row">
+          <span class="settings-dropdown-label">Model</span>
+          <span class="settings-dropdown-value">mimo-v2.5-free</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Emergency -->
+    <div class="settings-section" data-section="emergency">
+      <div class="settings-head" onclick="toggleSection(this)">
+        <span class="settings-head-title">Emergency</span>
+        <svg class="settings-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-body">
+        <button class="settings-emergency-btn" onclick="emergencyStop()">Stop All Operations</button>
+      </div>
+    </div>
+
+    <!-- Lock Mode -->
+    <div class="settings-section" data-section="lock">
+      <div class="settings-head" onclick="toggleSection(this)">
+        <span class="settings-head-title">Lock Mode</span>
+        <svg class="settings-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-body">
+        <div class="settings-dropdown-row">
+          <span class="settings-dropdown-label">Lock UI</span>
+          <label class="settings-toggle">
+            <input type="checkbox" id="lock-toggle" onchange="setLockMode(this.checked)">
+            <span class="settings-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="settings-section" data-section="about">
+      <div class="settings-head" onclick="toggleSection(this)">
+        <span class="settings-head-title">About</span>
+        <svg class="settings-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-body">
+        <div class="settings-dropdown-row">
+          <span class="settings-dropdown-label">Backend</span>
+          <span class="settings-dropdown-value" id="settings-backend-status">...</span>
+        </div>
+        <div class="settings-dropdown-row">
+          <span class="settings-dropdown-label">Uptime</span>
+          <span class="settings-dropdown-value" id="settings-uptime">0m</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-dropdown-credit">Clinton · Klyntech</div>
+  </div>
+
+  <!-- Auth Modal -->
+  <div class="auth-modal-overlay" id="auth-modal-overlay">
+    <div class="auth-modal" id="auth-modal">
+      <div class="auth-modal-icon" id="auth-modal-icon"></div>
+      <div class="auth-modal-title" id="auth-modal-title"></div>
+      <div class="auth-modal-sub" id="auth-modal-sub"></div>
+      <div class="auth-modal-spinner" id="auth-modal-spinner"></div>
+      <div class="auth-modal-success" id="auth-modal-success">&#10003;</div>
+      <div id="auth-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Mobile Settings Icon -->
+  <div class="mobile-settings" onclick="toggleSettings(event)">
+    <i data-lucide="settings"></i>
+  </div>
+
+  <!-- Desktop Settings Icon -->
+  <div class="desktop-settings" onclick="toggleSettings(event)">
+    <i data-lucide="settings"></i>
+  </div>
+
+
   <script>
-    window.onerror = function(msg, url, line, col, err) {
-      var el = document.getElementById('error-overlay');
-      if (el) {
-        el.style.display = 'block';
-        el.textContent += 'ERROR: ' + msg + '\nFile: ' + url + '\nLine: ' + line + ':' + col + '\n\n';
+    var root = document.getElementById('root');
+    var statusEl = document.getElementById('status-text');
+    var thoughtWrap = document.getElementById('thought-wrap');
+    var thoughtContent = document.getElementById('thought-content');
+    var thoughtCollapsed = false;
+
+    function toggleThought() {
+      thoughtCollapsed = !thoughtCollapsed;
+      thoughtWrap.classList.toggle('collapsed', thoughtCollapsed);
+    }
+
+    // ─── Orb Component (Vanilla JS) ──────────────
+    function createOrb(opts) {
+      opts = opts || {};
+      var size = opts.size || 312;
+      var state = opts.state || 'idle';
+      var activated = opts.activated !== false;
+
+      var wrapper = document.createElement('div');
+      wrapper.className = 'orb-wrapper';
+      wrapper.style.width = size + 'px';
+      wrapper.style.height = size + 'px';
+
+      var inner = document.createElement('div');
+      inner.className = 'orb-inner orb-state-' + state;
+      if (activated) inner.classList.add('breathe');
+
+      var ambient = document.createElement('div');
+      ambient.className = 'orb-ambient';
+      inner.appendChild(ambient);
+
+      if (activated) {
+        for (var r = 0; r < 3; r++) {
+          var rip = document.createElement('div');
+          rip.className = 'ripple';
+          rip.style.animationDelay = (r * 0.35) + 's';
+          inner.appendChild(rip);
+        }
+        var colors = ['#3ECFB8', '#7C6AEF', '#A78BFA'];
+        for (var p = 0; p < 16; p++) {
+          var angle = (p / 16) * Math.PI * 2;
+          var dist = 60 + Math.random() * 80;
+          var part = document.createElement('div');
+          part.className = 'particle';
+          part.style.setProperty('--px', Math.cos(angle) * dist + 'px');
+          part.style.setProperty('--py', Math.sin(angle) * dist + 'px');
+          part.style.animationDelay = (Math.random() * 0.3) + 's';
+          part.style.background = colors[p % 3];
+          part.style.boxShadow = '0 0 6px ' + colors[p % 3];
+          inner.appendChild(part);
+        }
       }
-      try { fetch('/api/js-error', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg:String(msg),url:String(url),line:line,col:col,err:err?String(err.stack||err):''})}); } catch(e) {}
-      return false;
-    };
-    window.addEventListener('unhandledrejection', function(e) {
-      var el = document.getElementById('error-overlay');
-      if (el) {
-        el.style.display = 'block';
-        el.textContent += 'UNHANDLED PROMISE: ' + (e.reason && e.reason.message || e.reason || 'unknown') + '\n\n';
+
+      var strokeColor, glowColor, orbFilter, reactStroke;
+      var rootStyle = getComputedStyle(document.body);
+      var irisVar = rootStyle.getPropertyValue('--iris').trim();
+      var glowVar = rootStyle.getPropertyValue('--iris-glow').trim();
+      switch (state) {
+        case 'listening': strokeColor = '#3ECFB8'; glowColor = 'rgba(62,207,184,0.15)'; orbFilter = 'drop-shadow(0 0 25px rgba(62,207,184,0.45))'; break;
+        case 'thinking': strokeColor = '#ffffff'; glowColor = 'rgba(255,255,255,0.12)'; orbFilter = 'drop-shadow(0 0 20px rgba(255,255,255,0.35))'; break;
+        case 'speaking': strokeColor = '#34D399'; glowColor = 'rgba(52,211,153,0.15)'; orbFilter = 'drop-shadow(0 0 25px rgba(52,211,153,0.45))'; break;
+        default: strokeColor = irisVar || '#7C6AEF'; glowColor = glowVar || 'rgba(124,106,239,0.1)'; orbFilter = 'drop-shadow(0 0 15px ' + (glowVar || 'rgba(124,106,239,0.25)') + ')';
       }
-      try { fetch('/api/js-error', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg:'UNHANDLED_PROMISE',err:String(e.reason&&e.reason.stack||e.reason||'')})}); } catch(ex) {}
+      reactStroke = state === 'idle' ? '#ffffff' : strokeColor;
+      ambient.style.background = glowColor;
+
+      var svgNS = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 500 500');
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+      svg.style.filter = orbFilter;
+      svg.style.transition = 'filter 0.6s ease';
+
+      var defs = document.createElementNS(svgNS, 'defs');
+      function makeFilter(id, stdDev) {
+        var f = document.createElementNS(svgNS, 'filter');
+        f.setAttribute('id', id); f.setAttribute('x', '-20%'); f.setAttribute('y', '-20%');
+        f.setAttribute('width', '140%'); f.setAttribute('height', '140%');
+        var blur = document.createElementNS(svgNS, 'feGaussianBlur');
+        blur.setAttribute('stdDeviation', stdDev); blur.setAttribute('result', 'b');
+        f.appendChild(blur);
+        var merge = document.createElementNS(svgNS, 'feMerge');
+        var mn1 = document.createElementNS(svgNS, 'feMergeNode'); mn1.setAttribute('in', 'b');
+        var mn2 = document.createElementNS(svgNS, 'feMergeNode'); mn2.setAttribute('in', 'SourceGraphic');
+        merge.appendChild(mn1); merge.appendChild(mn2); f.appendChild(merge);
+        return f;
+      }
+      defs.appendChild(makeFilter('og1', '12'));
+      defs.appendChild(makeFilter('og2', '4'));
+      var ft = makeFilter('otg', '4');
+      ft.setAttribute('x', '-50%'); ft.setAttribute('y', '-50%');
+      ft.setAttribute('width', '200%'); ft.setAttribute('height', '200%');
+      defs.appendChild(ft);
+      svg.appendChild(defs);
+
+      var bgCircle = document.createElementNS(svgNS, 'circle');
+      bgCircle.setAttribute('cx', '250'); bgCircle.setAttribute('cy', '250');
+      bgCircle.setAttribute('r', '140'); bgCircle.setAttribute('fill', '#7C6AEF');
+      bgCircle.setAttribute('fill-opacity', '0.03');
+      svg.appendChild(bgCircle);
+
+      var ringCCW = document.createElementNS(svgNS, 'circle');
+      ringCCW.setAttribute('cx', '250'); ringCCW.setAttribute('cy', '250');
+      ringCCW.setAttribute('r', '150'); ringCCW.setAttribute('fill', 'none');
+      ringCCW.setAttribute('stroke', strokeColor); ringCCW.setAttribute('stroke-width', '10');
+      ringCCW.setAttribute('filter', 'url(#og1)'); ringCCW.setAttribute('stroke-dasharray', '940 2');
+      ringCCW.classList.add('orb-ring-ccw');
+      ringCCW.style.transformOrigin = '250px 250px'; ringCCW.style.transition = 'stroke 0.6s ease';
+      svg.appendChild(ringCCW);
+
+      var ringCW = document.createElementNS(svgNS, 'circle');
+      ringCW.setAttribute('cx', '250'); ringCW.setAttribute('cy', '250');
+      ringCW.setAttribute('r', '125'); ringCW.setAttribute('fill', 'none');
+      ringCW.setAttribute('stroke', reactStroke); ringCW.setAttribute('stroke-width', '5');
+      ringCW.setAttribute('filter', 'url(#og2)'); ringCW.setAttribute('stroke-dasharray', '780 5');
+      ringCW.classList.add('orb-reactor', 'orb-ring-cw');
+      ringCW.style.transformOrigin = '250px 250px'; ringCW.style.transition = 'stroke 0.6s ease';
+      svg.appendChild(ringCW);
+
+      var text = document.createElementNS(svgNS, 'text');
+      text.setAttribute('x', '250'); text.setAttribute('y', '262');
+      text.setAttribute('text-anchor', 'middle'); text.setAttribute('fill', reactStroke);
+      text.setAttribute('filter', 'url(#otg)'); text.classList.add('orb-reactor');
+      text.style.fontFamily = '"Space Grotesk",sans-serif'; text.style.fontSize = '46px';
+      text.style.fontWeight = '700'; text.style.letterSpacing = '6px';
+      text.style.textTransform = 'uppercase'; text.style.userSelect = 'none';
+      text.style.transformOrigin = '250px 250px'; text.style.transition = 'fill 0.6s ease';
+      text.textContent = 'NALLY';
+      svg.appendChild(text);
+
+      var lineCoords = [[250,100,250,116],[250,384,250,400],[100,250,116,250],[384,250,400,250]];
+      lineCoords.forEach(function(l) {
+        var line = document.createElementNS(svgNS, 'line');
+        line.setAttribute('x1',l[0]); line.setAttribute('y1',l[1]);
+        line.setAttribute('x2',l[2]); line.setAttribute('y2',l[3]);
+        line.setAttribute('stroke', strokeColor); line.setAttribute('stroke-width', '2');
+        line.setAttribute('opacity', '0.6'); line.style.transition = 'stroke 0.6s ease';
+        svg.appendChild(line);
+      });
+
+      inner.appendChild(svg);
+      wrapper.appendChild(inner);
+
+      // Mouse tilt
+      if (!window.matchMedia('(pointer: coarse)').matches) {
+        wrapper.addEventListener('mousemove', function(e) {
+          var rect = wrapper.getBoundingClientRect();
+          var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+          var dx = (e.clientX - cx) / (rect.width / 2);
+          var dy = (e.clientY - cy) / (rect.height / 2);
+          wrapper.style.transform = 'perspective(600px) rotateY(' + (Math.max(-1,Math.min(1,dx)) * 1.5) + 'deg) rotateX(' + (-Math.max(-1,Math.min(1,dy)) * 1.5) + 'deg)';
+        });
+        wrapper.addEventListener('mouseleave', function() {
+          wrapper.style.transform = 'perspective(600px) rotateY(0deg) rotateX(0deg)';
+        });
+      }
+
+      // ─── Apply state colors to SVG elements ────
+      var thinkingEls = [];
+
+      function applyColors(sc, gc, of, rs) {
+        ambient.style.background = gc;
+        svg.style.filter = of;
+        ringCCW.setAttribute('stroke', sc);
+        ringCW.setAttribute('stroke', rs);
+        text.setAttribute('fill', rs);
+        svg.querySelectorAll('line').forEach(function(l) { l.setAttribute('stroke', sc); });
+      }
+
+      function addThinkingElements() {
+        removeThinkingElements();
+        var rp = document.createElement('div');
+        rp.className = 'orb-thinking-ring-pulse';
+        inner.appendChild(rp);
+        thinkingEls.push(rp);
+        for (var i = 0; i < 2; i++) {
+          var rip = document.createElement('div');
+          rip.className = 'orb-thinking-ripple';
+          rip.style.animationDelay = (i * 0.4) + 's';
+          inner.appendChild(rip);
+          thinkingEls.push(rip);
+        }
+      }
+
+      function removeThinkingElements() {
+        thinkingEls.forEach(function(el) { el.remove(); });
+        thinkingEls = [];
+      }
+
+      // Public API
+      return {
+        el: wrapper,
+        inner: inner,
+        svg: svg,
+        ambient: ambient,
+        ringCW: ringCW,
+        ringCCW: ringCCW,
+        text: text,
+        setState: function(newState) {
+          state = newState;
+          inner.className = 'orb-inner orb-state-' + state;
+          if (activated) inner.classList.add('breathe');
+          if (state === 'thinking') { addThinkingElements(); } else { removeThinkingElements(); }
+          var sc, gc, of, rs;
+          var rs2 = getComputedStyle(document.body);
+          var iv = rs2.getPropertyValue('--iris').trim();
+          var gv = rs2.getPropertyValue('--iris-glow').trim();
+          switch (state) {
+            case 'listening': sc='#3ECFB8'; gc='rgba(62,207,184,0.15)'; of='drop-shadow(0 0 25px rgba(62,207,184,0.45))'; break;
+            case 'thinking': sc='#ffffff'; gc='rgba(255,255,255,0.12)'; of='drop-shadow(0 0 20px rgba(255,255,255,0.35))'; break;
+            case 'speaking': sc='#34D399'; gc='rgba(52,211,153,0.15)'; of='drop-shadow(0 0 25px rgba(52,211,153,0.45))'; break;
+            default: sc=iv||'#7C6AEF'; gc=gv||'rgba(124,106,239,0.1)'; of='drop-shadow(0 0 15px '+(gv||'rgba(124,106,239,0.25)')+')';
+          }
+          rs = state === 'idle' ? '#ffffff' : sc;
+          applyColors(sc, gc, of, rs);
+        },
+        // Pulse the Orb for a single word
+        pulseWord: function(isEmphasis) {
+          inner.classList.remove('word-pulse', 'emphasis-flare');
+          void inner.offsetWidth; // force reflow
+          inner.classList.add(isEmphasis ? 'emphasis-flare' : 'word-pulse');
+        },
+        // Burst particles outward
+        burstParticles: function(count, color) {
+          for (var i = 0; i < (count || 8); i++) {
+            var angle = (i / count) * Math.PI * 2;
+            var dist = 40 + Math.random() * 60;
+            var part = document.createElement('div');
+            part.className = 'particle';
+            part.style.setProperty('--px', Math.cos(angle) * dist + 'px');
+            part.style.setProperty('--py', Math.sin(angle) * dist + 'px');
+            part.style.animationDelay = '0s';
+            part.style.background = color || '#34D399';
+            part.style.boxShadow = '0 0 8px ' + (color || '#34D399');
+            inner.appendChild(part);
+            (function(el) { setTimeout(function() { el.remove(); }, 1100); })(part);
+          }
+        }
+      };
+    }
+
+    // ─── Mount Orb ───────────────────────────────
+    var orb = createOrb({ size: 312, state: 'idle', activated: true });
+    document.getElementById('orb-mount').appendChild(orb.el);
+
+    // ─── Mobile Detection ─────────────────────────
+    var isMobile = window.matchMedia('(max-width: 640px)');
+
+    function checkMobile() { return isMobile.matches; }
+    isMobile.addEventListener('change', function() {
+      if (!checkMobile() && drawerOpen) closeDrawer();
     });
+
+    // ─── Think Function ──────────────────────────
+    // think("Searching files...")  — shows text, sets thinking state
+    // think(null)                  — clears thought, returns to idle
+    var _thinkTimers = [];
+    function think(text) {
+      _thinkTimers.forEach(clearTimeout);
+      _thinkTimers = [];
+      if (text === null || text === undefined) {
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        orb.setState('idle');
+        statusEl.textContent = '';
+        statusEl.style.color = 'rgba(228,226,220,0.25)';
+        return;
+      }
+      orb.setState('thinking');
+      statusEl.textContent = 'Thinking';
+      statusEl.style.color = 'var(--iris-glow)';
+      thoughtContent.textContent = '';
+      thoughtWrap.classList.add('visible');
+      // Typewriter effect
+      var i = 0;
+      var typeTimer = setInterval(function() {
+        if (i < text.length) {
+          thoughtContent.textContent += text[i];
+          i++;
+        } else {
+          clearInterval(typeTimer);
+        }
+      }, 30);
+      _thinkTimers.push(typeTimer);
+    }
+
+    // ─── Simulated Speaking Engine ───────────────
+    // speak("Hello! This is Nally... How are you?")
+    // Pulses the Orb in sync with each word.
+    // ! and ? trigger emphasis flares.
+    // , and . trigger brief pauses.
+    var _speakTimers = [];
+    var thinkPhrases = [
+      "Processing your request...",
+      "Analyzing input...",
+      "Connecting to server...",
+      "Retrieving data...",
+      "Formulating response...",
+      "Almost ready...",
+    ];
+    function speak(text) {
+      _speakTimers.forEach(clearTimeout);
+      _speakTimers = [];
+
+      // Thinking phase with real-time thought
+      var phrase = thinkPhrases[Math.floor(Math.random() * thinkPhrases.length)];
+      think(phrase);
+
+      var thinkTime = 600 + Math.random() * 600;
+      var t = setTimeout(function() {
+        // Clear thought, switch to speaking
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        orb.setState('speaking');
+        statusEl.textContent = 'Speaking';
+        statusEl.style.color = 'rgba(52,211,153,0.5)';
+
+        // Split into tokens: words + punctuation
+        var tokens = text.match(/[\w']+|[^\w\s]|\s+/g) || [];
+        var delay = 0;
+
+        for (var i = 0; i < tokens.length; i++) {
+          var token = tokens[i];
+          var isWord = /[\w']/.test(token);
+          var isEmphasis = /[!?]/.test(token);
+          var isPause = /[.,;:]/.test(token);
+          var isSpace = /^\s+$/.test(token);
+
+          if (isWord) {
+            (function(w, d, emph) {
+              var timer = setTimeout(function() {
+                orb.pulseWord(emph);
+                // Burst particles on emphasis words
+                if (emph) orb.burstParticles(6, '#34D399');
+              }, d);
+              _speakTimers.push(timer);
+            })(token, delay, isEmphasis);
+            // Word duration: ~180ms base, longer for long words
+            delay += Math.max(120, token.length * 45);
+          } else if (isEmphasis) {
+            // Emphasis punctuation: extra pause + flare
+            (function(d) {
+              var timer = setTimeout(function() {
+                orb.pulseWord(true);
+                orb.burstParticles(10, '#34D399');
+              }, d);
+              _speakTimers.push(timer);
+            })(delay);
+            delay += 300;
+          } else if (isPause) {
+            delay += 200; // comma/period pause
+          } else if (isSpace) {
+            delay += 30; // tiny gap between words
+          }
+        }
+
+        // Done speaking
+        var doneTimer = setTimeout(function() {
+          orb.setState('idle');
+          statusEl.textContent = '';
+          statusEl.style.color = 'rgba(228,226,220,0.25)';
+          thoughtContent.textContent = '';
+          thoughtWrap.classList.remove('visible');
+        }, delay + 200);
+        _speakTimers.push(doneTimer);
+      }, thinkTime);
+      _speakTimers.push(t);
+    }
+
+    // ─── Markdown Renderer ────────────────────────
+    // Configure marked
+    marked.setOptions({
+      breaks: true,
+      gfm: true,
+    });
+
+    function renderMd(text) {
+      if (!text) return '';
+      return marked.parse(text);
+    }
+
+    // ─── Chat Drawer (Desktop Window) ─────────────
+    var chatDrawer = document.getElementById('chat-drawer');
+    var chatMessages = document.getElementById('chat-messages');
+    var chatInput = document.getElementById('chat-input');
+    var titlebar = document.getElementById('drawer-titlebar');
+    var drawerOpen = false;
+    var isMaximized = false;
+    var savedBounds = null;
+    var typingEl = null;
+
+    function toggleDrawer() {
+      drawerOpen = !drawerOpen;
+      if (drawerOpen) {
+        if (checkMobile()) {
+          // Mobile: just show full-screen
+          chatDrawer.style.transition = 'none';
+          chatDrawer.style.opacity = '0';
+          chatDrawer.classList.add('open');
+          void chatDrawer.offsetWidth;
+          chatDrawer.style.transition = 'opacity 0.25s ease';
+          chatDrawer.style.opacity = '1';
+          setTimeout(function() { chatInput.focus(); }, 300);
+        } else {
+          // Desktop: pop from Orb position
+          var orbRect = orb.el.getBoundingClientRect();
+          var orbCX = orbRect.left + orbRect.width / 2;
+          var orbCY = orbRect.top + orbRect.height / 2;
+          chatDrawer.style.transition = 'none';
+          chatDrawer.style.left = orbCX + 'px';
+          chatDrawer.style.top = orbCY + 'px';
+          chatDrawer.style.transform = 'translate(-50%, -50%) scale(0.15)';
+          chatDrawer.style.opacity = '0';
+          chatDrawer.classList.add('open');
+          void chatDrawer.offsetWidth;
+          chatDrawer.style.transition = 'left 0.5s cubic-bezier(0.22,1,0.36,1), top 0.5s cubic-bezier(0.22,1,0.36,1), transform 0.5s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease';
+          chatDrawer.style.left = '50%';
+          chatDrawer.style.top = '50%';
+          chatDrawer.style.transform = 'translate(-50%, -50%) scale(1)';
+          chatDrawer.style.opacity = '1';
+          setTimeout(function() {
+            chatDrawer.style.transition = 'opacity 0.3s ease, box-shadow 0.3s ease';
+            chatInput.focus();
+          }, 510);
+        }
+      } else {
+        closeDrawer();
+      }
+    }
+    function closeDrawer() {
+      if (checkMobile()) {
+        chatDrawer.style.transition = 'opacity 0.2s ease';
+        chatDrawer.style.opacity = '0';
+        setTimeout(function() {
+          chatDrawer.classList.remove('open', 'maximized');
+          isMaximized = false;
+          chatDrawer.style.transition = 'none';
+          chatDrawer.style.opacity = '';
+        }, 220);
+      } else {
+        var orbRect = orb.el.getBoundingClientRect();
+        var orbCX = orbRect.left + orbRect.width / 2;
+        var orbCY = orbRect.top + orbRect.height / 2;
+        chatDrawer.style.transition = 'left 0.4s cubic-bezier(0.22,1,0.36,1), top 0.4s cubic-bezier(0.22,1,0.36,1), transform 0.4s cubic-bezier(0.22,1,0.36,1), opacity 0.3s ease';
+        chatDrawer.style.left = orbCX + 'px';
+        chatDrawer.style.top = orbCY + 'px';
+        chatDrawer.style.transform = 'translate(-50%, -50%) scale(0.15)';
+        chatDrawer.style.opacity = '0';
+        setTimeout(function() {
+          chatDrawer.classList.remove('open', 'maximized');
+          isMaximized = false;
+          chatDrawer.style.transition = 'none';
+          chatDrawer.style.left = '50%';
+          chatDrawer.style.top = '50%';
+          chatDrawer.style.transform = 'translate(-50%, -50%)';
+          chatDrawer.style.opacity = '';
+        }, 410);
+      }
+      drawerOpen = false;
+    }
+    function minimizeDrawer() {
+      closeDrawer();
+    }
+    function maximizeDrawer() {
+      if (isMaximized) {
+        chatDrawer.classList.remove('maximized');
+        if (savedBounds) {
+          chatDrawer.style.top = savedBounds.top;
+          chatDrawer.style.left = savedBounds.left;
+          chatDrawer.style.width = savedBounds.width;
+          chatDrawer.style.height = savedBounds.height;
+          chatDrawer.style.transform = 'none';
+        }
+        isMaximized = false;
+      } else {
+        savedBounds = {
+          top: chatDrawer.style.top || '50%',
+          left: chatDrawer.style.left || '50%',
+          width: chatDrawer.style.width || '560px',
+          height: chatDrawer.style.height || '480px',
+        };
+        chatDrawer.classList.add('maximized');
+        isMaximized = true;
+      }
+    }
+
+    // Double-click title bar to maximize/restore
+    titlebar.addEventListener('dblclick', function(e) {
+      if (e.target.classList.contains('dot')) return;
+      maximizeDrawer();
+    });
+
+    // ─── Drag ─────────────────────────────────────
+    var dragState = { active: false, offsetX: 0, offsetY: 0 };
+
+    titlebar.addEventListener('mousedown', function(e) {
+      if (checkMobile()) return;
+      if (e.target.classList.contains('dot')) return;
+      if (isMaximized) return;
+      dragState.active = true;
+      var rect = chatDrawer.getBoundingClientRect();
+      dragState.offsetX = e.clientX - rect.left;
+      dragState.offsetY = e.clientY - rect.top;
+      chatDrawer.style.transform = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!dragState.active) return;
+      var x = e.clientX - dragState.offsetX;
+      var y = e.clientY - dragState.offsetY;
+      chatDrawer.style.left = x + 'px';
+      chatDrawer.style.top = y + 'px';
+    });
+
+    document.addEventListener('mouseup', function() {
+      dragState.active = false;
+    });
+
+    // ─── Resize ───────────────────────────────────
+    var resizeState = { active: false, dir: '', startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0 };
+
+    document.querySelectorAll('.resize-handle').forEach(function(handle) {
+      handle.addEventListener('mousedown', function(e) {
+        if (checkMobile()) return;
+        if (isMaximized) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var rect = chatDrawer.getBoundingClientRect();
+        resizeState.active = true;
+        resizeState.dir = handle.dataset.dir;
+        resizeState.startX = e.clientX;
+        resizeState.startY = e.clientY;
+        resizeState.startW = rect.width;
+        resizeState.startH = rect.height;
+        resizeState.startL = rect.left;
+        resizeState.startT = rect.top;
+        chatDrawer.style.transform = 'none';
+      });
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!resizeState.active) return;
+      var dx = e.clientX - resizeState.startX;
+      var dy = e.clientY - resizeState.startY;
+      var dir = resizeState.dir;
+      var minW = 320, minH = 260;
+      var newW = resizeState.startW, newH = resizeState.startH;
+      var newL = resizeState.startL, newT = resizeState.startT;
+
+      if (dir.includes('e')) newW = Math.max(minW, resizeState.startW + dx);
+      if (dir.includes('w')) { newW = Math.max(minW, resizeState.startW - dx); newL = resizeState.startL + (resizeState.startW - newW); }
+      if (dir.includes('s')) newH = Math.max(minH, resizeState.startH + dy);
+      if (dir.includes('n')) { newH = Math.max(minH, resizeState.startH - dy); newT = resizeState.startT + (resizeState.startH - newH); }
+
+      chatDrawer.style.width = newW + 'px';
+      chatDrawer.style.height = newH + 'px';
+      chatDrawer.style.left = newL + 'px';
+      chatDrawer.style.top = newT + 'px';
+    });
+
+    document.addEventListener('mouseup', function() {
+      resizeState.active = false;
+    });
+
+    // ─── Chat Logic ───────────────────────────────
+    function addChatMsg(text, isNally) {
+      var msg = document.createElement('div');
+      msg.className = 'drawer-msg ' + (isNally ? 'nally' : 'user');
+
+      if (isNally) {
+        var name = document.createElement('div');
+        name.className = 'msg-name';
+        name.textContent = 'NALLY';
+        msg.appendChild(name);
+      }
+
+      var textEl = document.createElement('div');
+      textEl.className = 'msg-text';
+      textEl.innerHTML = isNally ? renderMd(text) : text;
+
+      msg.appendChild(textEl);
+
+      // Copy button for NALLY messages
+      if (isNally) {
+        var copyBtn = document.createElement('button');
+        copyBtn.className = 'msg-copy';
+        copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect x="92" y="92" width="100" height="100" rx="8" fill="none" stroke="currentColor" stroke-width="16"/><path d="M200,56V40a8,8,0,0,0-8-8H40A8,8,0,0,0,32,40V168a8,8,0,0,0,8,8H56" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round"/></svg>';
+        copyBtn.title = 'Copy';
+        copyBtn.addEventListener('click', function() {
+          navigator.clipboard.writeText(text).then(function() {
+            copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><polyline points="40 144 96 200 216 80" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+            setTimeout(function() {
+              copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect x="92" y="92" width="100" height="100" rx="8" fill="none" stroke="currentColor" stroke-width="16"/><path d="M200,56V40a8,8,0,0,0-8-8H40A8,8,0,0,0,32,40V168a8,8,0,0,0,8,8H56" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round"/></svg>';
+            }, 1500);
+          });
+        });
+        msg.appendChild(copyBtn);
+      }
+
+      chatMessages.appendChild(msg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function showTyping() {
+      removeTyping();
+      var wrap = document.createElement('div');
+      wrap.className = 'typing-indicator';
+      var wave = document.createElement('div');
+      wave.className = 'typing-wave';
+      for (var i = 0; i < 5; i++) {
+        var bar = document.createElement('div');
+        bar.className = 'typing-bar';
+        wave.appendChild(bar);
+      }
+      wrap.appendChild(wave);
+      chatMessages.appendChild(wrap);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      typingEl = wrap;
+    }
+
+    function removeTyping() {
+      if (typingEl) { typingEl.remove(); typingEl = null; }
+    }
+
+    // ─── Tool Cards ────────────────────────────────
+    var toolCards = {};
+
+    function toolIcon(name) {
+      var icons = {
+        ReadFile: 'file-text', FileOps: 'folder-cog', RunCommand: 'terminal',
+        RunCode: 'play', CodeAnalysis: 'scan', SystemHealth: 'activity',
+        WriteFile: 'file-plus', SearchFiles: 'search', WebSearch: 'globe',
+        MemorySearch: 'brain', MemoryStore: 'database',
+      };
+      return icons[name] || 'zap';
+    }
+
+    function autoSummary(name, args) {
+      if (!args) return 'Running ' + name;
+      if (name === 'RunCommand' && args.command) {
+        var cmd = args.command.trim();
+        if (cmd.startsWith('ls') || cmd.startsWith('dir')) return 'Listing directory contents';
+        if (cmd.startsWith('cd ')) return 'Changing directory to ' + cmd.slice(3);
+        if (cmd.startsWith('cat ') || cmd.startsWith('type ')) return 'Reading file ' + cmd.split(' ').pop();
+        if (cmd.startsWith('mkdir')) return 'Creating directory ' + cmd.split(' ').pop();
+        if (cmd.startsWith('rm ') || cmd.startsWith('del ')) return 'Deleting ' + cmd.split(' ').pop();
+        if (cmd.startsWith('cp ') || cmd.startsWith('copy ')) return 'Copying files';
+        if (cmd.startsWith('mv ') || cmd.startsWith('ren ') || cmd.startsWith('rename ')) return 'Renaming or moving files';
+        if (cmd.startsWith('git ')) return 'Running git command';
+        if (cmd.startsWith('npm ') || cmd.startsWith('yarn ') || cmd.startsWith('pip ')) return 'Running package manager';
+        if (cmd.includes('curl') || cmd.includes('wget')) return 'Fetching remote content';
+        if (cmd.includes('grep') || cmd.includes('find') || cmd.includes('search')) return 'Searching for files or text';
+        if (cmd.includes('test') || cmd.includes('pytest') || cmd.includes('jest')) return 'Running tests';
+        if (cmd.includes('build') || cmd.includes('compile')) return 'Building project';
+        if (cmd.includes('install')) return 'Installing dependencies';
+        if (cmd.includes('start') || cmd.includes('run') || cmd.includes('serve')) return 'Starting a service';
+        if (cmd.includes('stop') || cmd.includes('kill')) return 'Stopping a process';
+        if (cmd.includes('deploy')) return 'Deploying application';
+        if (cmd.length > 60) cmd = cmd.substring(0, 57) + '...';
+        return 'Running: ' + cmd;
+      }
+      if (name === 'ReadFile' && args.path) {
+        var parts = args.path.replace(/\\/g, '/').split('/');
+        return 'Reading ' + (parts[parts.length - 1] || args.path);
+      }
+      if (name === 'FileOps') {
+        if (args.action === 'list') return 'Listing files in ' + (args.path || 'directory');
+        if (args.action === 'write') return 'Writing to ' + (args.path || 'file');
+        if (args.action === 'mkdir') return 'Creating folder ' + (args.path || 'directory');
+        return 'Performing file operation';
+      }
+      if (name === 'SearchFiles' && args.pattern) return 'Searching for "' + args.pattern + '"';
+      if (name === 'WebSearch' && args.query) return 'Searching the web for "' + args.query + '"';
+      if (name === 'RunCode') return 'Executing code';
+      if (name === 'CodeAnalysis') return 'Analyzing ' + (args.path || 'code');
+      if (name === 'MemorySearch' && args.query) return 'Searching memory for "' + args.query + '"';
+      if (name === 'MemoryStore') return 'Saving to memory';
+      if (args.path) return 'Working with ' + args.path;
+      if (args.query) return 'Processing "' + args.query + '"';
+      if (args.command) return 'Running command';
+      return 'Running ' + name;
+    }
+
+    function addToolCard(name, args, id) {
+      var card = document.createElement('div');
+      card.className = 'tool-card running';
+
+      // Header
+      var header = document.createElement('div');
+      header.className = 'tool-card-header';
+
+      // Label: summary (primary) + name (secondary)
+      var label = document.createElement('div');
+      label.className = 'tool-card-label';
+
+      var summary = document.createElement('div');
+      summary.className = 'tool-card-summary';
+      summary.textContent = autoSummary(name, args);
+
+      var nameEl = document.createElement('div');
+      nameEl.className = 'tool-card-name';
+      nameEl.textContent = name;
+
+      label.appendChild(summary);
+      label.appendChild(nameEl);
+
+      // Status: spinner
+      var statusEl = document.createElement('div');
+      statusEl.className = 'tool-card-status';
+      statusEl.innerHTML = '<span class="tool-card-spinner"></span>';
+
+      // Chevron
+      var chevron = document.createElement('div');
+      chevron.className = 'tool-card-chevron';
+      chevron.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+
+      header.appendChild(label);
+      header.appendChild(statusEl);
+      header.appendChild(chevron);
+
+      header.addEventListener('click', function() {
+        card.classList.toggle('expanded');
+      });
+
+      card.appendChild(header);
+
+      // Body with grid animation
+      var body = document.createElement('div');
+      body.className = 'tool-card-body';
+      var inner = document.createElement('div');
+      inner.className = 'tool-card-body-inner';
+
+      var detail = document.createElement('div');
+      detail.className = 'tool-card-detail';
+
+      // Input zone
+      var inputLabel = document.createElement('div');
+      inputLabel.className = 'tool-card-zone-label';
+      inputLabel.textContent = 'Input';
+      var inputCode = document.createElement('div');
+      inputCode.className = 'tool-card-code';
+      inputCode.textContent = args ? JSON.stringify(args, null, 2) : 'No input';
+      detail.appendChild(inputLabel);
+      detail.appendChild(inputCode);
+
+      // Result zone (hidden until done)
+      var resultSection = document.createElement('div');
+      resultSection.className = 'tool-card-result-section';
+      resultSection.style.display = 'none';
+      var resultLabel = document.createElement('div');
+      resultLabel.className = 'tool-card-zone-label';
+      resultLabel.textContent = 'Result';
+      var resultCode = document.createElement('div');
+      resultCode.className = 'tool-card-code';
+      resultSection.appendChild(resultLabel);
+      resultSection.appendChild(resultCode);
+      detail.appendChild(resultSection);
+
+      inner.appendChild(detail);
+      body.appendChild(inner);
+      card.appendChild(body);
+
+      chatMessages.appendChild(card);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      lucide.createIcons();
+
+      toolCards[id] = {
+        card: card, statusEl: statusEl, name: name,
+        resultSection: resultSection, resultCode: resultCode
+      };
+      return toolCards[id];
+    }
+
+    function updateToolCard(id, resultText, isError) {
+      var tc = toolCards[id];
+      if (!tc) return;
+
+      tc.card.classList.remove('running');
+      tc.card.classList.add(isError ? 'error' : 'success');
+
+      // Status: check or error icon
+      tc.statusEl.innerHTML = isError
+        ? '<span class="tool-card-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>'
+        : '<span class="tool-card-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></span>';
+
+      // Result zone
+      if (resultText) {
+        var truncated = resultText.substring(0, 5000);
+        tc.resultCode.textContent = truncated;
+        tc.resultSection.style.display = 'block';
+      }
+
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      delete toolCards[id];
+    }
+
+    // ─── Config ────────────────────────────────────
+    var NALLY_API = 'http://localhost:5000';
+    var NALLY_TOKEN = 'nally-dev-secret';
+
+    // ─── SSE Chat Client ──────────────────────────
+    var chatAbort = null;
+
+    function sendChat() {
+      var text = chatInput.value.trim();
+      if (!text) return;
+      addChatMsg(text, false);
+      chatInput.value = '';
+      window._streamMsgEl = null;
+
+      showTyping();
+      think('Thinking...');
+
+      // Abort any in-flight request
+      if (chatAbort) chatAbort.abort();
+      chatAbort = new AbortController();
+
+      var streamMsgEl = null;
+
+      fetch(NALLY_API + '/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + NALLY_TOKEN,
+        },
+        body: JSON.stringify({ message: text }),
+        signal: chatAbort.signal,
+      }).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+
+        function readChunk() {
+          reader.read().then(function(result) {
+            if (result.done) {
+              removeTyping();
+              thoughtContent.textContent = '';
+              thoughtWrap.classList.remove('visible');
+              if (streamMsgEl) {
+                streamMsgEl.innerHTML = renderMd(streamMsgEl.textContent);
+                lucide.createIcons();
+              }
+              return;
+            }
+
+            buffer += decoder.decode(result.value, { stream: true });
+            var lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+
+            for (var i = 0; i < lines.length; i++) {
+              var line = lines[i].trim();
+              if (!line.startsWith('data: ')) continue;
+              var jsonStr = line.substring(6);
+              if (jsonStr === '{"event": "done"}') continue;
+
+              try {
+                var evt = JSON.parse(jsonStr);
+                handleSSE(evt, function(el) { streamMsgEl = el; });
+              } catch (e) { console.error('SSE parse error:', e, jsonStr); }
+            }
+
+            readChunk();
+          });
+        }
+
+        readChunk();
+      }).catch(function(err) {
+        if (err.name === 'AbortError') return;
+        removeTyping();
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        addChatMsg('Backend offline — make sure NALLY server is running on port 5000.', true);
+      });
+    }
+
+    function handleSSE(evt, setStreamEl) {
+      console.log('SSE event:', evt.type, evt);
+      switch (evt.type) {
+        case 'tool_call':
+          removeTyping();
+          addToolCard(evt.name, evt.args, evt.id);
+          think('Running ' + evt.name + '...');
+          break;
+
+        case 'tool_result':
+          console.log('tool_result:', evt);
+          updateToolCard(evt.tool_call_id, evt.result, false);
+          think('Processing result...');
+          if (evt.diff && evt.file_path) {
+            console.log('DIFF FOUND:', evt.file_path, evt.diff.substring(0, 200));
+            showDiff(evt.diff, evt.file_path);
+          }
+          break;
+
+        case 'thought':
+          think(evt.text);
+          break;
+
+        case 'stream_chunk':
+          removeTyping();
+          if (!window._streamMsgEl) {
+            window._streamMsgEl = addChatMsgStream();
+            setStreamEl(window._streamMsgEl);
+          }
+          window._streamMsgEl.textContent += evt.text;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+          break;
+
+        case 'response':
+          removeTyping();
+          thoughtContent.textContent = '';
+          thoughtWrap.classList.remove('visible');
+          if (window._streamMsgEl) {
+            // Update existing streaming message instead of creating a duplicate
+            window._streamMsgEl.innerHTML = renderMd(evt.text);
+            lucide.createIcons();
+          } else {
+            addChatMsg(evt.text, true);
+          }
+          window._streamMsgEl = null;
+          speak(evt.text);
+          break;
+
+        case 'error':
+          removeTyping();
+          thoughtContent.textContent = '';
+          thoughtWrap.classList.remove('visible');
+          window._streamMsgEl = null;
+          addChatMsg('Error: ' + evt.text, true);
+          break;
+
+        case 'confirmation_required':
+          var approveCard = document.createElement('div');
+          approveCard.className = 'tool-card pending expanded';
+
+          var header = document.createElement('div');
+          header.className = 'tool-card-header';
+          header.style.cursor = 'default';
+
+          // Label: summary (primary) + name (secondary)
+          var label = document.createElement('div');
+          label.className = 'tool-card-label';
+
+          var summary = document.createElement('div');
+          summary.className = 'tool-card-summary';
+          summary.textContent = autoSummary(evt.name, evt.args);
+
+          var nameEl = document.createElement('div');
+          nameEl.className = 'tool-card-name';
+          nameEl.textContent = evt.name || 'tool';
+
+          label.appendChild(summary);
+          label.appendChild(nameEl);
+
+          // Status: approval icon
+          var statusEl = document.createElement('div');
+          statusEl.className = 'tool-card-status';
+          statusEl.innerHTML = '<span style="color:#FBBF24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></span>';
+
+          header.appendChild(label);
+          header.appendChild(statusEl);
+          approveCard.appendChild(header);
+
+          // Body with grid animation
+          var body = document.createElement('div');
+          body.className = 'tool-card-body';
+          var inner = document.createElement('div');
+          inner.className = 'tool-card-body-inner';
+
+          var detail = document.createElement('div');
+          detail.className = 'tool-card-detail';
+
+          // Input zone
+          var inputLabel = document.createElement('div');
+          inputLabel.className = 'tool-card-zone-label';
+          inputLabel.textContent = 'Input';
+          var inputCode = document.createElement('div');
+          inputCode.className = 'tool-card-code';
+          inputCode.textContent = evt.args ? JSON.stringify(evt.args, null, 2) : 'No input';
+          detail.appendChild(inputLabel);
+          detail.appendChild(inputCode);
+
+          // Show diff if available
+          if (evt.diff && evt.file_path) showDiff(evt.diff, evt.file_path);
+
+          // Approve / Deny buttons
+          var btnWrap = document.createElement('div');
+          btnWrap.className = 'tool-card-approve-btns';
+          btnWrap.style.borderTop = '1px solid rgba(255,255,255,0.05)';
+
+          var approveBtn = document.createElement('button');
+          approveBtn.className = 'tool-approve-yes';
+          approveBtn.textContent = 'Approve';
+
+          var denyBtn = document.createElement('button');
+          denyBtn.className = 'tool-approve-no';
+          denyBtn.textContent = 'Deny';
+
+          var tcId = evt.tool_call_id;
+          approveBtn.addEventListener('click', function() { approveTool(tcId, true); approveCard.remove(); });
+          denyBtn.addEventListener('click', function() { approveTool(tcId, false); approveCard.remove(); });
+
+          btnWrap.appendChild(approveBtn);
+          btnWrap.appendChild(denyBtn);
+          detail.appendChild(btnWrap);
+
+          inner.appendChild(detail);
+          body.appendChild(inner);
+          approveCard.appendChild(body);
+
+          chatMessages.appendChild(approveCard);
+          lucide.createIcons();
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+          break;
+      }
+    }
+
+    function approveTool(toolCallId, approved) {
+      fetch(NALLY_API + '/api/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + NALLY_TOKEN,
+        },
+        body: JSON.stringify({ tool_call_id: toolCallId, approved: approved }),
+      });
+      // Remove the approval card
+      var cards = chatMessages.querySelectorAll('.tool-card');
+      var last = cards[cards.length - 1];
+      if (last) last.remove();
+    }
+
+    function addChatMsgStream() {
+      var msg = document.createElement('div');
+      msg.className = 'drawer-msg nally';
+
+      var name = document.createElement('div');
+      name.className = 'msg-name';
+      name.textContent = 'NALLY';
+      msg.appendChild(name);
+
+      var textEl = document.createElement('div');
+      textEl.className = 'msg-text';
+      textEl.textContent = '';
+      msg.appendChild(textEl);
+
+      chatMessages.appendChild(msg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return textEl;
+    }
+
+    // Orb click toggles drawer
+    orb.el.addEventListener('click', function() {
+      toggleDrawer();
+    });
+
+    // Escape to close
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && drawerOpen) closeDrawer();
+    });
+
+    // ─── Uptime Counter ──────────────────────────
+    var startTime = Date.now();
+    setInterval(function() {
+      var elapsed = Math.floor((Date.now() - startTime) / 1000);
+      var m = Math.floor(elapsed / 60);
+      var h = Math.floor(m / 60);
+      var s = elapsed % 60;
+      var el = document.getElementById('dash-uptime');
+      if (el) {
+        el.textContent = h > 0 ? h + 'h ' + (m % 60) + 'm' : m + 'm ' + s + 's';
+      }
+    }, 1000);
+
+    // ─── Settings Dropdown ────────────────────────
+    var settingsDropdown = document.getElementById('settings-dropdown');
+    var settingsOverlay = document.getElementById('settings-overlay');
+    var settingsOpen = false;
+
+    function positionDropdown() {
+      var isMobile = window.innerWidth < 640;
+      settingsDropdown.classList.remove('pos-desktop', 'pos-mobile');
+      settingsDropdown.classList.add(isMobile ? 'pos-mobile' : 'pos-desktop');
+    }
+
+    function toggleSettings(e) {
+      if (e) e.stopPropagation();
+      if (settingsOpen) { closeSettings(); }
+      else { openSettings(); }
+    }
+
+    function openSettings() {
+      settingsOpen = true;
+      positionDropdown();
+      settingsOverlay.classList.add('open');
+      settingsDropdown.classList.add('open');
+      loadSettingsUI();
+    }
+
+    function closeSettings() {
+      settingsOpen = false;
+      settingsDropdown.classList.remove('open');
+      settingsOverlay.classList.remove('open');
+    }
+
+    function toggleSection(head) {
+      var section = head.parentElement;
+      section.classList.toggle('open');
+    }
+
+    // Escape closes settings
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && settingsOpen) closeSettings();
+    });
+
+    // Theme switcher
+    function setTheme(name) {
+      document.body.className = 'theme-' + name;
+      localStorage.setItem('nally-theme', name);
+      document.querySelectorAll('.theme-swatch').forEach(function(s) {
+        s.classList.toggle('active', s.dataset.theme === name);
+      });
+    }
+
+    // Compact mode
+    function setCompact(on) {
+      document.body.classList.toggle('compact', on);
+      localStorage.setItem('nally-compact', on);
+    }
+
+    // Emergency stop
+    function emergencyStop() {
+      var overlay = document.getElementById('auth-modal-overlay');
+      var icon = document.getElementById('auth-modal-icon');
+      var title = document.getElementById('auth-modal-title');
+      var sub = document.getElementById('auth-modal-sub');
+      var spinner = document.getElementById('auth-modal-spinner');
+      var success = document.getElementById('auth-modal-success');
+      var body = document.getElementById('auth-modal-body');
+      icon.style.background = 'rgba(239,68,68,0.15)';
+      icon.style.color = '#EF4444';
+      icon.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>';
+      title.textContent = 'Emergency Stop';
+      sub.textContent = 'All operations halted';
+      spinner.style.display = 'none';
+      success.classList.remove('show');
+      body.innerHTML = '<button class="auth-modal-btn" onclick="closeAuthModal()">OK</button>';
+      overlay.classList.add('open');
+    }
+
+    // Lock mode
+    function setLockMode(on) {
+      document.body.classList.toggle('lock-mode', on);
+      localStorage.setItem('nally-lock', on);
+    }
+
+    // Load saved settings
+    function loadSettingsUI() {
+      var savedTheme = localStorage.getItem('nally-theme') || 'midnight';
+      setTheme(savedTheme);
+      var savedCompact = localStorage.getItem('nally-compact') === 'true';
+      document.getElementById('compact-toggle').checked = savedCompact;
+      document.body.classList.toggle('compact', savedCompact);
+
+      var savedLock = localStorage.getItem('nally-lock') === 'true';
+      document.getElementById('lock-toggle').checked = savedLock;
+      document.body.classList.toggle('lock-mode', savedLock);
+
+      // Backend status
+      var statusEl = document.getElementById('settings-backend-status');
+      fetch(NALLY_API + '/api/health', { method: 'GET', signal: AbortSignal.timeout(3000) })
+        .then(function(r) { statusEl.textContent = 'Online'; statusEl.style.color = 'var(--green)'; })
+        .catch(function() { statusEl.textContent = 'Offline'; statusEl.style.color = '#EF4444'; });
+
+      // Uptime
+      var uptimeEl = document.getElementById('settings-uptime');
+      var elapsed = Math.floor((Date.now() - startTime) / 1000);
+      var m = Math.floor(elapsed / 60);
+      var h = Math.floor(m / 60);
+      uptimeEl.textContent = h > 0 ? h + 'h ' + (m % 60) + 'm' : m + 'm ' + (elapsed % 60) + 's';
+
+      renderServices();
+    }
+
+    // ─── Services Directory ─────────────────────
+    var SVC_ICONS = {
+      github:    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>',
+      gmail:     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 010 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/></svg>',
+      slack:     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 01-2.52 2.523A2.528 2.528 0 010 15.165a2.527 2.527 0 012.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 012.521-2.52 2.527 2.527 0 012.521 2.52v6.313A2.528 2.528 0 018.834 24a2.528 2.528 0 01-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 01-2.521-2.52A2.528 2.528 0 018.834 0a2.528 2.528 0 012.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 012.521 2.521 2.528 2.528 0 01-2.521 2.521H2.522A2.528 2.528 0 010 8.834a2.528 2.528 0 012.522-2.521h6.312zm6.313 0a2.528 2.528 0 012.522-2.52A2.528 2.528 0 0124 8.834a2.528 2.528 0 01-2.522 2.521h-2.521V5.042zm-1.27 0a2.528 2.528 0 01-2.523 2.521 2.527 2.527 0 01-2.52-2.521V1.636A2.527 2.527 0 0115.164 0a2.528 2.528 0 012.523 1.636v3.406zm-1.27 12.614a2.528 2.528 0 012.523 2.522A2.528 2.528 0 0115.164 24a2.527 2.527 0 01-2.523-2.522v-2.521h2.523zm0-1.27a2.527 2.527 0 01-2.523-2.521 2.526 2.526 0 012.523-2.52h6.314A2.527 2.527 0 0124 15.165a2.528 2.528 0 01-2.522 2.521h-6.314z"/></svg>',
+      telegram:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0a12 12 0 00-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>',
+      gdrive:    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 18.289l1.837 3.187h20.326L24 18.289 14.949 0H9.051L0 18.289zm14.419-1.697l-3.272-5.664h8.103l-3.271 5.664H14.42zM16.73 6.594l-3.272 5.664h8.102L18.288 6.594h-1.558zM9.051 6.594L5.78 12.258l3.271 5.664 3.272-5.664L9.051 6.594z"/></svg>',
+      gcal:      '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>',
+      notion:    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L18.2 2.16c-.42-.326-.98-.7-2.055-.607l-12.8.934c-.466.047-.56.28-.374.466l1.436 1.389zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.166V6.354c0-.606-.233-.933-.748-.886l-15.177.887c-.56.046-.746.326-.746.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.515-1.635.515-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952l1.449.327s0 .84-1.168.84l-3.222.187c-.093-.187 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279V9.201l-1.215-.14c-.093-.515.28-.886.747-.933l3.223-.188zM2.24 1.627l13.355-.981c1.635-.14 2.055-.047 3.082.7l4.25 2.986c.7.513.934.606.934 1.166v16.378c0 1.026-.373 1.632-1.68 1.726l-15.458.934c-.98.046-1.449-.093-1.963-.747l-3.129-4.06c-.56-.746-.793-1.306-.793-1.96V3.307c0-.84.373-1.54 1.402-1.68z"/></svg>',
+      discord:   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>',
+      brave:     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 4c4.418 0 8 3.582 8 8s-3.582 8-8 8-8-3.582-8-8 3.582-8 8-8zm0 3a5 5 0 100 10 5 5 0 000-10zm0 3a2 2 0 110 4 2 2 0 010-4z"/></svg>',
+      filesystem: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+      fetch:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
+      higgsfield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+      jira:      '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.3 0L1.4 5.8v12.4L5.9 24l5.4-3.2V5.8L11.3 0zm1.4 3.4l5.5 3.3-5.5 3.3V3.4zm0 6.6l5.5 3.3-5.5 3.3v-6.6zm0 6.6L7.2 20l4.1 2.4V16.6z"/></svg>',
+      linear:    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.35 14.05A8.001 8.001 0 0112 4a8 8 0 017.56 5.35l-2.1 1.22A5.96 5.96 0 0012 6.5a6 6 0 00-5.63 3.99l-2.1-1.22A8 8 0 0112 2a8 8 0 017.56 5.35l-2.1 1.22A5.96 5.96 0 0012 4.5a6 6 0 00-5.63 3.99L3.35 14.05z"/><path d="M12 22a8 8 0 01-7.56-5.35l2.1-1.22A5.96 5.96 0 0012 19.5a6 6 0 005.63-3.99l2.1 1.22A8 8 0 0112 22z"/></svg>',
+      twitter:   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+      spotify:   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>',
+      youtube:   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>',
+      dropbox:   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2l6 3.752L18 2l6 3.752L18 9.504l6 3.752-6 3.752L18 20.756l-6-3.752L6 20.756 0 17.004l6-3.752L0 9.504 6 5.752z"/></svg>',
+    };
+
+    // Backend MCP services (working)
+    var SERVICES = [
+      { id:'github',    name:'GitHub',        auth:'token',  desc:'Repos, issues, PRs', mcp:true, tokenLabel:'Personal Access Token' },
+      { id:'notion',    name:'Notion',        auth:'oauth',  desc:'Notes & databases', lightIcon:true, mcp:true },
+      { id:'gmail',     name:'Gmail',         auth:'oauth',  desc:'Email management', mcp:true },
+      { id:'gdrive',    name:'Google Drive',  auth:'oauth',  desc:'File storage', mcp:true },
+      { id:'gcal',      name:'Calendar',      auth:'oauth',  desc:'Scheduling', mcp:true, backendId:'gcalendar' },
+      { id:'telegram',  name:'Telegram',      auth:'token',  desc:'Chat access', tokenLabel:'Bot Token', mcp:true },
+      { id:'filesystem',name:'Filesystem',    auth:'none',   desc:'Local file access', mcp:true },
+      { id:'fetch',     name:'Fetch',         auth:'none',   desc:'Web content fetching', mcp:true },
+      // Coming soon
+      { id:'slack',     name:'Slack',         auth:'oauth',  desc:'Team messaging', mcp:false },
+      { id:'discord',   name:'Discord',       auth:'token',  desc:'Community chat', mcp:false },
+      { id:'jira',      name:'Jira',          auth:'oauth',  desc:'Project management', mcp:false },
+      { id:'linear',    name:'Linear',        auth:'oauth',  desc:'Issue tracking', mcp:false },
+      { id:'higgsfield',name:'Higgsfield',    auth:'api_key',desc:'AI video generation', mcp:false },
+      { id:'brave',     name:'Brave Search',  auth:'api_key',desc:'Web search', mcp:false },
+      { id:'twitter',   name:'X / Twitter',   auth:'oauth',  desc:'Social posts', mcp:false },
+      { id:'spotify',   name:'Spotify',       auth:'oauth',  desc:'Music & playlists', mcp:false },
+      { id:'youtube',   name:'YouTube',       auth:'oauth',  desc:'Video & transcripts', mcp:false },
+      { id:'dropbox',   name:'Dropbox',       auth:'oauth',  desc:'Cloud storage', mcp:false },
+    ];
+
+    var SVC_COLORS = {
+      github:'#6e5494', gmail:'#EA4335', slack:'#4A154B', telegram:'#26A5E4',
+      gdrive:'#4285F4', gcal:'#4285F4', notion:'#000', linear:'#5E6AD2',
+      discord:'#5865F2', jira:'#0052CC', brave:'#FB542B',
+      higgsfield:'#FF6B35', twitter:'#000', spotify:'#1DB954', youtube:'#FF0000',
+      dropbox:'#0061FF', filesystem:'#607D8B', fetch:'#FF6F00',
+    };
+
+    var NALLY_API = 'http://localhost:5000';
+
+    function getConnected() {
+      try { return JSON.parse(localStorage.getItem('nally-svc') || '{}'); }
+      catch(e) { return {}; }
+    }
+    function saveConnected(obj) { localStorage.setItem('nally-svc', JSON.stringify(obj)); }
+
+    function renderServices() {
+      var connected = getConnected();
+      var grid = document.getElementById('svc-grid');
+      grid.innerHTML = SERVICES.map(function(s) {
+        var c = connected[s.id];
+        var color = SVC_COLORS[s.id] || '#888';
+        var isLight = s.lightIcon;
+        var bg = isLight ? 'rgba(255,255,255,0.9)' : color;
+        var fg = isLight ? '#000' : '#fff';
+        var svg = SVC_ICONS[s.id] || '';
+        var styledSvg = svg.replace('<svg', '<svg style="width:14px;height:14px;color:' + fg + '"');
+        var badge = '';
+        if (!s.mcp) {
+          badge = '<span class="svc-badge coming-soon">Soon</span>';
+        } else if (c) {
+          badge = '<span class="svc-badge connected">Connected</span>';
+        } else {
+          badge = '<span class="svc-badge">Connect</span>';
+        }
+        var click = s.mcp ? 'connectService(\'' + s.id + '\')' : '';
+        var cls = 'svc-card' + (c ? ' connected' : '') + (!s.mcp ? ' coming-soon-card' : '');
+        return '<div class="' + cls + '" data-svc="' + s.id + '" onclick="' + click + '">'
+          + '<div class="svc-icon" style="background:' + bg + '">' + styledSvg + '</div>'
+          + '<span class="svc-name">' + s.name + '</span>'
+          + badge
+          + (s.mcp ? '<button class="svc-disconnect" onclick="event.stopPropagation();disconnectSvc(\'' + s.id + '\')">&times;</button>' : '')
+          + '</div>';
+      }).join('');
+    }
+
+    function findSvc(id) { return SERVICES.find(function(s){ return s.id === id; }); }
+    function backendId(id) { var s = findSvc(id); return (s && s.backendId) ? s.backendId : id; }
+
+    function connectService(id) {
+      var svc = findSvc(id);
+      if (!svc || !svc.mcp) return;
+      var connected = getConnected();
+      if (connected[id]) return;
+
+      if (svc.auth === 'none') {
+        // Auto-connect (filesystem, fetch)
+        connected[id] = { at: Date.now() };
+        saveConnected(connected);
+        renderServices();
+        return;
+      }
+      if (svc.auth === 'oauth') {
+        showAuthModal(svc, 'oauth');
+      } else {
+        showAuthModal(svc, 'token');
+      }
+    }
+
+    function disconnectSvc(id) {
+      var connected = getConnected();
+      delete connected[id];
+      saveConnected(connected);
+      // Also try backend disconnect
+      fetch(NALLY_API + '/api/mcp/disconnect/' + backendId(id), {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
+      }).catch(function(){});
+      renderServices();
+    }
+
+    // ─── Auth Modal ─────────────────────────────
+    var authOverlay = document.getElementById('auth-modal-overlay');
+    var authIcon = document.getElementById('auth-modal-icon');
+    var authTitle = document.getElementById('auth-modal-title');
+    var authSub = document.getElementById('auth-modal-sub');
+    var authSpinner = document.getElementById('auth-modal-spinner');
+    var authSuccess = document.getElementById('auth-modal-success');
+    var authBody = document.getElementById('auth-modal-body');
+
+    function showAuthModal(svc, type) {
+      var color = SVC_COLORS[svc.id] || '#888';
+      var isLight = svc.lightIcon;
+      var bg = isLight ? 'rgba(255,255,255,0.9)' : color;
+      var fg = isLight ? '#000' : '#fff';
+      var svg = SVC_ICONS[svc.id] || '';
+      var styledSvg = svg.replace('<svg', '<svg style="width:20px;height:20px;color:' + fg + '"');
+      authIcon.style.background = bg;
+      authIcon.innerHTML = styledSvg;
+      authTitle.textContent = 'Connect ' + svc.name;
+      authSpinner.style.display = '';
+      authSuccess.classList.remove('show');
+      authBody.innerHTML = '';
+
+      if (type === 'oauth') {
+        authSub.textContent = 'Redirecting to ' + svc.name + '...';
+        authOverlay.classList.add('open');
+        // Hit backend to get OAuth URL, then redirect
+        fetch(NALLY_API + '/api/mcp/connect/' + backendId(svc.id), {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN, 'Content-Type': 'application/json' }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.auth_url) {
+            authSub.textContent = 'Opening ' + svc.name + '...';
+            // Open OAuth in popup
+            var w = 600, h = 700;
+            var left = (screen.width - w) / 2, top = (screen.height - h) / 2;
+            window.open(data.auth_url, 'oauth_' + svc.id, 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top);
+            // Poll for connection status
+            pollConnection(svc.id);
+          } else {
+            authSpinner.style.display = 'none';
+            authSub.textContent = 'Failed to start OAuth flow';
+            authBody.innerHTML = '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Close</button>';
+          }
+        })
+        .catch(function() {
+          authSpinner.style.display = 'none';
+          authSub.textContent = 'Backend unreachable';
+          authBody.innerHTML = '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Close</button>';
+        });
+      } else {
+        authSub.textContent = 'Paste your ' + (svc.tokenLabel || 'token') + ' below';
+        authSpinner.style.display = 'none';
+        authBody.innerHTML = '<input class="auth-token-input" id="auth-token-val" placeholder="' + (svc.tokenLabel || 'Token') + '" type="password" autofocus>'
+          + '<button class="auth-modal-btn" onclick="submitToken(\'' + svc.id + '\')">Connect</button>'
+          + '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Cancel</button>';
+        authOverlay.classList.add('open');
+        setTimeout(function(){ var el=document.getElementById('auth-token-val'); if(el) el.focus(); }, 100);
+      }
+    }
+
+    function submitToken(id) {
+      var val = document.getElementById('auth-token-val');
+      if (!val || !val.value.trim()) return;
+      var token = val.value.trim();
+      authSpinner.style.display = '';
+      authBody.innerHTML = '';
+      authSub.textContent = 'Verifying...';
+
+      // Submit to backend
+      fetch(NALLY_API + '/api/mcp/token/' + backendId(id), {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function() {
+        authSpinner.style.display = 'none';
+        authSuccess.classList.add('show');
+        var svc = findSvc(id);
+        authSub.textContent = svc.name + ' connected successfully';
+        authBody.innerHTML = '<button class="auth-modal-btn" onclick="closeAuth(\'' + id + '\')">Done</button>';
+      })
+      .catch(function() {
+        // Still mark as connected locally
+        authSpinner.style.display = 'none';
+        authSuccess.classList.add('show');
+        var svc = findSvc(id);
+        authSub.textContent = svc.name + ' connected (local)';
+        authBody.innerHTML = '<button class="auth-modal-btn" onclick="closeAuth(\'' + id + '\')">Done</button>';
+      });
+    }
+
+    function pollConnection(id) {
+      var checks = 0;
+      var interval = setInterval(function() {
+        checks++;
+        fetch(NALLY_API + '/api/mcp/services', {
+          headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var svc = data.services ? data.services.find(function(s){ return s.name === id || s.id === id; }) : null;
+          if (svc && svc.connected) {
+            clearInterval(interval);
+            authSpinner.style.display = 'none';
+            authSuccess.classList.add('show');
+            authSub.textContent = findSvc(id).name + ' connected successfully';
+            authBody.innerHTML = '<button class="auth-modal-btn" onclick="closeAuth(\'' + id + '\')">Done</button>';
+          }
+        })
+        .catch(function(){});
+        if (checks > 30) { // 30s timeout
+          clearInterval(interval);
+          authSpinner.style.display = 'none';
+          authSub.textContent = 'Timed out — try again';
+          authBody.innerHTML = '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Close</button>';
+        }
+      }, 1000);
+    }
+
+    function closeAuth(id) {
+      var connected = getConnected();
+      connected[id] = { at: Date.now() };
+      saveConnected(connected);
+      renderServices();
+      closeAuthModal();
+    }
+
+    function closeAuthModal() {
+      authOverlay.classList.remove('open');
+      authBody.innerHTML = '';
+    }
+
+    // ─── Diff Viewer ─────────────────────────────
+    var diffPanel = document.getElementById('diff-panel');
+    var diffBody = document.getElementById('diff-body');
+    var diffFile = document.getElementById('diff-file');
+    var diffStats = document.getElementById('diff-stats');
+
+    function showDiff(diffText, filePath) {
+      // Only show on desktop
+      if (window.innerWidth <= 640) return;
+
+      diffFile.textContent = filePath || '';
+      diffBody.innerHTML = '';
+
+      var lines = diffText.split('\n');
+      var adds = 0, dels = 0;
+
+      lines.forEach(function(line) {
+        var span = document.createElement('span');
+        span.className = 'diff-line';
+        if (line.startsWith('@@')) {
+          span.classList.add('diff-line-hdr');
+        } else if (line.startsWith('+')) {
+          span.classList.add('diff-line-add');
+          adds++;
+        } else if (line.startsWith('-')) {
+          span.classList.add('diff-line-del');
+          dels++;
+        } else if (line.startsWith('---') || line.startsWith('+++')) {
+          span.classList.add('diff-line-hdr');
+        } else {
+          span.classList.add('diff-line-ctx');
+        }
+        span.textContent = line + '\n';
+        diffBody.appendChild(span);
+      });
+
+      diffStats.innerHTML = '<span class="diff-stat-add">+' + adds + '</span><span class="diff-stat-del">-' + dels + '</span>';
+      diffPanel.classList.add('open');
+    }
+
+    function closeDiff() {
+      diffPanel.classList.remove('open');
+    }
+
+    function minimizeDiff() {
+      diffPanel.classList.remove('open');
+    }
+
+    authOverlay.addEventListener('click', function(e) {
+      if (e.target === authOverlay) closeAuthModal();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && authOverlay.classList.contains('open')) closeAuthModal();
+    });
+
+    // Handle OAuth redirect
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('oauth') === 'success') {
+        var svcId = params.get('service');
+        if (svcId) {
+          var connected = getConnected();
+          connected[svcId] = { at: Date.now() };
+          saveConnected(connected);
+          renderServices();
+        }
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    })();
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && authOverlay.classList.contains('open')) closeAuthModal();
+      if (e.key === 'Escape' && diffPanel.classList.contains('open')) closeDiff();
+    });
+
+    // ─── Init Lucide Icons ───────────────────────
+    lucide.createIcons();
   </script>
-
-  <script src="vendor/react.production.min.js"></script>
-  <script src="vendor/react-dom.production.min.js"></script>
-  <script src="vendor/htm.umd.js"></script>
-  <script src="vendor/lucide.min.js"></script>
-
-  <script src="js/utils.js?v=3"></script>
-  <script src="js/cinema.js?v=3"></script>
-  <script src="js/voice.js?v=3"></script>
-  <script src="js/orb.js?v=3"></script>
-  <script src="js/input.js?v=3"></script>
-  <script src="js/cards.js?v=3"></script>
-  <script src="js/chat.js?v=3"></script>
-  <script src="js/app.js?v=3"></script>
 </body>
 </html>

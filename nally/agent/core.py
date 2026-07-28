@@ -41,6 +41,15 @@ def _strip_emojis(text: str) -> str:
     return emoji_pattern.sub("", text).strip()
 
 
+def _capitalize_sentences(text: str) -> str:
+    """Capitalize the first letter of every sentence."""
+    return re.sub(
+        r'(^|[.!?]\s+)([a-z])',
+        lambda m: m.group(1) + m.group(2).upper(),
+        text,
+    )
+
+
 def _extract_topics(user_msgs: List[str]) -> List[str]:
     """Extract conversation topics from user messages."""
     topic_keywords = {
@@ -166,7 +175,7 @@ class NallyAgent:
                     return "__EXIT__"
 
                 elapsed = (time.time() - start) * 1000
-                result = _strip_emojis(result)
+                result = _capitalize_sentences(_strip_emojis(result))
                 logger.nally_response(result)
                 logger.debug(f"Response time: {elapsed:.0f}ms (local)")
                 self._save_history()
@@ -206,7 +215,7 @@ class NallyAgent:
                 thread_id=self._thread_id,
             )
 
-            final_response = _strip_emojis(final_response)
+            final_response = _capitalize_sentences(_strip_emojis(final_response))
             self.messages.append({"role": "assistant", "content": final_response})
 
             elapsed = (time.time() - start) * 1000

@@ -3,8 +3,16 @@ import json
 from .registry import registry, Tool
 
 
+_loaded = False
+
+
 def load_all_tools():
     """Load all built-in tools"""
+    global _loaded
+    if _loaded:
+        return
+    _loaded = True
+
     from ..utils.logger import logger
 
     # --- System (2 tools) ---
@@ -21,6 +29,10 @@ def load_all_tools():
     from .code import RunCode, CodeAnalysis
     registry.register(RunCode())
     registry.register(CodeAnalysis())
+
+    # --- Web Search (1 tool) ---
+    from .websearch import WebSearch
+    registry.register(WebSearch())
 
     # --- Memory (3 tools) ---
     from ..memory.store_v2 import memory_v2 as mem_store, memory_tools_v2 as mem_tools

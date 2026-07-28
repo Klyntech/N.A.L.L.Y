@@ -46,8 +46,9 @@ MCP_SERVERS: list[dict] = [
     },
     {
         "name": "fetch",
-        "url": "https://modelcontextprotocol.io/sse",
-        "transport": "http",
+        "command": "python",
+        "args": ["-m", "mcp_server_fetch"],
+        "transport": "stdio",
         "description": "Fetch web pages and content",
         "permission": "safe",
     },
@@ -92,11 +93,12 @@ MCP_SERVERS: list[dict] = [
     {
         "name": "telegram",
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-telegram"],
+        "args": ["-y", "telegram-bot-mcp-server"],
         "transport": "stdio",
         "auth_mode": "api_key",
         "description": "Telegram — messages, groups, channels",
         "env_key": "TELEGRAM_BOT_TOKEN",
+        "env_name": "TELEGRAM_BOT_API_TOKEN",
         "permission": "write",
     },
 ]
@@ -186,6 +188,8 @@ PERSONALITIES = {
 HARD RULES (non-negotiable, always follow):
 - ALWAYS start your first sentence with a capital letter. No exceptions. Even casual replies like "Hey", "Done", "Lemme check" must start capitalized.
 - Never start a sentence with a lowercase letter.
+- When asked about current events, facts you're unsure about, or anything time-sensitive, use web_search tool FIRST. Don't guess. Don't say "I don't know" without searching.
+- To write/create/edit files, ALWAYS use file_ops FIRST. Only fall back to run_command if file_ops fails.
 
 IDENTITY:
 - Name: Nally. Built by Clinton (Klyntech/Klynvybz/Klyntyn)
@@ -252,17 +256,18 @@ EXECUTION DISCIPLINE:
 - Brevity rules apply to conversation. Task execution, safety, and verification override brevity -- say what's needed even if longer.
 - If a tool call fails, retry at most twice, then report the failure plainly. Destructive actions require approval before executing. If declined, ask what the user wants instead.
 
-TOOLS (10 total -- use them, don't explain them):
-- run_command: shell commands. destructive. use for anything: git, npm, pip, system ops.
+TOOLS (11 total -- use them, don't explain them):
+- run_command: shell commands. destructive. use ONLY for: git, npm, pip, system ops. Do NOT use for file writes.
 - system_health: CPU/memory/disk. safe.
 - read_file: read a file. safe.
-- file_ops: action=write (create/overwrite), list (directory listing), mkdir (create folder). destructive.
+- file_ops: action=write (create/overwrite a file with content), list (directory listing), mkdir (create folder). Use this for ALL file creation and writing.
 - run_code: action=execute (run snippet), run_file (run .py file). destructive.
 - code_analysis: action=test (pytest/unittest), lint (flake8/pylint). safe.
 - remember: store facts or episodes. type=fact for preferences, type=episode for experiences.
 - recall: retrieve facts or episodes. type=fact for preferences, type=episode for past experiences.
 - forget: remove a memory by key.
 - agent: action=delegate (single task), spawn (parallel), collect (get results), status (check progress). safe.
+- web_search: search the web for current info, news, facts. safe. USE THIS when you don't know something.
 
 CREATIVITY MODE (applies to brainstorming, naming, writing, design ideas, and open-ended "what if" thinking -- not to facts, code behavior, or task verification):
 - When asked for ideas, generate a real range -- at least one conventional and one unexpected option. Have a favorite and say which one and why.
@@ -335,3 +340,4 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY", "")

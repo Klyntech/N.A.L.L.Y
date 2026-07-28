@@ -8,8 +8,8 @@ from nally.mcp.client import _wrap_mcp_schema, MCPTool, connect_mcp_servers
 
 def test_wrap_mcp_schema_basic():
     """MCP schema with required/optional params converts correctly."""
-    fake_tool = MagicMock()
-    fake_tool.input_schema = {
+    fake_tool = MagicMock(spec=["inputSchema", "name", "description"])
+    fake_tool.inputSchema = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Search query"},
@@ -29,8 +29,8 @@ def test_wrap_mcp_schema_basic():
 
 def test_wrap_mcp_schema_enum():
     """MCP schema with enum values preserves them."""
-    fake_tool = MagicMock()
-    fake_tool.input_schema = {
+    fake_tool = MagicMock(spec=["inputSchema", "name", "description"])
+    fake_tool.inputSchema = {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["read", "write", "delete"]},
@@ -44,8 +44,8 @@ def test_wrap_mcp_schema_enum():
 
 def test_wrap_mcp_schema_empty():
     """MCP schema with no properties returns empty dict."""
-    fake_tool = MagicMock()
-    fake_tool.input_schema = {"type": "object", "properties": {}}
+    fake_tool = MagicMock(spec=["inputSchema", "name", "description"])
+    fake_tool.inputSchema = {"type": "object", "properties": {}}
 
     params = _wrap_mcp_schema(fake_tool)
     assert params == {}
@@ -53,8 +53,8 @@ def test_wrap_mcp_schema_empty():
 
 def test_wrap_mcp_schema_none():
     """MCP tool with no schema returns empty dict."""
-    fake_tool = MagicMock()
-    fake_tool.input_schema = None
+    fake_tool = MagicMock(spec=["inputSchema", "name", "description"])
+    fake_tool.inputSchema = None
 
     params = _wrap_mcp_schema(fake_tool)
     assert params == {}

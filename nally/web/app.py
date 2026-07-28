@@ -165,27 +165,6 @@ async def index():
     return FileResponse(str(_base / "web" / "index.html"))
 
 
-@app.get("/vendor/{filename:path}")
-async def vendor_static(filename: str):
-    resp = FileResponse(str(_base / "web" / "vendor" / filename), media_type="application/javascript")
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp
-
-
-@app.get("/js/{filename:path}")
-async def js_static(filename: str):
-    resp = FileResponse(str(_base / "web" / "js" / filename), media_type="application/javascript")
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp
-
-
-@app.get("/css/{filename:path}")
-async def css_static(filename: str):
-    resp = FileResponse(str(_base / "web" / "css" / filename), media_type="text/css")
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp
-
-
 @app.get("/web/")
 async def web_root():
     return RedirectResponse(url="/", status_code=302)
@@ -333,7 +312,7 @@ async def clear(_auth=Depends(verify_auth)):
 
 # ── API: Approval ─────────────────────────────────────────
 
-@app.post("/api/approval")
+@app.post("/api/approve")
 async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)):
     from nally.agent.graph import resolve_approval
     resolve_approval(request.tool_call_id, request.approved)

@@ -6,16 +6,6 @@ from .registry import Tool, registry
 MAX_WRITE_SIZE = 500_000  # 500KB max write
 
 
-def _is_within_project(path: Path) -> bool:
-    """Check if path is within the project directory."""
-    try:
-        project_root = Path(__file__).parent.parent.parent.resolve()
-        path.resolve().relative_to(project_root)
-        return True
-    except ValueError:
-        return False
-
-
 class ReadFile(Tool):
     def __init__(self):
         super().__init__(
@@ -49,7 +39,7 @@ class FileOps(Tool):
     def __init__(self):
         super().__init__(
             name="file_ops",
-            description="Write, list, or create directories",
+            description="Create, write, or read files. Use action=write with file_path and content to write a file.",
             permission="destructive",
             parameters={
                 "action": {
@@ -79,8 +69,6 @@ class FileOps(Tool):
                 if len(content) > MAX_WRITE_SIZE:
                     return f"Error: content too large ({len(content)} chars, max {MAX_WRITE_SIZE})"
                 path = Path(file_path)
-                if not _is_within_project(path):
-                    return f"Error: cannot write outside project directory: {file_path}"
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
                 return f"Wrote {len(content)} chars to {file_path}"
@@ -103,8 +91,6 @@ class FileOps(Tool):
                 if not file_path:
                     return "Error: file_path is required for mkdir"
                 path = Path(file_path)
-                if not _is_within_project(path):
-                    return f"Error: cannot create directory outside project: {file_path}"
                 path.mkdir(parents=True, exist_ok=True)
                 return f"Created directory: {file_path}"
 

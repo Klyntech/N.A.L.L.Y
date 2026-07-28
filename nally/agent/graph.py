@@ -4,7 +4,9 @@ State machine using LangGraph. ReAct pattern:
 Think -> Use Tool -> Observe -> Think -> ... -> Finish
 """
 import difflib
+import glob
 import json
+import os
 import re
 import threading
 import time
@@ -63,6 +65,75 @@ def _compute_file_diff(tool_args: dict) -> Optional[str]:
         return "".join(diff)
     except Exception:
         return None
+
+
+SKIP_DIRS = {"__pycache__", ".git", "node_modules", "data", "logs", ".pytest_cache", "tmp"}
+
+
+def _should_skip(p: Path) -> bool:
+    """Check if a path is inside a skipped directory."""
+    for part in p.parts:
+        if part in SKIP_DIRS:
+            return True
+    return False
+
+
+def _snapshot_project_files() -> dict:
+    """Snapshot mtimes + content of tracked files in the project. Returns {path: (mtime, content)}."""
+    from ..config import BASE_DIR
+    snap = {}
+    try:
+        for p in BASE_DIR.rglob("*"):
+            if p.is_file() and not _should_skip(p.relative_to(BASE_DIR)):
+                try:
+                    snap[str(p)] = (p.stat().st_mtime, p.read_text(encoding="utf-8"))
+                except (PermissionError, OSError, UnicodeDecodeError):
+                    pass
+    except Exception:
+        pass
+    return snap
+
+
+def _diff_snapshots(before: dict) -> list:
+    """Compare current files against before snapshot. Returns list of (filepath, diff_text)."""
+    from ..config import BASE_DIR
+    results = []
+    try:
+        for p in BASE_DIR.rglob("*"):
+            if p.is_file() and not _should_skip(p.relative_to(BASE_DIR)):
+                fp = str(p)
+                try:
+                    old = before.get(fp)
+                    new_content = p.read_text(encoding="utf-8")
+                    if old is None:
+                        # New file
+                        diff = list(difflib.unified_diff(
+                            [], new_content.splitlines(keepends=True),
+                            fromfile=f"a/{fp}", tofile=f"b/{fp}", lineterm="",
+                        ))
+                        if diff:
+                            results.append((fp, "".join(diff)))
+                    elif old[0] != p.stat().st_mtime:
+                        # Modified file
+                        diff = list(difflib.unified_diff(
+                            old[1].splitlines(keepends=True),
+                            new_content.splitlines(keepends=True),
+                            fromfile=f"a/{fp}", tofile=f"b/{fp}", lineterm="",
+                        ))
+                        if diff:
+                            results.append((fp, "".join(diff)))
+                except (PermissionError, OSError, UnicodeDecodeError):
+                    pass
+    except Exception:
+        pass
+    # Cap each diff at 100 lines
+    capped = []
+    for fp, d in results:
+        lines = d.splitlines(keepends=True)
+        if len(lines) > 100:
+            d = "".join(lines[:100]) + f"\n... ({len(lines) - 100} more lines)"
+        capped.append((fp, d))
+    return capped
 
 
 def _parse_text_tool_calls(text: str) -> tuple:
@@ -416,6 +487,7 @@ def tool_executor(state: AgentState) -> AgentState:
                     }
                     if diff:
                         payload["diff"] = diff
+                        payload["file_path"] = tool_args.get("file_path", "")
                     emit("confirmation_required", payload)
                 except Exception:
                     pass
@@ -435,6 +507,17 @@ def tool_executor(state: AgentState) -> AgentState:
 
             logger.info(f"Approval gate: user approved '{tool_name}'")
 
+        # Compute diff BEFORE execution (old content still on disk)
+        diff = None
+        file_path_str = ""
+        snapshot_before = None
+        if tool_name == "file_ops" and tool_args.get("action") == "write":
+            diff = _compute_file_diff(tool_args)
+            file_path_str = tool_args.get("file_path", "")
+            logger.info(f"Diff computed for {file_path_str}: {'yes' if diff else 'empty/same'}")
+        elif tool_name == "run_command":
+            snapshot_before = _snapshot_project_files()
+
         start = time.time()
         try:
             result = registry.execute(tool_name, tool_args)
@@ -445,14 +528,29 @@ def tool_executor(state: AgentState) -> AgentState:
         duration = (time.time() - start) * 1000
         logger.tool_call(tool_name, tool_args, result)
 
+        # For run_command, detect changed files via snapshot diff
+        if snapshot_before is not None and not str(result).startswith("Error"):
+            changes = _diff_snapshots(snapshot_before)
+            if changes:
+                diff = "".join(d for _, d in changes)
+                file_path_str = ", ".join(Path(fp).name for fp, _ in changes[:3])
+                if len(changes) > 3:
+                    file_path_str += f" +{len(changes) - 3} more"
+                logger.info(f"Snapshot diff: {len(changes)} files changed")
+
         if emit:
             try:
-                emit("tool_result", {
+                payload = {
+                    "tool_call_id": tool_id,
                     "name": tool_name,
                     "result": str(result)[:500],
                     "duration_ms": round(duration),
                     "success": not str(result).startswith("Error"),
-                })
+                }
+                if diff:
+                    payload["diff"] = diff
+                    payload["file_path"] = file_path_str
+                emit("tool_result", payload)
             except Exception:
                 pass
 

@@ -19,7 +19,9 @@ class RunCommand(Tool):
             },
         )
 
-    def execute(self, command: str) -> str:
+    def execute(self, command: str = "") -> str:
+        if not command:
+            return "Error: No command provided"
         try:
             result = subprocess.run(
                 command,

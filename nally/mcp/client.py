@@ -54,7 +54,7 @@ class MCPTool(Tool):
         async with stdio_client(server) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool(self.name, arguments)
+                result = await session.call_tool(self.name.removeprefix(f"mcp_{config['name']}_"), arguments)
                 return _extract_result(result)
 
     async def _call_http(self, arguments: dict) -> str:
@@ -122,7 +122,10 @@ def _parse_sse_response(text: str) -> dict | None:
 
 def _wrap_mcp_schema(tool_info) -> dict:
     """Convert MCP tool's input_schema to NALLY's parameter format."""
-    schema = tool_info.input_schema or {}
+    raw = getattr(tool_info, "inputSchema", None)
+    if raw is None:
+        raw = getattr(tool_info, "input_schema", None)
+    schema = raw or {}
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
 
@@ -146,6 +149,7 @@ def connect_mcp_servers(reg):
 
     Stdio servers: connects with timeout, fetches tools.
     HTTP servers: skipped at startup (tools registered after user connects).
+    API key servers: skipped at startup (connected on-demand via connect_stdio_with_token).
     """
     if not MCP_SERVERS:
         return
@@ -154,9 +158,14 @@ def connect_mcp_servers(reg):
         name = server_config.get("name", "unknown")
         transport = server_config.get("transport", "stdio")
         permission = server_config.get("permission", "write")
+        auth_mode = server_config.get("auth_mode", "")
 
         if transport == "http":
             logger.info(f"MCP server '{name}': HTTP transport, awaiting connection")
+            continue
+
+        if auth_mode == "api_key":
+            logger.info(f"MCP server '{name}': API key auth, awaiting connection")
             continue
 
         try:
@@ -169,6 +178,8 @@ def connect_mcp_servers(reg):
 
 def _connect_stdio_server(reg, server_config: dict, default_permission: str):
     """Connect to a stdio MCP server, fetch tools, register them."""
+    import concurrent.futures
+
     name = server_config.get("name", "unknown")
 
     async def _fetch_tools():
@@ -187,7 +198,10 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
                 result = await session.list_tools()
                 return result.tools
 
-    tools = asyncio.run(asyncio.wait_for(_fetch_tools(), timeout=15.0))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        tools = pool.submit(
+            asyncio.run, asyncio.wait_for(_fetch_tools(), timeout=30.0)
+        ).result()
     count = 0
 
     for tool_info in tools:
@@ -253,19 +267,21 @@ def connect_stdio_with_token(server_config: dict, reg=None) -> int:
     """Connect to a stdio MCP server that needs an env var token (e.g. Telegram).
 
     Reads the token from the env var specified in server_config['env_key'],
-    passes it to the subprocess, fetches and registers tools.
+    passes it to the subprocess under server_config['env_name'] (or env_key),
+    fetches and registers tools.
     Returns tool count, or 0 if env var is missing or connection fails.
     """
     import os
     name = server_config.get("name", "unknown")
     env_key = server_config.get("env_key", "")
+    env_name = server_config.get("env_name", env_key)
     token_value = os.getenv(env_key, "")
 
     if not token_value:
         logger.info(f"MCP stdio '{name}': no {env_key} set, skipping")
         return 0
 
-    env = {**os.environ, env_key: token_value}
+    env = {**os.environ, env_name: token_value}
     config_with_env = {**server_config, "env": env}
 
     try:
