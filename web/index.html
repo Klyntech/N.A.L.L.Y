@@ -2071,7 +2071,10 @@
     }
 
     function renderMd(text) {
-      if (!text || typeof text !== 'string') return '';
+      if (!text || typeof text !== 'string') {
+        console.warn('[renderMd] non-string input:', typeof text, text);
+        return '';
+      }
       var html = '';
       if (typeof marked !== 'undefined') {
         html = marked.parse(text);
@@ -2645,6 +2648,7 @@
                 streamMsgEl.innerHTML = renderMd(streamMsgEl.textContent);
                 lucide.createIcons();
               }
+              window._streamMsgEl = null;
               return;
             }
 
@@ -2707,6 +2711,9 @@
             window._streamMsgEl = addChatMsgStream();
             setStreamEl(window._streamMsgEl);
           }
+          if (typeof evt.text !== 'string') {
+            console.warn('[stream_chunk] non-string evt.text:', typeof evt.text, evt);
+          }
           window._streamMsgEl.textContent += (typeof evt.text === 'string' ? evt.text : '');
           chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
@@ -2715,6 +2722,9 @@
           removeTyping();
           thoughtContent.textContent = '';
           thoughtWrap.classList.remove('visible');
+          if (typeof evt.text !== 'string') {
+            console.warn('[response] non-string evt.text:', typeof evt.text, evt);
+          }
           var respText = typeof evt.text === 'string' ? evt.text : String(evt.text || '');
           if (window._streamMsgEl) {
             // Update existing streaming message instead of creating a duplicate
