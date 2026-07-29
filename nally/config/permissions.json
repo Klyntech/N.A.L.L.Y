@@ -16,6 +16,12 @@
     "git diff": "allow",
     "git branch": "allow",
     "git show": "allow",
+    "git add": "allow",
+    "git add *": "allow",
+    "git commit": "allow",
+    "git commit *": "allow",
+    "git push": "allow",
+    "git push *": "allow",
     "python --version": "allow",
     "node --version": "allow",
     "npm --version": "allow",
@@ -47,19 +53,14 @@
     "kill -9 *": "deny",
     "killall *": "deny"
   },
-  "run_code": {
-    "*": "ask"
-  },
-  "file_ops": {
-    "*": "ask",
-    "list": "allow",
-    "read": "allow"
-  },
+  "run_code": "allow",
+  "file_ops": "allow",
   "system_health": "allow",
   "read_file": "allow",
-  "code_analysis": "ask",
+  "code_analysis": "allow",
   "remember": "allow",
   "recall": "allow",
   "forget": "allow",
-  "agent": "allow"
+  "agent": "allow",
+  "mcp_*": "allow"
 }
