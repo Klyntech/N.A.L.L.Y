@@ -66,7 +66,7 @@ class NallyLogger:
     def tool_call(self, tool_name: str, args: dict, result: str):
         """Log a tool call"""
         args_str = str(args)[:200]
-        result_str = result[:200]
+        result_str = str(result)[:200] if not isinstance(result, str) else result[:200]
         self.debug(f"TOOL: {tool_name}({args_str}) -> {result_str}")
 
     def llm_call(self, provider: str, model: str, duration_ms: float):

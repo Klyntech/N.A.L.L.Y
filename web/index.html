@@ -8,6 +8,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark-dimmed.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     /* ─── Themes ──────────────────────────────── */
@@ -446,6 +449,27 @@
       font-size: 13px;
       line-height: 1.5;
     }
+    /* highlight.js overrides to match dark theme */
+    .msg-text pre code.hljs {
+      background: none;
+      padding: 0;
+    }
+    .msg-text pre .hljs-keyword { color: #c678dd; }
+    .msg-text pre .hljs-string { color: #98c379; }
+    .msg-text pre .hljs-number { color: #d19a66; }
+    .msg-text pre .hljs-comment { color: #5c6370; font-style: italic; }
+    .msg-text pre .hljs-function { color: #61afef; }
+    .msg-text pre .hljs-title { color: #61afef; }
+    .msg-text pre .hljs-built_in { color: #e5c07b; }
+    .msg-text pre .hljs-type { color: #e5c07b; }
+    .msg-text pre .hljs-attr { color: #d19a66; }
+    .msg-text pre .hljs-variable { color: #e06c75; }
+    .msg-text pre .hljs-params { color: #e06c75; }
+    .msg-text pre .hljs-meta { color: #56b6c2; }
+    .msg-text pre .hljs-selector-class { color: #e5c07b; }
+    .msg-text pre .hljs-selector-tag { color: #e06c75; }
+    .msg-text pre .hljs-addition { color: #98c379; background: rgba(152,195,121,0.1); }
+    .msg-text pre .hljs-deletion { color: #e06c75; background: rgba(224,108,117,0.1); }
     .msg-text strong {
       color: rgba(228,226,220,0.95);
       font-weight: 600;
@@ -484,6 +508,10 @@
     .msg-text li {
       margin: 3px 0;
     }
+    .msg-text li input[type="checkbox"] {
+      margin-right: 6px;
+      accent-color: var(--iris);
+    }
     /* Markdown: horizontal rule */
     .msg-text hr {
       border: none;
@@ -496,8 +524,13 @@
       margin: 10px 0;
       width: 100%;
       font-size: 13px;
-      overflow-x: auto;
       display: table;
+    }
+    .msg-text .table-wrap {
+      overflow-x: auto;
+      margin: 10px 0;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.06);
     }
     .msg-text th, .msg-text td {
       padding: 7px 10px;
@@ -2016,19 +2049,65 @@
     // ─── Markdown Renderer ────────────────────────
     // Configure marked with fallback
     if (typeof marked !== 'undefined') {
-      marked.setOptions({ breaks: true, gfm: true });
+      marked.setOptions({
+        breaks: true,
+        gfm: true,
+        highlight: function(code, lang) {
+          if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+            try { return hljs.highlight(code, { language: lang }).value; } catch(e) {}
+          }
+          if (typeof hljs !== 'undefined') {
+            try { return hljs.highlightAuto(code).value; } catch(e) {}
+          }
+          return code;
+        }
+      });
+      // Custom renderer: wrap tables in scrollable div
+      var origTable = new marked.Renderer();
+      origTable.table = function(header, body) {
+        return '<div class="table-wrap"><table>' + header + body + '</table></div>';
+      };
+      marked.setOptions({ renderer: origTable });
     }
 
     function renderMd(text) {
-      if (!text) return '';
-      if (typeof marked !== 'undefined') return marked.parse(text);
-      // Fallback: basic markdown if CDN failed
-      return text
-        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/\n/g, '<br>');
+      if (!text || typeof text !== 'string') return '';
+      var html = '';
+      if (typeof marked !== 'undefined') {
+        html = marked.parse(text);
+      } else {
+        // Fallback: comprehensive markdown if CDN failed
+        html = text
+          .replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+            var cls = lang ? ' class="language-' + lang + '"' : '';
+            return '<pre><code' + cls + '>' + code.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
+          })
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/~~(.+?)~~/g, '<del>$1</del>')
+          .replace(/^\s*[-*]\s+\[[ x]\]\s+(.+)/gm, '<li><input type="checkbox" disabled> $1</li>')
+          .replace(/^\s*[-*]\s+(.+)/gm, '<li>$1</li>')
+          .replace(/^\s*\d+\.\s+(.+)/gm, '<li>$1</li>')
+          .replace(/(<li>.*<\/li>)/gs, function(m) { return '<ul>' + m + '</ul>'; })
+          .replace(/^>\s+(.+)/gm, '<blockquote>$1</blockquote>')
+          .replace(/^---$/gm, '<hr>')
+          .replace(/\n/g, '<br>');
+        // Basic table support
+        html = html.replace(/^(\|.+\|)\n(\|[-| :]+\|)\n((?:\|.+\|\n?)+)/gm, function(m, hdr, sep, body) {
+          var ths = hdr.split('|').filter(function(c) { return c.trim(); }).map(function(c) { return '<th>' + c.trim() + '</th>'; }).join('');
+          var rows = body.trim().split('\n').map(function(row) {
+            var tds = row.split('|').filter(function(c) { return c.trim(); }).map(function(c) { return '<td>' + c.trim() + '</td>'; }).join('');
+            return '<tr>' + tds + '</tr>';
+          }).join('');
+          return '<div class="table-wrap"><table><thead><tr>' + ths + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+        });
+      }
+      // Sanitize with DOMPurify if available
+      if (typeof DOMPurify !== 'undefined') {
+        return DOMPurify.sanitize(html, { ADD_TAGS: ['input'], ADD_ATTR: ['type', 'disabled', 'checked'] });
+      }
+      return html;
     }
 
     // ─── Chat Drawer (Desktop Window) ─────────────
@@ -2239,6 +2318,7 @@
 
     // ─── Chat Logic ───────────────────────────────
     function addChatMsg(text, isNally) {
+      if (typeof text !== 'string') text = String(text || '');
       var msg = document.createElement('div');
       msg.className = 'drawer-msg ' + (isNally ? 'nally' : 'user');
 
@@ -2627,7 +2707,7 @@
             window._streamMsgEl = addChatMsgStream();
             setStreamEl(window._streamMsgEl);
           }
-          window._streamMsgEl.textContent += evt.text;
+          window._streamMsgEl.textContent += (typeof evt.text === 'string' ? evt.text : '');
           chatMessages.scrollTop = chatMessages.scrollHeight;
           break;
 
@@ -2635,15 +2715,16 @@
           removeTyping();
           thoughtContent.textContent = '';
           thoughtWrap.classList.remove('visible');
+          var respText = typeof evt.text === 'string' ? evt.text : String(evt.text || '');
           if (window._streamMsgEl) {
             // Update existing streaming message instead of creating a duplicate
-            window._streamMsgEl.innerHTML = renderMd(evt.text);
+            window._streamMsgEl.innerHTML = renderMd(respText);
             lucide.createIcons();
           } else {
-            addChatMsg(evt.text, true);
+            addChatMsg(respText, true);
           }
           window._streamMsgEl = null;
-          speak(evt.text);
+          speak(respText);
           break;
 
         case 'error':

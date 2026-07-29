@@ -83,7 +83,8 @@ class ToolRegistry:
         
         try:
             result = tool.execute(**arguments)
-            if isinstance(result, str) and len(result) > MAX_TOOL_OUTPUT:
+            result = str(result)
+            if len(result) > MAX_TOOL_OUTPUT:
                 result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
             return result
         except Exception as e:
