@@ -50,6 +50,24 @@ def _capitalize_sentences(text: str) -> str:
     )
 
 
+_TIME_SENSITIVE_PATTERNS = [
+    r"this\s+(season|year|month|week|weekend)",
+    r"(20\d{2})\s*[-–]\s*(20\d{2})",
+    r"(match|matches|result|score|fixture|standing|league|table|rank)",
+    r"(news|latest|recent|current|update)",
+    r"(price|stock|rate|weather|temperature|forecast)",
+    r"(who\s+won|final\s+score)",
+    r"(upcoming|next|schedule)",
+    r"(release\s+date|when\s+does)",
+]
+
+
+def _needs_web_search(query: str) -> bool:
+    """Check if query looks time-sensitive and needs web search context."""
+    q = query.lower()
+    return any(re.search(p, q) for p in _TIME_SENSITIVE_PATTERNS)
+
+
 def _extract_topics(user_msgs: List[str]) -> List[str]:
     """Extract conversation topics from user messages."""
     topic_keywords = {
@@ -193,6 +211,28 @@ class NallyAgent:
 
         self.messages.append({"role": "user", "content": user_input})
 
+        # Skill activation (Level 2): check if a skill matches this request
+        try:
+            from ..skills.loader import activate_skill
+            from ..skills.registry import skill_registry
+            from ..tools.permissions import gate as perm_gate
+            if not skill_registry._loaded:
+                skill_registry.load()
+            matched = skill_registry.find_by_intent(user_input)
+            if matched:
+                skill_body = skill_registry.activate(matched[0])
+                skill_obj = skill_registry.get(matched[0])
+                if skill_body:
+                    self.messages.append({
+                        "role": "system",
+                        "content": f"[SKILL ACTIVATED: {matched[0]}]\n\n{skill_body}\n\nFollow these instructions for this task."
+                    })
+                    # Grant skill's allowed-tools temporarily
+                    if skill_obj and skill_obj.allowed_tools:
+                        perm_gate.set_skill_overrides(matched[0], skill_obj.allowed_tools)
+        except Exception:
+            pass  # Skills not available
+
         # Smart context management
         self.messages = context_manager.compact(self.messages)
         self.messages = context_manager.inject_memories(user_input, self.messages)
@@ -206,6 +246,21 @@ class NallyAgent:
         except ImportError:
             tools = [t.to_openai_schema() for t in registry.tools.values()]
 
+        # Auto-search for time-sensitive queries — inject fresh web data
+        # so the LLM sees real results regardless of whether it calls web_search
+        if _needs_web_search(user_input):
+            try:
+                from ..tools.websearch import WebSearch
+                ws = WebSearch()
+                results = ws.execute(query=user_input, num_results=3)
+                if results:
+                    from langchain_core.messages import SystemMessage
+                    self.messages.insert(1, SystemMessage(
+                        content=f"[Auto-searched web for '{user_input}']:\n{results}"
+                    ))
+            except Exception:
+                pass  # fallback to LLM's own knowledge
+
         try:
             final_response = run_agent(
                 messages=self.messages,
@@ -217,6 +272,13 @@ class NallyAgent:
 
             final_response = _capitalize_sentences(_strip_emojis(final_response))
             self.messages.append({"role": "assistant", "content": final_response})
+
+            # Clear skill overrides after task completion
+            try:
+                from ..tools.permissions import gate as perm_gate
+                perm_gate.clear_all_skill_overrides()
+            except Exception:
+                pass
 
             elapsed = (time.time() - start) * 1000
             logger.nally_response(final_response)

@@ -69,7 +69,7 @@ class ToolFilter:
 
         # Build result: matched tools + always-on tools (system_health is
         # always useful for diagnostics)
-        always_on = {"system_health"}
+        always_on = {"system_health", "web_search"}
         selected_names = always_on | {name for name, _ in scored}
 
         return [
