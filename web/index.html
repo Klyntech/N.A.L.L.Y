@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark-dimmed.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
@@ -2064,8 +2064,10 @@
       });
       // Custom renderer: wrap tables in scrollable div
       var origTable = new marked.Renderer();
-      origTable.table = function(header, body) {
-        return '<div class="table-wrap"><table>' + header + body + '</table></div>';
+      origTable.table = function() {
+        var h = arguments[0], b = arguments[1];
+        if (h && typeof h === 'object') { b = h.body; h = h.header; }
+        return '<div class="table-wrap"><table>' + (h || '') + (b || '') + '</table></div>';
       };
       marked.setOptions({ renderer: origTable });
     }
