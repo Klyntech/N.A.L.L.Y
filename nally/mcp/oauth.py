@@ -29,6 +29,59 @@ _pending_callbacks: dict[str, asyncio.Event] = {}
 _pending_codes: dict[str, str | None] = {}
 
 
+# ── Token encryption ──────────────────────────────────────
+# Always uses NALLY_CRED_KEY. Never couples to NALLY_ACCESS_TOKEN.
+# Plaintext fallback only for first run before .env is loaded.
+_FERNET = None
+
+
+def _get_fernet():
+    """Get or create Fernet instance from NALLY_CRED_KEY.
+
+    Lazy-loaded, cached. If NALLY_CRED_KEY is missing, generates
+    a key and logs a warning — tokens will be re-encrypted once
+    the key is set.
+    """
+    global _FERNET
+    if _FERNET is not None:
+        return _FERNET
+    try:
+        from cryptography.fernet import Fernet
+    except ImportError:
+        logger.warning("cryptography package not installed — tokens stored in plaintext")
+        return None
+    key = os.getenv("NALLY_CRED_KEY", "")
+    if not key:
+        logger.warning("NALLY_CRED_KEY not set — tokens stored in plaintext until key is provided")
+        return None
+    try:
+        _FERNET = Fernet(key.encode() if isinstance(key, str) else key)
+        return _FERNET
+    except Exception as e:
+        logger.error(f"Invalid NALLY_CRED_KEY: {e}")
+        return None
+
+
+def _encrypt_token(plaintext: str) -> str:
+    """Encrypt a token string. Returns plaintext if encryption unavailable."""
+    fernet = _get_fernet()
+    if fernet is None:
+        return plaintext
+    return fernet.encrypt(plaintext.encode()).decode()
+
+
+def _decrypt_token(ciphertext: str) -> str:
+    """Decrypt a token string. Returns as-is if not encrypted (migration)."""
+    fernet = _get_fernet()
+    if fernet is None:
+        return ciphertext
+    try:
+        return fernet.decrypt(ciphertext.encode()).decode()
+    except Exception:
+        # Not encrypted yet — treat as plaintext (migration path)
+        return ciphertext
+
+
 class SQLiteTokenStorage:
     """SQLite-backed TokenStorage for OAuth tokens and client registrations."""
 
@@ -67,15 +120,18 @@ class SQLiteTokenStorage:
         if row is None or row["tokens"] is None:
             return None
         try:
-            return OAuthToken.model_validate_json(row["tokens"])
+            decrypted = _decrypt_token(row["tokens"])
+            return OAuthToken.model_validate_json(decrypted)
         except Exception:
             return None
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
+        raw = tokens.model_dump_json()
+        encrypted = _encrypt_token(raw)
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             "INSERT OR REPLACE INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)",
-            (self.service, tokens.model_dump_json(), time.time()),
+            (self.service, encrypted, time.time()),
         )
         conn.commit()
         conn.close()

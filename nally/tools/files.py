@@ -5,6 +5,32 @@ from .registry import Tool, registry
 
 MAX_WRITE_SIZE = 500_000  # 500KB max write
 
+# ── Path safety ───────────────────────────────────────────
+# Only these roots are writable. Path.home() deliberately excluded
+# to block ~/.ssh, ~/.aws, .gitconfig, browser profiles, etc.
+_ALLOWED_ROOTS = [
+    Path.cwd(),                          # project directory
+    Path.home() / "Desktop",
+    Path.home() / "Documents",
+    Path.home() / "Downloads",
+]
+
+
+def _is_safe_write_path(path: Path) -> bool:
+    """Check if a path falls within allowed writable directories.
+
+    Uses Path methods, not string prefix matching.
+    Returns True if the resolved path is under any allowed root.
+    """
+    resolved = path.resolve()
+    for root in _ALLOWED_ROOTS:
+        try:
+            resolved.relative_to(root.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
 
 class ReadFile(Tool):
     def __init__(self):
@@ -66,14 +92,27 @@ class FileOps(Tool):
             if action == "write":
                 if not file_path:
                     return "Error: file_path is required for write"
+                path = Path(file_path)
+                if not _is_safe_write_path(path):
+                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    return f"Error: path outside allowed directories. Write to: {allowed}"
                 if content is None:
                     content = ""
                 if len(content) > MAX_WRITE_SIZE:
                     return f"Error: content too large ({len(content)} chars, max {MAX_WRITE_SIZE})"
-                path = Path(file_path)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
                 return f"Wrote {len(content)} chars to {file_path}"
+
+            elif action == "mkdir":
+                if not file_path:
+                    return "Error: file_path is required for mkdir"
+                path = Path(file_path)
+                if not _is_safe_write_path(path):
+                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    return f"Error: path outside allowed directories. Write to: {allowed}"
+                path.mkdir(parents=True, exist_ok=True)
+                return f"Created directory: {file_path}"
 
             elif action == "list":
                 p = Path(file_path)
@@ -88,13 +127,6 @@ class FileOps(Tool):
                         size = 0
                     items.append(f"{prefix}{item.name} ({size // 1024}KB)")
                 return "\n".join(items) if items else "Empty directory"
-
-            elif action == "mkdir":
-                if not file_path:
-                    return "Error: file_path is required for mkdir"
-                path = Path(file_path)
-                path.mkdir(parents=True, exist_ok=True)
-                return f"Created directory: {file_path}"
 
             else:
                 return f"Unknown action: {action}. Use write, list, or mkdir."

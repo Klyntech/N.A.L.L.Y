@@ -342,6 +342,12 @@
       pointer-events: none;
     }
     .titlebar-spacer { width: auto; flex: 1; }
+    .titlebar-clear {
+      background: none; border: none; cursor: pointer;
+      color: rgba(228,226,220,0.3); padding: 4px; border-radius: 4px;
+      display: flex; align-items: center; transition: color 0.2s;
+    }
+    .titlebar-clear:hover { color: rgba(228,226,220,0.7); }
 
     /* Messages area */
     .drawer-messages {
@@ -1198,6 +1204,39 @@
     }
     .auth-modal-btn.secondary:hover { background: rgba(255,255,255,0.1); }
 
+    /* ─── Login Overlay ─────────────────────────── */
+    #login-overlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 20px;
+      opacity: 1; transition: opacity 0.3s ease;
+    }
+    #login-overlay.hidden { opacity: 0; pointer-events: none; }
+    .login-box {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 32px;
+      width: 340px; max-width: 90vw;
+      text-align: center;
+    }
+    .login-box h2 { font-size: 18px; color: rgba(228,226,220,0.9); margin-bottom: 6px; font-weight: 600; }
+    .login-box p { font-size: 12px; color: rgba(228,226,220,0.4); margin-bottom: 20px; }
+    .login-box input {
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
+      color: rgba(228,226,220,0.9); font-size: 13px; font-family: monospace;
+      outline: none; margin-bottom: 12px;
+    }
+    .login-box input:focus { border-color: var(--iris); }
+    .login-box button {
+      width: 100%; padding: 10px; border-radius: 8px; border: none;
+      background: var(--iris); color: #fff; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: filter 0.2s;
+    }
+    .login-box button:hover { filter: brightness(1.15); }
+    .login-box .login-err { color: #EF4444; font-size: 11px; margin-top: 8px; display: none; }
+
 
     /* ─── Diff Viewer Panel (Desktop only) ──────── */
     #diff-panel {
@@ -1401,6 +1440,15 @@
   </style>
 </head>
 <body>
+  <div id="login-overlay">
+    <div class="login-box">
+      <h2>N.A.L.L.Y</h2>
+      <p>Enter your access token to continue</p>
+      <input type="password" id="login-token-input" placeholder="Access token" autofocus>
+      <button onclick="doLogin()">Connect</button>
+      <div class="login-err" id="login-err">Invalid token</div>
+    </div>
+  </div>
   <div id="root">
     <div id="orb-mount"></div>
     <div id="status-text"></div>
@@ -1423,6 +1471,9 @@
       </div>
       <div class="titlebar-label">N.A.L.L.Y</div>
       <div class="titlebar-spacer"></div>
+      <button class="titlebar-clear" onclick="clearChat()" title="Clear chat">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+      </button>
     </div>
     <div class="drawer-messages" id="chat-messages"></div>
     <div class="drawer-input-wrap">
@@ -2164,6 +2215,28 @@
       resizeState.active = false;
     });
 
+    // ─── Chat History ──────────────────────────────
+    function loadHistory() {
+      fetch(NALLY_API + '/api/history', {
+        headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.messages && data.messages.length) {
+          data.messages.forEach(function(m) {
+            addChatMsg(m.content, m.role === 'assistant');
+          });
+        }
+      }).catch(function(){});
+    }
+
+    function clearChat() {
+      fetch(NALLY_API + '/api/clear', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
+      }).then(function() {
+        chatMessages.innerHTML = '';
+      }).catch(function(){});
+    }
+
     // ─── Chat Logic ───────────────────────────────
     function addChatMsg(text, isNally) {
       var msg = document.createElement('div');
@@ -2398,7 +2471,56 @@
 
     // ─── Config ────────────────────────────────────
     var NALLY_API = 'http://localhost:5000';
-    var NALLY_TOKEN = 'nally-dev-secret';
+    var NALLY_TOKEN = localStorage.getItem('nally-token') || '';
+
+    // ─── Login Gate ────────────────────────────────
+    var loginOverlay = document.getElementById('login-overlay');
+    var loginErr = document.getElementById('login-err');
+
+    function doLogin() {
+      var input = document.getElementById('login-token-input');
+      var token = input.value.trim();
+      if (!token) return;
+      loginErr.style.display = 'none';
+      // Verify token by hitting the status endpoint
+      fetch(NALLY_API + '/api/status', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      }).then(function(r) {
+        if (!r.ok) throw new Error('bad');
+        return r.json();
+      }).then(function() {
+        localStorage.setItem('nally-token', token);
+        NALLY_TOKEN = token;
+        loginOverlay.classList.add('hidden');
+        setTimeout(function() { loginOverlay.remove(); }, 400);
+        loadHistory();
+      }).catch(function() {
+        loginErr.style.display = 'block';
+      });
+    }
+
+    document.getElementById('login-token-input').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') doLogin();
+    });
+
+    // Gate: if no token stored, show login; otherwise hide overlay
+    if (!NALLY_TOKEN) {
+      loginOverlay.classList.remove('hidden');
+    } else {
+      // Verify stored token is still valid
+      fetch(NALLY_API + '/api/status', {
+        headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
+      }).then(function(r) {
+        if (!r.ok) throw new Error('bad');
+        loginOverlay.classList.add('hidden');
+        setTimeout(function() { loginOverlay.remove(); }, 400);
+        loadHistory();
+      }).catch(function() {
+        // Token invalid — show login
+        NALLY_TOKEN = '';
+        localStorage.removeItem('nally-token');
+      });
+    }
 
     // ─── SSE Chat Client ──────────────────────────
     var chatAbort = null;
@@ -2732,6 +2854,21 @@
 
     // Emergency stop
     function emergencyStop() {
+      // Abort the SSE stream
+      if (chatAbort) { chatAbort.abort(); chatAbort = null; }
+      // Tell backend to abort
+      fetch(NALLY_API + '/api/abort', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
+      }).catch(function(){});
+      // Clean up UI
+      removeTyping();
+      thoughtContent.textContent = '';
+      thoughtWrap.classList.remove('visible');
+      orb.setState('idle');
+      var statusEl = document.getElementById('status-text');
+      if (statusEl) { statusEl.textContent = ''; statusEl.style.color = ''; }
+
       var overlay = document.getElementById('auth-modal-overlay');
       var icon = document.getElementById('auth-modal-icon');
       var title = document.getElementById('auth-modal-title');
@@ -2770,7 +2907,7 @@
 
       // Backend status
       var statusEl = document.getElementById('settings-backend-status');
-      fetch(NALLY_API + '/api/health', { method: 'GET', signal: AbortSignal.timeout(3000) })
+      fetch(NALLY_API + '/api/status', { method: 'GET', signal: AbortSignal.timeout(3000) })
         .then(function(r) { statusEl.textContent = 'Online'; statusEl.style.color = 'var(--green)'; })
         .catch(function() { statusEl.textContent = 'Offline'; statusEl.style.color = '#EF4444'; });
 

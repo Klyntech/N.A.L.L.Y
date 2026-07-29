@@ -55,7 +55,8 @@ class MCPTool(Tool):
             async with stdio_client(server) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool(self.name.removeprefix(f"mcp_{config['name']}_"), arguments)
+                    tool_name = self.name.removeprefix(f"mcp_{config['name']}_").replace("_", "-")
+                    result = await session.call_tool(tool_name, arguments)
                     return _extract_result(result)
         except ExceptionGroup as eg:
             # Unwrap the sub-exception from the TaskGroup

@@ -29,6 +29,9 @@ comtypes>=1.4.0
 # MCP (Model Context Protocol)
 mcp>=1.27,<2
 
+# Token encryption
+cryptography>=41.0.0
+
 # Web search
 duckduckgo-search>=7.0.0
 httpx>=0.27.0

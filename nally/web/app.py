@@ -255,9 +255,18 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
+        # Clear any prior abort flag for this session
+        _abort_flags.pop("default", None)
+
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         while True:
+            # Check for abort
+            if _abort_flags.get("default"):
+                _abort_flags.pop("default", None)
+                yield 'data: {"type": "error", "text": "Operation aborted by user."}\n\n'
+                yield 'data: {"event": "done"}\n\n'
+                return
             item = await queue.get()
             if item is None:
                 break
@@ -273,22 +282,6 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             "Connection": "keep-alive",
         },
     )
-
-
-# ── API: Chat (non-streaming) ────────────────────────────
-
-@app.post("/api/jarvis")
-async def jarvis_chat(request: ChatRequest, _auth=Depends(verify_auth)):
-    prompt = request.message.strip()
-    if not prompt:
-        raise HTTPException(status_code=400, detail="No prompt provided")
-    try:
-        response = get_agent().process(prompt)
-        return {"text": response, "status": "ok"}
-    except NallyError as e:
-        return {"text": e.to_llm_format(), "status": "error", "fallback": True}
-    except Exception as e:
-        return {"text": f"System error: {str(e)}", "status": "error", "fallback": True}
 
 
 # ── API: History ──────────────────────────────────────────
@@ -317,6 +310,24 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
     from nally.agent.graph import resolve_approval
     resolve_approval(request.tool_call_id, request.approved)
     return {"ok": True}
+
+
+# ── API: Abort ────────────────────────────────────────────
+
+_abort_flags: dict[str, bool] = {}
+
+def check_abort(session_id: str = "default") -> bool:
+    return _abort_flags.get(session_id, False)
+
+@app.post("/api/abort")
+async def abort_session(_auth=Depends(verify_auth)):
+    _abort_flags["default"] = True
+    return {"status": "aborted"}
+
+@app.post("/api/abort/clear")
+async def abort_clear(_auth=Depends(verify_auth)):
+    _abort_flags.pop("default", None)
+    return {"status": "cleared"}
 
 
 # ── API: Permissions ──────────────────────────────────────

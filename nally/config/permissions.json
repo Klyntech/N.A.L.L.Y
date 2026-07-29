@@ -1,6 +1,33 @@
 {
   "run_command": {
-    "*": "allow",
+    "*": "ask",
+    "ls": "allow",
+    "dir": "allow",
+    "pwd": "allow",
+    "cd": "allow",
+    "cat": "allow",
+    "type": "allow",
+    "head": "allow",
+    "tail": "allow",
+    "grep": "allow",
+    "find": "allow",
+    "git status": "allow",
+    "git log": "allow",
+    "git diff": "allow",
+    "git branch": "allow",
+    "git show": "allow",
+    "python --version": "allow",
+    "node --version": "allow",
+    "npm --version": "allow",
+    "pip --version": "allow",
+    "which": "allow",
+    "where": "allow",
+    "echo": "allow",
+    "date": "allow",
+    "whoami": "allow",
+    "uname": "allow",
+    "netstat": "allow",
+    "tasklist": "allow",
     "rm -rf /": "deny",
     "rm -rf ~": "deny",
     "rm -rf *": "deny",
@@ -21,14 +48,16 @@
     "killall *": "deny"
   },
   "run_code": {
-    "*": "allow"
+    "*": "ask"
   },
   "file_ops": {
-    "*": "allow"
+    "*": "ask",
+    "list": "allow",
+    "read": "allow"
   },
   "system_health": "allow",
   "read_file": "allow",
-  "code_analysis": "allow",
+  "code_analysis": "ask",
   "remember": "allow",
   "recall": "allow",
   "forget": "allow",
