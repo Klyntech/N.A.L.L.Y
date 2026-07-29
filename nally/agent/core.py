@@ -6,7 +6,7 @@ import time
 import threading
 from typing import List, Optional, Callable
 
-from ..config import get_system_prompt, SESSION_ID, ACTIVE_MODEL
+from ..config import get_system_prompt, SESSION_ID, ACTIVE_MODEL, MAX_ITERATIONS_PER_TURN
 from ..core.errors import NallyError, LLMError, ToolError
 from ..memory.store_v2 import memory_v2 as memory_store, memory_tools_v2
 from ..utils.logger import logger
@@ -211,7 +211,7 @@ class NallyAgent:
                 messages=self.messages,
                 tools=tools,
                 emit=emit,
-                max_iterations=5,
+                max_iterations=MAX_ITERATIONS_PER_TURN,
                 thread_id=self._thread_id,
             )
 

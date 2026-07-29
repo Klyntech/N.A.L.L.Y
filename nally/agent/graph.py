@@ -21,7 +21,7 @@ from langchain_core.messages import (
 from ..tools.registry import registry
 from ..tools.permissions import gate as permission_gate
 from ..core.errors import LLMError, ToolError, PermissionDenied
-from ..config import DATABASE_URL, ensure_data_dir
+from ..config import DATABASE_URL, ensure_data_dir, MAX_TOOL_CALLS
 from ..utils.logger import logger
 
 
@@ -162,7 +162,6 @@ def _parse_text_tool_calls(text: str) -> tuple:
 
 # ── Circuit breaker settings ──────────────────────────────
 MAX_CONSECUTIVE_ERRORS = 5
-MAX_TOOL_CALLS = 50
 _MAX_RETRIES = 3
 _RETRYABLE_CODES = {"500", "502", "503", "429"}
 
