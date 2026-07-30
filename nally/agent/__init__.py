@@ -7,6 +7,12 @@ def get_agent():
     return _get_agent()
 
 
+def get_session_manager():
+    """Lazy accessor for session manager"""
+    from .sessions import session_manager
+    return session_manager
+
+
 def get_llm():
     """Lazy accessor for LLM client"""
     from .llm import llm
@@ -19,4 +25,4 @@ def get_matcher():
     return matcher
 
 
-__all__ = ["get_agent", "get_llm", "get_matcher"]
+__all__ = ["get_agent", "get_session_manager", "get_llm", "get_matcher"]

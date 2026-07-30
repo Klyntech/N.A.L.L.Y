@@ -39,6 +39,8 @@ def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
     parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
     parser.add_argument("--voice", action="store_true", help="Run in voice-only mode")
+    parser.add_argument("--telegram", action="store_true", help="Run web server + Telegram bot")
+    parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     parser.add_argument("--port", type=int, default=5000, help="Web server port (default: 5000)")
     parser.add_argument("--provider", choices=["groq", "opencode"], help="Override LLM provider")
     args = parser.parse_args()
@@ -103,6 +105,10 @@ def main():
         run_cli()
     elif args.voice:
         run_voice()
+    elif args.telegram_only:
+        run_telegram(polling=True)
+    elif args.telegram:
+        run_web_with_telegram(port=args.port)
     else:
         run_web(port=args.port)
 
@@ -169,6 +175,51 @@ def run_web(port=5000):
         webbrowser.open(f"http://localhost:{port}")
     threading.Thread(target=_open, daemon=True).start()
     
+    from nally.web.app import app
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+
+
+def run_telegram(polling=True, webhook_url=None):
+    """Run Nally Telegram bot."""
+    from nally.telegram.bot import run_telegram_bot
+    print("Starting Nally Telegram bot...")
+    print("Press Ctrl+C to stop")
+    print()
+    run_telegram_bot(polling=polling, webhook_url=webhook_url)
+
+
+def run_web_with_telegram(port=5000):
+    """Run both web server and Telegram bot concurrently."""
+    import threading
+    import os
+
+    os.environ["PORT"] = str(port)
+
+    print(f"Nally starting on http://localhost:{port} + Telegram bot")
+    print("Press Ctrl+C to stop")
+    print()
+
+    # Start Telegram bot in a background thread
+    def _start_telegram():
+        try:
+            from nally.telegram.bot import run_telegram_bot
+            run_telegram_bot(polling=True)
+        except Exception as e:
+            print(f"Telegram bot failed: {e}")
+
+    tg_thread = threading.Thread(target=_start_telegram, daemon=True)
+    tg_thread.start()
+
+    # Start web server (blocking)
+    import webbrowser
+    import time
+
+    def _open():
+        time.sleep(2)
+        webbrowser.open(f"http://localhost:{port}")
+    threading.Thread(target=_open, daemon=True).start()
+
     from nally.web.app import app
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

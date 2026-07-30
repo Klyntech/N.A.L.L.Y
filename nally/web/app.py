@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from nally.tools import load_all_tools
 from nally.tools.registry import registry
 from nally.agent import get_agent
+from nally.agent.sessions import session_manager
 from nally.config import (
     PROVIDER, ACTIVE_MODEL, ALLOWED_ORIGINS,
     RATE_LIMIT_ENABLED, RATE_LIMIT_RPM, RATE_LIMIT_BURST,
@@ -87,6 +88,7 @@ _rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: str = "web:default"
 
 
 class ApprovalRequest(BaseModel):
@@ -224,6 +226,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
     if not message:
         raise HTTPException(status_code=400, detail="No message provided")
 
+    session_id = request.session_id
     queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
 
@@ -239,8 +242,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
         def run_agent():
             try:
-                agent = get_agent()
-                response = agent.process(message, emit=stream_event)
+                response = session_manager.process(session_id, message, emit=stream_event)
                 loop.call_soon_threadsafe(
                     queue.put_nowait, {"type": "response", "text": response}
                 )
@@ -256,14 +258,14 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
         # Clear any prior abort flag for this session
-        _abort_flags.pop("default", None)
+        _abort_flags.pop(session_id, None)
 
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         while True:
             # Check for abort
-            if _abort_flags.get("default"):
-                _abort_flags.pop("default", None)
+            if _abort_flags.get(session_id):
+                _abort_flags.pop(session_id, None)
                 yield 'data: {"type": "error", "text": "Operation aborted by user."}\n\n'
                 yield 'data: {"event": "done"}\n\n'
                 return
@@ -316,17 +318,17 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
 
 _abort_flags: dict[str, bool] = {}
 
-def check_abort(session_id: str = "default") -> bool:
+def check_abort(session_id: str = "web:default") -> bool:
     return _abort_flags.get(session_id, False)
 
 @app.post("/api/abort")
-async def abort_session(_auth=Depends(verify_auth)):
-    _abort_flags["default"] = True
+async def abort_session(session_id: str = "web:default", _auth=Depends(verify_auth)):
+    _abort_flags[session_id] = True
     return {"status": "aborted"}
 
 @app.post("/api/abort/clear")
-async def abort_clear(_auth=Depends(verify_auth)):
-    _abort_flags.pop("default", None)
+async def abort_clear(session_id: str = "web:default", _auth=Depends(verify_auth)):
+    _abort_flags.pop(session_id, None)
     return {"status": "cleared"}
 
 
@@ -336,6 +338,25 @@ async def abort_clear(_auth=Depends(verify_auth)):
 async def get_permissions(_auth=Depends(verify_auth)):
     from nally.tools.permissions import get_config
     return {"permissions": get_config()}
+
+
+@app.get("/api/skills")
+async def get_skills(_auth=Depends(verify_auth)):
+    """List available skills with their descriptions and allowed tools."""
+    from nally.skills.registry import skill_registry
+    if not skill_registry._loaded:
+        skill_registry.load()
+    skills = []
+    for name in sorted(skill_registry.names):
+        skill = skill_registry.get(name)
+        if skill:
+            skills.append({
+                "name": name,
+                "description": skill.description,
+                "allowed_tools": skill.allowed_tools,
+                "warnings": skill.warnings,
+            })
+    return {"skills": skills, "count": len(skills)}
 
 
 # ── API: MCP Services ────────────────────────────────────

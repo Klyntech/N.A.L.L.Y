@@ -89,10 +89,10 @@ def _extract_topics(user_msgs: List[str]) -> List[str]:
 
 
 class NallyAgent:
-    def __init__(self):
+    def __init__(self, session_id: Optional[str] = None):
         self.messages: List[dict] = []
-        self._thread_id = f"nally-main-{SESSION_ID}"
-        self._session_id = SESSION_ID
+        self._session_id = session_id or SESSION_ID
+        self._thread_id = f"nally-main-{self._session_id}"
         self._lock = threading.Lock()
         self._init_conversation()
         self._load_history()
