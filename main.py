@@ -56,11 +56,6 @@ def main():
     
     print_banner()
     
-    # Load tools
-    print("Loading tools...")
-    from nally.tools import load_all_tools
-    load_all_tools()
-    
     # Start system monitor (optional)
     try:
         from nally.system import system_monitor

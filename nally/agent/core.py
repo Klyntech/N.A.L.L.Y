@@ -254,10 +254,10 @@ class NallyAgent:
                 ws = WebSearch()
                 results = ws.execute(query=user_input, num_results=3)
                 if results:
-                    from langchain_core.messages import SystemMessage
-                    self.messages.insert(1, SystemMessage(
-                        content=f"[Auto-searched web for '{user_input}']:\n{results}"
-                    ))
+                    self.messages.insert(1, {
+                        "role": "system",
+                        "content": f"[Auto-searched web for '{user_input}']:\n{results}"
+                    })
             except Exception:
                 pass  # fallback to LLM's own knowledge
 

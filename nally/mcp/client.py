@@ -237,17 +237,55 @@ def connect_mcp_servers(reg):
             logger.error(f"MCP server '{name}' failed to connect: {type(e).__name__}: {e}")
 
 
+def _get_existing_tokens_sync(service: str, db_path: str):
+    """Check if a service has stored tokens (synchronous, safe inside event loops)."""
+    import sqlite3
+    from .oauth import _decrypt_token
+    from mcp.shared.auth import OAuthToken
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mcp_oauth (
+            service TEXT PRIMARY KEY,
+            tokens TEXT,
+            client_info TEXT,
+            updated_at REAL
+        )
+    """)
+    row = conn.execute("SELECT tokens FROM mcp_oauth WHERE service = ?", (service,)).fetchone()
+    conn.close()
+    if row is None or row["tokens"] is None:
+        return None
+    try:
+        decrypted = _decrypt_token(row["tokens"])
+        return OAuthToken.model_validate_json(decrypted)
+    except Exception:
+        return None
+
+
+def _run_connect_http(server_config: dict, reg) -> int:
+    """Run connect_http_server in a new event loop (safe for thread pools)."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(connect_http_server(server_config, reg))
+    finally:
+        loop.close()
+    name = server_config.get("name", "unknown")
+    return len([t for t in (reg or registry).tools.values() if t.name.startswith(f"mcp_{name}_")])
+
+
 def _try_reconnect_http(server_config: dict, reg) -> bool:
     """Try to reconnect to an HTTP MCP server if tokens exist. Returns True if tools loaded."""
-    import asyncio
     import concurrent.futures
 
     name = server_config.get("name", "unknown")
     db = str(DATA_DIR / "nally.db")
 
+    # Check tokens synchronously to avoid asyncio.run() inside running event loop
     try:
-        from nally.mcp.oauth import get_existing_tokens
-        tokens = asyncio.run(get_existing_tokens(name, db))
+        tokens = _get_existing_tokens_sync(name, db)
     except Exception:
         return False
 
@@ -258,8 +296,7 @@ def _try_reconnect_http(server_config: dict, reg) -> bool:
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             count = pool.submit(
-                asyncio.run,
-                connect_http_server(server_config, reg)
+                _run_connect_http, server_config, reg
             ).result(timeout=30)
         if count and count > 0:
             logger.info(f"MCP server '{name}': reconnected with {count} tools")
@@ -317,7 +354,7 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         tools = pool.submit(
             asyncio.run, asyncio.wait_for(_fetch_tools(), timeout=30.0)
-        ).result()
+        ).result(timeout=45)
     count = 0
 
     for tool_info in tools:
