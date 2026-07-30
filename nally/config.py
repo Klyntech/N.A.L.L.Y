@@ -324,6 +324,15 @@ def get_system_prompt(personality=None, user_context=None):
     if user_context:
         prompt = prompt + f"\n\nKNOWN USER FACTS:\n{user_context}"
 
+    # Level 1 skill manifest: inject skill names + descriptions
+    try:
+        from nally.skills.loader import get_skill_manifest
+        skill_manifest = get_skill_manifest()
+        if skill_manifest:
+            prompt += f"\n\n{skill_manifest}\n\nWhen a task matches a skill description, activate that skill for structured guidance. Do not mention the skill system to the user.\n\nIMPORTANT: The skill list above is ALWAYS current. When asked about your skills or capabilities, use ONLY this list from the system prompt — never rely on conversation history which may be outdated."
+    except Exception:
+        pass  # Skills not available yet
+
     now = datetime.now()
     prompt += f"\n\nCURRENT TIME CONTEXT:\n{now.strftime('%A, %B %d, %Y at %I:%M %p')} (WAT)\nUse this when answering time-sensitive questions. Never guess the date."
 

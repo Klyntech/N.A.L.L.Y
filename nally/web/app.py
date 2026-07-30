@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse, HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from nally.tools import load_all_tools
@@ -162,9 +163,14 @@ async def _middleware(request: Request, call_next):
 
 # ── Static files ──────────────────────────────────────────
 
+_web_dir = _base / "web"
+
 @app.get("/")
 async def index():
-    return FileResponse(str(_base / "web" / "index.html"))
+    return FileResponse(str(_web_dir / "index.html"))
+
+# Serve JS/CSS assets from web/ directory
+app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
 
 
 @app.get("/web/")

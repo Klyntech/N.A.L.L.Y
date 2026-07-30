@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <script src="/static/marked.min.js"></script>
+  <script src="/static/purify.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark-dimmed.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
   <style>
@@ -2562,6 +2562,19 @@
     var loginOverlay = document.getElementById('login-overlay');
     var loginErr = document.getElementById('login-err');
 
+    // Wait for marked.js to load (scripts are local, should be instant)
+    function waitForMarked(cb, attempts) {
+      attempts = attempts || 0;
+      if (typeof marked !== 'undefined') {
+        cb();
+      } else if (attempts < 10) {
+        setTimeout(function() { waitForMarked(cb, attempts + 1); }, 50);
+      } else {
+        console.warn('[waitForMarked] marked.js failed to load, proceeding with fallback');
+        cb();
+      }
+    }
+
     function doLogin() {
       var input = document.getElementById('login-token-input');
       var token = input.value.trim();
@@ -2578,7 +2591,7 @@
         NALLY_TOKEN = token;
         loginOverlay.classList.add('hidden');
         setTimeout(function() { loginOverlay.remove(); }, 400);
-        loadHistory();
+        waitForMarked(loadHistory);
       }).catch(function() {
         loginErr.style.display = 'block';
       });
@@ -2599,7 +2612,7 @@
         if (!r.ok) throw new Error('bad');
         loginOverlay.classList.add('hidden');
         setTimeout(function() { loginOverlay.remove(); }, 400);
-        loadHistory();
+        waitForMarked(loadHistory);
       }).catch(function() {
         // Token invalid — show login
         NALLY_TOKEN = '';
@@ -2745,6 +2758,17 @@
           thoughtWrap.classList.remove('visible');
           window._streamMsgEl = null;
           addChatMsg('Error: ' + evt.text, true);
+          break;
+
+        case 'stream_done':
+          removeTyping();
+          thoughtContent.textContent = '';
+          thoughtWrap.classList.remove('visible');
+          if (window._streamMsgEl) {
+            window._streamMsgEl.innerHTML = renderMd(window._streamMsgEl.textContent);
+            lucide.createIcons();
+          }
+          window._streamMsgEl = null;
           break;
 
         case 'confirmation_required':

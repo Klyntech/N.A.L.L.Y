@@ -77,6 +77,7 @@ class PermissionGate:
     def __init__(self, config_path: Optional[Path] = None):
         self._config_path = config_path or (BASE_DIR / "nally" / "config" / "permissions.json")
         self._config: Optional[dict] = None
+        self._skill_overrides: dict[str, list[str]] = {}  # skill_name -> [tool_names]
 
     def _ensure_loaded(self):
         if self._config is None:
@@ -109,6 +110,11 @@ class PermissionGate:
         """
         self._ensure_loaded()
         assert self._config is not None
+
+        # Check skill overrides first — active skills grant their allowed-tools
+        for skill_name, allowed_tools in self._skill_overrides.items():
+            if tool_name in allowed_tools:
+                return PermissionDecision.ALLOW
 
         rules = self._config.get(tool_name)
 
@@ -158,6 +164,22 @@ class PermissionGate:
         """Return the current permission config (for API endpoint)."""
         self._ensure_loaded()
         return self._config or {}
+
+    def set_skill_overrides(self, skill_name: str, allowed_tools: list[str]):
+        """Temporarily allow tools for an active skill.
+
+        When a skill is activated, its allowed-tools are added here.
+        Call clear_skill_overrides() when the skill task is done.
+        """
+        self._skill_overrides[skill_name] = allowed_tools
+
+    def clear_skill_overrides(self, skill_name: str):
+        """Remove skill overrides after task completion."""
+        self._skill_overrides.pop(skill_name, None)
+
+    def clear_all_skill_overrides(self):
+        """Remove all skill overrides."""
+        self._skill_overrides.clear()
 
 
 # ── Singleton ─────────────────────────────────────────────
