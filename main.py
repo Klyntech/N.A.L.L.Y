@@ -96,6 +96,11 @@ def main():
 
     print()
 
+    # Load tools for non-web modes (web mode loads via app.py lifespan)
+    if args.cli or args.telegram_only:
+        from nally.tools import load_all_tools
+        load_all_tools()
+
     if args.cli:
         run_cli()
     elif args.voice:
