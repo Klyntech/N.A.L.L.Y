@@ -87,7 +87,7 @@ class FileOps(Tool):
 
     def execute(self, action: str = "", file_path: str = ".", content: str = "", **kwargs) -> str:
         if not action:
-            return "Error: action is required — use 'write', 'mkdir', or 'list'"
+            return 'Error: action is required. Send: {"action": "write", "file_path": "path", "content": "text"}'
         try:
             if action == "write":
                 if not file_path:

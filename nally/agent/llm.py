@@ -131,7 +131,7 @@ class NallyLLM:
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 4096,
+            "max_tokens": 16384 if tools else 4096,
             "stream": True,
             "extra_body": {
                 "prompt_cache_key": cache_key,
@@ -184,7 +184,7 @@ class NallyLLM:
             try:
                 args = json.loads(tc["args_str"]) if tc["args_str"] else {}
             except (json.JSONDecodeError, ValueError) as e:
-                logger.debug(f"Tool call args parse failed: {e}")
+                logger.warning(f"Tool call args parse failed for '{tc['name']}': {e} (args_str={tc['args_str'][:200]})")
                 args = {}
             yield {"type": "tool_call", "id": tc["id"], "name": tc["name"], "args": args}
 
