@@ -21,19 +21,19 @@ DATA_DIR = Path(__file__).parent.parent.parent / "data" / "generated"
 
 CONTENT_ROUTER = {
     "logo": {
-        "model": "recraft-v4.1-vector",
+        "model": "flux",
         "add": ["flat design", "vector style", "clean lines", "minimalist", "simple", "white background"],
         "remove": ["photorealistic", "detailed", "8k", "texture", "shadows", "depth of field"],
         "negative": "realistic, 3d, texture, photo, shadows, complex, busy, blurry",
     },
     "photo": {
-        "model": "seedream5",
+        "model": "flux",
         "add": ["photorealistic", "DSLR photo", "85mm lens", "natural lighting", "bokeh", "sharp focus"],
         "remove": ["cartoon", "anime", "painting", "illustration", "flat"],
         "negative": "cartoon, anime, painting, illustration, flat, drawing, sketch, blurry",
     },
     "art": {
-        "model": "wan-image",
+        "model": "flux",
         "add": ["masterpiece", "artstation", "digital painting", "concept art", "highly detailed", "professional"],
         "remove": ["photo", "realistic", "camera", "DSLR"],
         "negative": "photo, realistic, camera, DSLR, photograph, bad anatomy, blurry",
@@ -45,31 +45,31 @@ CONTENT_ROUTER = {
         "negative": "realistic, photo, 3d, texture, blurry, low quality, bad anatomy",
     },
     "3d": {
-        "model": "seedream5",
+        "model": "flux",
         "add": ["octane render", "cinema 4d", "volumetric lighting", "ray tracing", "high detail", "8k"],
         "remove": ["photo", "2d", "flat", "sketch"],
         "negative": "2d, flat, sketch, drawing, low poly, blurry, low quality",
     },
     "painting": {
-        "model": "wan-image",
+        "model": "flux",
         "add": ["oil painting", "canvas texture", "brush strokes", "classical", "museum quality", "masterpiece"],
         "remove": ["photo", "digital", "3d", "render"],
         "negative": "photo, digital, 3d, render, camera, realistic, blurry",
     },
     "product": {
-        "model": "gptimage",
+        "model": "flux",
         "add": ["product photography", "studio lighting", "white background", "commercial", "high-end", "sharp focus"],
         "remove": ["outdoor", "natural", "messy", "busy"],
         "negative": "outdoor, natural, messy, busy, blurry, text, watermark, low quality",
     },
     "text": {
-        "model": "ideogram-v4-quality",
+        "model": "flux",
         "add": ["clear text", "readable typography", "professional layout", "high resolution"],
         "remove": ["blurry", "distorted", "abstract"],
         "negative": "blurry, distorted, unreadable text, misspelled, low quality",
     },
     "default": {
-        "model": "zimage",
+        "model": "flux",
         "add": ["high quality", "detailed", "sharp focus", "professional"],
         "remove": [],
         "negative": "blurry, low quality, watermark, text",
@@ -129,13 +129,13 @@ def enhance_prompt(prompt: str, content_type: str = None) -> str:
 # ── LLM-Powered Prompt Enhancement ────────────────────────
 
 def enhance_prompt_llm(prompt: str, content_type: str = None) -> str:
-    """Use MIMO to craft a professional image prompt. Falls back to keyword enhancement."""
+    """Use MIMO to enhance a short prompt. Falls back to keyword enhancement."""
     if content_type is None:
         content_type = detect_content_type(prompt)
     route = CONTENT_ROUTER.get(content_type, CONTENT_ROUTER["default"])
 
-    # Only use LLM for short prompts — long ones are already detailed
-    if len(prompt) > 80:
+    # Only use LLM for very short prompts — long ones are already detailed enough
+    if len(prompt) > 40:
         return enhance_prompt(prompt, content_type)
 
     try:
@@ -143,46 +143,32 @@ def enhance_prompt_llm(prompt: str, content_type: str = None) -> str:
         llm = NallyLLM()
         llm._ensure_client()
 
-        style_guide = {
-            "logo": "minimalist vector logo, flat design, clean lines, simple shapes, professional branding",
-            "photo": "photorealistic DSLR photo, natural lighting, sharp focus, 85mm lens, bokeh background",
-            "art": "digital concept art, artstation quality, highly detailed, professional illustration",
-            "anime": "anime style, cel shading, vibrant colors, clean linework, studio ghibli aesthetic",
-            "3d": "3D render, octane render, volumetric lighting, ray tracing, cinema 4d quality",
-            "painting": "oil painting, canvas texture, visible brush strokes, classical masterwork quality",
-            "product": "product photography, studio lighting, white background, commercial grade, high-end",
-            "text": "clear readable text, professional typography, clean layout, sharp rendering",
-            "default": "high quality, detailed, sharp focus, professional grade",
-        }
-
-        system_prompt = f"""You are an expert prompt engineer for AI image generation.
-Rewrite the user's prompt into a detailed, structured image prompt.
-
-Style target: {style_guide.get(content_type, style_guide["default"])}
+        system_prompt = """You are an expert prompt engineer for AI image generation.
+The user will give you a short image idea. Expand it into a detailed prompt.
 
 Rules:
-1. Keep the core subject/intent unchanged
-2. Add specific details: lighting, composition, mood, color palette
-3. Add quality modifiers at the end
-4. Keep it under 150 words
-5. Do NOT add negative prompts — just describe what to generate
+1. Keep the core subject unchanged
+2. Add: specific lighting, environment, mood, color palette, camera angle
+3. Add quality modifiers at the end: "highly detailed, sharp focus, 8k"
+4. Keep it under 30 words total
+5. Do NOT add negative prompts or "avoid:" phrases
 6. Return ONLY the enhanced prompt, nothing else"""
 
         response = llm.client.chat.completions.create(
             model=llm.model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Enhance this image prompt: {prompt}"}
+                {"role": "user", "content": f"Enhance: {prompt}"}
             ],
             temperature=0.7,
-            max_tokens=200,
+            max_tokens=100,
         )
 
         enhanced = response.choices[0].message.content.strip()
-        if enhanced and len(enhanced) > 20:
-            # Add negative prompt at the end
-            enhanced += f" (avoid: {route['negative']})"
-            logger.info(f"LLM prompt enhancement: {prompt[:50]} -> {enhanced[:80]}")
+        # Strip quotes if LLM wrapped it
+        enhanced = enhanced.strip('"').strip("'")
+        if enhanced and len(enhanced) > 10 and len(enhanced) < 200:
+            logger.info(f"LLM prompt: '{prompt}' -> '{enhanced}'")
             return enhanced
 
     except Exception as e:
@@ -399,6 +385,9 @@ def parse_critique(critique_text: str) -> dict:
 
 # ── Pollinations API ──────────────────────────────────────
 
+# Models that support the quality parameter
+QUALITY_SUPPORTED_MODELS = {"gptimage", "gptimage-large", "gpt-image-2"}
+
 def generate_pollinations(
     prompt: str,
     width: int = 1024,
@@ -407,67 +396,23 @@ def generate_pollinations(
     model: str = "flux",
     quality: str = "high",
 ) -> bytes:
-    """Generate image via Pollinations API with quality param."""
+    """Generate image via Pollinations API."""
     enhanced = enhance_prompt(prompt)
     encoded = urllib.parse.quote(enhanced)
-    params = {"width": width, "height": height, "model": model, "nologo": "true"}
+    params = {"width": width, "height": height, "model": model}
     if seed is not None and seed >= 0:
         params["seed"] = seed
-    if quality:
+    # quality param only works on gptimage models
+    if quality and model in QUALITY_SUPPORTED_MODELS:
         params["quality"] = quality
 
     query = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"https://image.pollinations.ai/prompt/{encoded}?{query}"
 
-    logger.info(f"Generating: {enhanced[:80]}... ({width}x{height}, model={model}, quality={quality})")
+    logger.info(f"Generating: {enhanced[:80]}... ({width}x{height}, model={model})")
     req = urllib.request.Request(url, headers={"User-Agent": "NALLY/1.0"})
     with urllib.request.urlopen(req, timeout=120) as resp:
         return resp.read()
-
-
-def refine_with_kontext(image_bytes: bytes, refinement_prompt: str) -> bytes:
-    """Refine an existing image using kontext model (img2img)."""
-    try:
-        # Encode image to base64 for the API
-        b64 = base64.b64encode(image_bytes).decode("utf-8")
-        data_url = f"data:image/png;base64,{b64}"
-
-        payload = json.dumps({
-            "prompt": refinement_prompt,
-            "model": "kontext",
-            "image": data_url,
-            "size": "1024x1024",
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            "https://gen.pollinations.ai/v1/images/edits",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "NALLY/1.0",
-            },
-        )
-
-        logger.info(f"Refining with kontext: {refinement_prompt[:80]}...")
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-
-        # Extract image from response
-        if "data" in result and len(result["data"]) > 0:
-            item = result["data"][0]
-            if "b64_json" in item:
-                return base64.b64decode(item["b64_json"])
-            elif "url" in item:
-                img_req = urllib.request.Request(item["url"], headers={"User-Agent": "NALLY/1.0"})
-                with urllib.request.urlopen(img_req, timeout=60) as img_resp:
-                    return img_resp.read()
-
-        logger.warning("kontext refinement returned no image data")
-        return image_bytes
-
-    except Exception as e:
-        logger.warning(f"kontext refinement failed: {e}")
-        return image_bytes
 
 
 # ── Upscaling ─────────────────────────────────────────────
@@ -691,32 +636,7 @@ class ImageGen(Tool):
 
             time.sleep(1)
 
-        # 9. Image-to-image refinement pass (if score < 75 and we have a best image)
-        if best_image and best_score < 75 and max_attempts > 1:
-            try:
-                logs.append("--- Img2Img Refinement Pass ---")
-                refined = refine_with_kontext(
-                    best_image,
-                    f"Improve this image: fix quality issues, enhance details, better composition. Keep the same subject and style."
-                )
-                refined_scores = score_aesthetics(refined)
-                refined_total = refined_scores["total"]
-                logs.append(f"Refined score: {refined_total}/100 (was {best_score}/100)")
-
-                if refined_total > best_score:
-                    best_image = refined
-                    best_score = refined_total
-                    refined_file = DATA_DIR / f"img_{timestamp}_refined.png"
-                    refined_file.write_bytes(best_image)
-                    best_file = refined_file
-                    logs.append("Refinement improved the image!")
-                else:
-                    logs.append("Refinement didn't improve — keeping original best")
-            except Exception as e:
-                logger.warning(f"Refinement pass failed: {e}")
-                logs.append(f"Refinement failed: {e}")
-
-        # 10. Upscale best if requested
+        # 9. Upscale best if requested
         if best_image and upscale and upscale > max(width, height):
             try:
                 best_image = upscale_image(best_image, target_size=upscale)
