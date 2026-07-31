@@ -27,7 +27,8 @@ class RunCommand(Tool):
                 command,
                 shell=True,
                 capture_output=True,
-                text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=30,
             )
             output = result.stdout
