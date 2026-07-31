@@ -233,11 +233,33 @@ class NallyAgent:
         except Exception:
             pass  # Skills not available
 
-        # Auto-inject design skills for code/creative tasks
+        # Gate skill injection: only for creation requests, not questions
+        def _is_creation_request(text: str) -> bool:
+            """Check if user is asking to create/build something vs asking a question."""
+            question_patterns = [
+                r"what('s| is| are) your",
+                r"how (long|much|would)",
+                r"timeline",
+                r"cost",
+                r"price",
+                r"recommend",
+                r"tech stack",
+                r"hire you",
+                r"estimated",
+                r"budget",
+                r"what (do|would) you (charge|suggest|advise)",
+            ]
+            text_lower = text.lower()
+            for pattern in question_patterns:
+                if re.search(pattern, text_lower):
+                    return False
+            return True
+
+        # Auto-inject design skills for code/creative tasks (skip for questions)
         _CODE_KEYWORDS = ["create", "build", "make", "design", "frontend", "website", "page",
                           "html", "css", "javascript", "component", "landing", "ui", "interface",
                           "layout", "page", "form", "dashboard", "app", "template"]
-        if any(kw in user_input.lower() for kw in _CODE_KEYWORDS):
+        if _is_creation_request(user_input) and any(kw in user_input.lower() for kw in _CODE_KEYWORDS):
             try:
                 from ..skills.registry import skill_registry
                 if not skill_registry._loaded:
