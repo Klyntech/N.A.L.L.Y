@@ -70,6 +70,9 @@ def _validate_file(path: Path, content: str) -> str:
         # Warn on inline onclick with interpolation
         if re.search(r"onclick\s*=\s*['\"].*\$\{", content):
             return "WARNING: JS uses inline onclick with string interpolation — use addEventListener instead"
+        # Warn on native WebSocket when Socket.IO is likely needed
+        if 'new WebSocket(' in content and 'socket.io' not in content.lower():
+            return "WARNING: Using native WebSocket — if backend uses Socket.IO, use socket.io-client instead (incompatible protocols)"
 
     return ""
 

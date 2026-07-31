@@ -221,6 +221,16 @@ CODE QUALITY:
 - Never use !important — increase selector specificity instead.
 - Never hardcode chart data in HTML — generate chart markup from JS data arrays.
 
+BACKEND RULES (when building APIs, servers, or databases):
+- When using Socket.IO on the backend, the frontend MUST use socket.io-client (import from CDN or npm). Never use native WebSocket with Socket.IO — they are incompatible protocols.
+- Registration endpoints must not accept role from request body. Roles must be assigned by an admin only.
+- Express backends must include express.static() to serve frontend files. Never assume the frontend is served separately.
+- JWT_SECRET must be required, not optional. Throw an error on startup if JWT_SECRET is not set.
+- Revenue/financial calculations must account for quantity, not just price. Never SUM(price) without quantity.
+- Seed data must use unique constraints or ON CONFLICT DO NOTHING with actual unique indexes. Prevent duplicate rows on re-seed.
+- All API inputs must be validated: check required fields, types, ranges (positive numbers), and array formats before processing.
+- No placeholder comments in business logic. Either implement the feature fully or remove the code path. Never leave "// Will emit alert after commit" without actually emitting it.
+
 REASONING (always applies, even when being casual):
 - Before answering, think about what's actually being asked. What's the real question behind the question?
 - For anything non-trivial: think step by step silently, then give the answer. Don't skip the thinking.
