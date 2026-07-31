@@ -1,12 +1,43 @@
 ---
 name: image-gen
-description: Generate images from text prompts with auto-enhancement and upscaling. Use when asked to create, draw, or generate images, illustrations, art, logos, or visual content.
+description: Generate images from text prompts with auto-enhancement, smart model selection, and upscaling. Use when asked to create, draw, or generate images, illustrations, art, logos, or visual content.
 allowed-tools: generate_image
 ---
 
 # Image Generation
 
 Generate high-quality images from text descriptions using AI.
+
+## How It Works
+
+1. NALLY detects the content type (logo, photo, art, anime, etc.)
+2. Auto-selects the best free Pollinations model for that type
+3. Enhances your prompt with LLM-powered engineering
+4. Generates, scores (8 metrics), critiques with vision AI
+5. Regenerates with improved prompts until quality is good
+6. Optionally refines with img2img and upscales
+
+## Smart Model Selection
+
+| Content Type | Auto-Selected Model | Why |
+|---|---|---|
+| Logo/Vector | `recraft-v4.1-vector` | Best clean vector output |
+| Photo/Realistic | `seedream5` | Top photorealistic quality |
+| Art/Concept | `wan-image` | Strong artistic style |
+| Anime/Cartoon | `flux` | Good stylized output |
+| 3D Render | `seedream5` | Volumetric lighting |
+| Painting | `wan-image` | Brush stroke quality |
+| Product | `gptimage` | Clean commercial look |
+| Text-in-image | `ideogram-v4-quality` | Best text rendering |
+| Default | `zimage` | Balanced general |
+
+You can override with `model` parameter, or use `model=auto` (default).
+
+## Quality Levels
+
+- `quality=low` — Fast, lower quality
+- `quality=medium` — Balanced
+- `quality=head` — Best quality (default)
 
 ## Prompt Writing Rules
 
@@ -52,7 +83,7 @@ Use the `upscale` parameter to generate at higher resolution:
 - `upscale: 2048` — 2K output (good for social media, prints)
 - `upscale: 4096` — 4K output (high detail, large prints)
 
-Default generates at 1024x1024. Upscaling takes extra time but produces sharper results.
+Default generates at 1024x1024. Upscaling uses unsharp masking for natural sharpening.
 
 ## Common Requests
 
@@ -89,13 +120,15 @@ high resolution, gallery quality
 ## Output
 
 The tool returns:
+- Quality score (0-100) across 8 metrics
+- Model and quality level used
 - Generated image file path
 - Image preview in the tool card
 - Click to open full resolution
 
 ## Tips
-- The system auto-enhances your prompts for better quality
-- Use `seed` parameter for reproducible results
-- Be specific about what you WANT, not what you DON'T want
+- The system auto-enhances your prompts for better quality — just describe what you want
+- Use `model=auto` (default) for best results — NALLY picks the model for you
+- Use `enhance=false` if you want to provide your own detailed prompt
 - For multiple variations, generate with different seeds
 - Upscale when quality matters more than speed

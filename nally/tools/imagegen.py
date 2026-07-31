@@ -10,76 +10,109 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 from .registry import Tool, registry
 
 logger = logging.getLogger("nally.tools.imagegen")
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data" / "generated"
 
-# ── Content-Type Prompt Router ────────────────────────────
+# ── Content-Type Prompt Router (with smart model selection) ──
 
 CONTENT_ROUTER = {
     "logo": {
+        "model": "recraft-v4.1-vector",
         "add": ["flat design", "vector style", "clean lines", "minimalist", "simple", "white background"],
         "remove": ["photorealistic", "detailed", "8k", "texture", "shadows", "depth of field"],
         "negative": "realistic, 3d, texture, photo, shadows, complex, busy, blurry",
     },
     "photo": {
-        "add": ["photorealistic", "DSLR photo", "85mm lens", "natural lighting", "bokeh"],
+        "model": "seedream5",
+        "add": ["photorealistic", "DSLR photo", "85mm lens", "natural lighting", "bokeh", "sharp focus"],
         "remove": ["cartoon", "anime", "painting", "illustration", "flat"],
-        "negative": "cartoon, anime, painting, illustration, flat, drawing, sketch",
+        "negative": "cartoon, anime, painting, illustration, flat, drawing, sketch, blurry",
     },
     "art": {
-        "add": ["masterpiece", "artstation", "digital painting", "concept art", "highly detailed"],
+        "model": "wan-image",
+        "add": ["masterpiece", "artstation", "digital painting", "concept art", "highly detailed", "professional"],
         "remove": ["photo", "realistic", "camera", "DSLR"],
-        "negative": "photo, realistic, camera,DSLR, photograph, bad anatomy",
+        "negative": "photo, realistic, camera, DSLR, photograph, bad anatomy, blurry",
     },
     "anime": {
-        "add": ["anime style", "studio ghibli", "vibrant colors", "cel shading", "clean lines"],
+        "model": "flux",
+        "add": ["anime style", "studio ghibli", "vibrant colors", "cel shading", "clean lines", "high quality"],
         "remove": ["realistic", "photo", "3d", "texture"],
-        "negative": "realistic, photo, 3d, texture, blurry, low quality",
+        "negative": "realistic, photo, 3d, texture, blurry, low quality, bad anatomy",
     },
     "3d": {
-        "add": ["octane render", "cinema 4d", "volumetric lighting", "ray tracing", "high detail"],
+        "model": "seedream5",
+        "add": ["octane render", "cinema 4d", "volumetric lighting", "ray tracing", "high detail", "8k"],
         "remove": ["photo", "2d", "flat", "sketch"],
-        "negative": "2d, flat, sketch, drawing, low poly, blurry",
+        "negative": "2d, flat, sketch, drawing, low poly, blurry, low quality",
     },
     "painting": {
-        "add": ["oil painting", "canvas texture", "brush strokes", "classical", "museum quality"],
+        "model": "wan-image",
+        "add": ["oil painting", "canvas texture", "brush strokes", "classical", "museum quality", "masterpiece"],
         "remove": ["photo", "digital", "3d", "render"],
-        "negative": "photo, digital, 3d, render, camera, realistic",
+        "negative": "photo, digital, 3d, render, camera, realistic, blurry",
     },
     "product": {
-        "add": ["product photography", "studio lighting", "white background", "commercial", "high-end"],
+        "model": "gptimage",
+        "add": ["product photography", "studio lighting", "white background", "commercial", "high-end", "sharp focus"],
         "remove": ["outdoor", "natural", "messy", "busy"],
-        "negative": "outdoor, natural, messy, busy, blurry, text, watermark",
+        "negative": "outdoor, natural, messy, busy, blurry, text, watermark, low quality",
+    },
+    "text": {
+        "model": "ideogram-v4-quality",
+        "add": ["clear text", "readable typography", "professional layout", "high resolution"],
+        "remove": ["blurry", "distorted", "abstract"],
+        "negative": "blurry, distorted, unreadable text, misspelled, low quality",
+    },
+    "default": {
+        "model": "zimage",
+        "add": ["high quality", "detailed", "sharp focus", "professional"],
+        "remove": [],
+        "negative": "blurry, low quality, watermark, text",
     },
 }
 
 
 def detect_content_type(prompt: str) -> str:
     lower = prompt.lower()
+    # Text-in-image detection (check before other categories)
+    if any(w in lower for w in ["text says", "text:", "write", "sign says", "label says",
+                                  "with text", "typography", "lettering", "font"]):
+        return "text"
     if any(w in lower for w in ["logo", "icon", "brand", "emblem", "symbol"]):
         return "logo"
-    if any(w in lower for w in ["photo", "realistic", "portrait", "landscape", "camera"]):
+    if any(w in lower for w in ["photo", "realistic", "portrait", "landscape", "camera",
+                                  "dslr", "photograph", "hyperrealistic"]):
         return "photo"
-    if any(w in lower for w in ["anime", "cartoon", "manga", "ghibli"]):
+    if any(w in lower for w in ["anime", "cartoon", "manga", "ghibli", "chibi"]):
         return "anime"
     if any(w in lower for w in ["3d", "render", "blender", "octane", "cinema"]):
         return "3d"
-    if any(w in lower for w in ["painting", "oil", "watercolor", "canvas", "brush"]):
+    if any(w in lower for w in ["painting", "oil", "watercolor", "canvas", "brush",
+                                  "acrylic", "pastel"]):
         return "painting"
-    if any(w in lower for w in ["product", "commercial", "studio", "white background"]):
+    if any(w in lower for w in ["product", "commercial", "studio", "white background",
+                                  "ecommerce", "e-commerce"]):
         return "product"
     if any(w in lower for w in ["art", "illustration", "concept", "digital"]):
         return "art"
-    return "photo"  # default
+    return "default"
 
 
-def enhance_prompt(prompt: str) -> str:
-    content_type = detect_content_type(prompt)
-    route = CONTENT_ROUTER[content_type]
+def get_model_for_content(content_type: str) -> str:
+    """Return the best free Pollinations model for this content type."""
+    return CONTENT_ROUTER.get(content_type, CONTENT_ROUTER["default"])["model"]
+
+
+def enhance_prompt(prompt: str, content_type: str = None) -> str:
+    """Keyword-based prompt enhancement (fast, no LLM call)."""
+    if content_type is None:
+        content_type = detect_content_type(prompt)
+    route = CONTENT_ROUTER.get(content_type, CONTENT_ROUTER["default"])
     lower = prompt.lower()
 
     enhancements = [kw for kw in route["add"] if kw.lower() not in lower]
@@ -93,37 +126,104 @@ def enhance_prompt(prompt: str) -> str:
     return enhanced
 
 
-# ── Aesthetic Quality Scoring ─────────────────────────────
+# ── LLM-Powered Prompt Enhancement ────────────────────────
+
+def enhance_prompt_llm(prompt: str, content_type: str = None) -> str:
+    """Use MIMO to craft a professional image prompt. Falls back to keyword enhancement."""
+    if content_type is None:
+        content_type = detect_content_type(prompt)
+    route = CONTENT_ROUTER.get(content_type, CONTENT_ROUTER["default"])
+
+    # Only use LLM for short prompts — long ones are already detailed
+    if len(prompt) > 80:
+        return enhance_prompt(prompt, content_type)
+
+    try:
+        from ..agent.llm import NallyLLM
+        llm = NallyLLM()
+        llm._ensure_client()
+
+        style_guide = {
+            "logo": "minimalist vector logo, flat design, clean lines, simple shapes, professional branding",
+            "photo": "photorealistic DSLR photo, natural lighting, sharp focus, 85mm lens, bokeh background",
+            "art": "digital concept art, artstation quality, highly detailed, professional illustration",
+            "anime": "anime style, cel shading, vibrant colors, clean linework, studio ghibli aesthetic",
+            "3d": "3D render, octane render, volumetric lighting, ray tracing, cinema 4d quality",
+            "painting": "oil painting, canvas texture, visible brush strokes, classical masterwork quality",
+            "product": "product photography, studio lighting, white background, commercial grade, high-end",
+            "text": "clear readable text, professional typography, clean layout, sharp rendering",
+            "default": "high quality, detailed, sharp focus, professional grade",
+        }
+
+        system_prompt = f"""You are an expert prompt engineer for AI image generation.
+Rewrite the user's prompt into a detailed, structured image prompt.
+
+Style target: {style_guide.get(content_type, style_guide["default"])}
+
+Rules:
+1. Keep the core subject/intent unchanged
+2. Add specific details: lighting, composition, mood, color palette
+3. Add quality modifiers at the end
+4. Keep it under 150 words
+5. Do NOT add negative prompts — just describe what to generate
+6. Return ONLY the enhanced prompt, nothing else"""
+
+        response = llm.client.chat.completions.create(
+            model=llm.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Enhance this image prompt: {prompt}"}
+            ],
+            temperature=0.7,
+            max_tokens=200,
+        )
+
+        enhanced = response.choices[0].message.content.strip()
+        if enhanced and len(enhanced) > 20:
+            # Add negative prompt at the end
+            enhanced += f" (avoid: {route['negative']})"
+            logger.info(f"LLM prompt enhancement: {prompt[:50]} -> {enhanced[:80]}")
+            return enhanced
+
+    except Exception as e:
+        logger.warning(f"LLM prompt enhancement failed: {e}")
+
+    return enhance_prompt(prompt, content_type)
+
+
+# ── Aesthetic Quality Scoring (expanded) ───────────────────
 
 def score_aesthetics(image_bytes: bytes) -> dict:
-    """Score image on aesthetic qualities. Returns dict with scores and total."""
+    """Score image on 8 aesthetic qualities. Returns dict with scores and total (0-100)."""
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     arr = np.array(img, dtype=np.float64)
 
     scores = {}
 
-    # 1. Color Harmony (0-20) — variance in hue indicates variety
+    # 1. Color Harmony (0-15) — hue variety + saturation balance
     hsv = img.convert("HSV")
     hsv_arr = np.array(hsv)
     hue_std = float(np.std(hsv_arr[:, :, 0]))
     sat_mean = float(np.mean(hsv_arr[:, :, 1]))
-    color_score = min(20, int(hue_std / 8 + sat_mean / 30))
+    color_score = min(15, int(hue_std / 10 + sat_mean / 25))
     scores["color_harmony"] = color_score
 
-    # 2. Composition (0-20) — rule of thirds check
+    # 2. Composition (0-20) — rule of thirds + center interest
     gray = np.mean(arr, axis=2)
     h, w = gray.shape
-    # Divide into 3x3 grid
     third_h, third_w = h // 3, w // 3
-    # Check if edges have detail (not blank)
+    # Edge regions should have some content (not blank)
     edge_density = float(np.mean(gray[:third_h, :] > 30) + np.mean(gray[-third_h:, :] > 30) +
                          np.mean(gray[:, :third_w] > 30) + np.mean(gray[:, -third_w:] > 30)) / 4
-    # Check center has content
+    # Center region should be the focal point
     center_density = float(np.mean(gray[third_h:2*third_h, third_w:2*third_w] > 50))
-    comp_score = min(20, int(edge_density * 8 + center_density * 12))
+    # Golden ratio check — subject near 0.618 intersection
+    golden_h, golden_w = int(h * 0.618), int(w * 0.618)
+    golden_region = float(np.mean(gray[golden_h-20:golden_h+20, golden_w-20:golden_w+20] > 50))
+    comp_score = min(20, int(edge_density * 6 + center_density * 8 + golden_region * 6))
     scores["composition"] = comp_score
 
-    # 3. Detail Density (0-20) — Laplacian variance
+    # 3. Detail Density (0-15) — Laplacian variance (sharpness)
     gray_img = img.convert("L")
     gray_arr = np.array(gray_img, dtype=np.float64)
     laplacian = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float64)
@@ -133,23 +233,71 @@ def score_aesthetics(image_bytes: bytes) -> dict:
     lap += gray_arr[1:-1, :-2] * laplacian[1, 0]
     lap += gray_arr[1:-1, 2:] * laplacian[1, 2]
     lap_var = float(np.var(lap))
-    detail_score = min(20, int(lap_var / 10))
+    detail_score = min(15, int(lap_var / 12))
     scores["detail"] = detail_score
 
-    # 4. Brightness Balance (0-20)
+    # 4. Brightness Balance (0-10)
     brightness = float(np.mean(arr))
-    if 40 < brightness < 220:
-        bright_score = 20
-    elif 20 < brightness < 240:
-        bright_score = 12
+    if 50 < brightness < 210:
+        bright_score = 10
+    elif 25 < brightness < 235:
+        bright_score = 6
     else:
-        bright_score = 4
+        bright_score = 2
     scores["brightness"] = bright_score
 
-    # 5. Contrast (0-20) — standard deviation of luminance
+    # 5. Contrast (0-10)
     contrast = float(np.std(gray))
-    contrast_score = min(20, int(contrast / 8))
+    contrast_score = min(10, int(contrast / 7))
     scores["contrast"] = contrast_score
+
+    # 6. Color Palette Coherence (0-10) — k-means-like clustering
+    # Reshape to list of pixels, sample for speed
+    pixels = arr.reshape(-1, 3)
+    if len(pixels) > 10000:
+        indices = np.random.choice(len(pixels), 10000, replace=False)
+        pixels = pixels[indices]
+    # Find unique color clusters by rounding to nearest 32
+    rounded = (pixels / 32).astype(int) * 32
+    unique_colors = len(np.unique(rounded, axis=0))
+    # Fewer unique colors = more coherent palette (but not too few = boring)
+    if 5 <= unique_colors <= 30:
+        palette_score = 10
+    elif 3 <= unique_colors <= 50:
+        palette_score = 7
+    elif unique_colors <= 80:
+        palette_score = 4
+    else:
+        palette_score = 2
+    scores["palette_coherence"] = palette_score
+
+    # 7. Noise Level (0-10) — low noise = good
+    # Estimate noise from high-frequency content
+    noise_region = gray_arr[10:30, 10:30]  # corner sample
+    noise_std = float(np.std(noise_region))
+    if noise_std < 10:
+        noise_score = 10  # clean
+    elif noise_std < 20:
+        noise_score = 7
+    elif noise_std < 35:
+        noise_score = 4
+    else:
+        noise_score = 1  # noisy
+    scores["noise"] = noise_score
+
+    # 8. Dynamic Range (0-10) — using full tonal range
+    p5 = float(np.percentile(gray, 5))
+    p95 = float(np.percentile(gray, 95))
+    dynamic_range = p95 - p5
+    if dynamic_range > 150:
+        dynamic_score = 10
+    elif dynamic_range > 100:
+        dynamic_score = 7
+    elif dynamic_range > 60:
+        dynamic_score = 4
+    else:
+        dynamic_score = 1
+    scores["dynamic_range"] = dynamic_score
 
     total = sum(scores.values())
     scores["total"] = total
@@ -167,7 +315,6 @@ def vision_critique(image_bytes: bytes, prompt: str, scores: dict) -> str:
         llm = NallyLLM()
         llm._ensure_client()
 
-        # Encode image to base64
         b64 = base64.b64encode(image_bytes).decode("utf-8")
 
         critique_prompt = f"""You are an expert art director critiquing an AI-generated image.
@@ -175,17 +322,21 @@ def vision_critique(image_bytes: bytes, prompt: str, scores: dict) -> str:
 The image was generated with this prompt: "{prompt}"
 
 Quality metrics:
-- Color harmony: {scores.get('color_harmony', 0)}/20
+- Color harmony: {scores.get('color_harmony', 0)}/15
 - Composition: {scores.get('composition', 0)}/20
-- Detail: {scores.get('detail', 0)}/20
-- Brightness: {scores.get('brightness', 0)}/20
-- Contrast: {scores.get('contrast', 0)}/20
+- Detail: {scores.get('detail', 0)}/15
+- Brightness: {scores.get('brightness', 0)}/10
+- Contrast: {scores.get('contrast', 0)}/10
+- Palette coherence: {scores.get('palette_coherence', 0)}/10
+- Noise: {scores.get('noise', 0)}/10
+- Dynamic range: {scores.get('dynamic_range', 0)}/10
 - Total: {scores.get('total', 0)}/100
 
 Your task:
-1. Look at the image and identify what's wrong (blurry, bad composition, missing elements, wrong style, etc.)
+1. Look at the image and identify what's wrong (blurry, bad composition, missing elements, wrong style, artifacts, text errors, etc.)
 2. Be specific about what needs to change
 3. Suggest exactly how to fix the prompt
+4. If the image is good, say "pass"
 
 Respond in this EXACT JSON format:
 {{
@@ -254,20 +405,69 @@ def generate_pollinations(
     height: int = 1024,
     seed: int = None,
     model: str = "flux",
+    quality: str = "high",
 ) -> bytes:
+    """Generate image via Pollinations API with quality param."""
     enhanced = enhance_prompt(prompt)
     encoded = urllib.parse.quote(enhanced)
     params = {"width": width, "height": height, "model": model, "nologo": "true"}
-    if seed is not None:
+    if seed is not None and seed >= 0:
         params["seed"] = seed
+    if quality:
+        params["quality"] = quality
 
     query = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"https://image.pollinations.ai/prompt/{encoded}?{query}"
 
-    logger.info(f"Generating: {enhanced[:80]}... ({width}x{height})")
+    logger.info(f"Generating: {enhanced[:80]}... ({width}x{height}, model={model}, quality={quality})")
     req = urllib.request.Request(url, headers={"User-Agent": "NALLY/1.0"})
     with urllib.request.urlopen(req, timeout=120) as resp:
         return resp.read()
+
+
+def refine_with_kontext(image_bytes: bytes, refinement_prompt: str) -> bytes:
+    """Refine an existing image using kontext model (img2img)."""
+    try:
+        # Encode image to base64 for the API
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        data_url = f"data:image/png;base64,{b64}"
+
+        payload = json.dumps({
+            "prompt": refinement_prompt,
+            "model": "kontext",
+            "image": data_url,
+            "size": "1024x1024",
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://gen.pollinations.ai/v1/images/edits",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "NALLY/1.0",
+            },
+        )
+
+        logger.info(f"Refining with kontext: {refinement_prompt[:80]}...")
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+
+        # Extract image from response
+        if "data" in result and len(result["data"]) > 0:
+            item = result["data"][0]
+            if "b64_json" in item:
+                return base64.b64decode(item["b64_json"])
+            elif "url" in item:
+                img_req = urllib.request.Request(item["url"], headers={"User-Agent": "NALLY/1.0"})
+                with urllib.request.urlopen(img_req, timeout=60) as img_resp:
+                    return img_resp.read()
+
+        logger.warning("kontext refinement returned no image data")
+        return image_bytes
+
+    except Exception as e:
+        logger.warning(f"kontext refinement failed: {e}")
+        return image_bytes
 
 
 # ── Upscaling ─────────────────────────────────────────────
@@ -283,10 +483,16 @@ def upscale_image(image_bytes: bytes, target_size: int = 2048) -> bytes:
 
     upscaled = img.resize((new_w, new_h), Image.LANCZOS)
 
-    # Sharpen after upscale
-    upscaled = upscaled.filter(ImageFilter.SHARPEN)
+    # Unsharp mask (more natural than basic sharpen)
+    upscaled = upscaled.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+
+    # Subtle contrast boost
     enhancer = ImageEnhance.Contrast(upscaled)
-    upscaled = enhancer.enhance(1.1)
+    upscaled = enhancer.enhance(1.08)
+
+    # Subtle color saturation boost
+    enhancer = ImageEnhance.Color(upscaled)
+    upscaled = enhancer.enhance(1.05)
 
     if upscaled.mode == "RGBA":
         bg = Image.new("RGB", upscaled.size, (0, 0, 0))
@@ -300,6 +506,22 @@ def upscale_image(image_bytes: bytes, target_size: int = 2048) -> bytes:
     return buf.getvalue()
 
 
+# ── Smart Seed Strategy ───────────────────────────────────
+
+def pick_seeds(best_seed: int = None, attempt: int = 1) -> list:
+    """Return a list of seeds to try, ordered by likelihood of good results."""
+    if attempt == 1:
+        return [0]  # Model default first
+    elif attempt == 2:
+        return [random.randint(1, 999999)]
+    elif best_seed is not None:
+        # Explore nearby variations of the best seed
+        offset = random.randint(-50, 50)
+        return [best_seed + offset]
+    else:
+        return [random.randint(1, 999999)]
+
+
 # ── Main Tool ─────────────────────────────────────────────
 
 class ImageGen(Tool):
@@ -308,7 +530,7 @@ class ImageGen(Tool):
     def __init__(self):
         super().__init__(
             name="generate_image",
-            description="Generate an image from a text description. NALLY generates, SEES the result, critiques it, and regenerates until quality is good. Supports upscaling.",
+            description="Generate an image from a text description. NALLY generates, SEES the result, critiques it, and regenerates until quality is good. Supports upscaling and img2img refinement.",
             permission="safe",
             parameters={
                 "prompt": {
@@ -328,8 +550,13 @@ class ImageGen(Tool):
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model: flux (default), turbo, klein",
-                    "default": "flux",
+                    "description": "Model: auto (default, picks best for content), flux, zimage, seedream5, gptimage, ideogram-v4-quality, kontext, wan-image, recraft-v4.1-vector",
+                    "default": "auto",
+                },
+                "quality": {
+                    "type": "string",
+                    "description": "Quality level: low, medium, high (default), hd",
+                    "default": "high",
                 },
                 "upscale": {
                     "type": "integer",
@@ -341,6 +568,11 @@ class ImageGen(Tool):
                     "description": "Max attempts with vision critique (1-5, default 3)",
                     "default": 3,
                 },
+                "enhance": {
+                    "type": "boolean",
+                    "description": "Use LLM to enhance prompt (default true). Set false for raw prompt.",
+                    "default": True,
+                },
             },
         )
 
@@ -349,9 +581,11 @@ class ImageGen(Tool):
         prompt: str,
         width: int = 1024,
         height: int = 1024,
-        model: str = "flux",
+        model: str = "auto",
+        quality: str = "high",
         upscale: int = 0,
         max_attempts: int = 3,
+        enhance: bool = True,
     ) -> str:
         width = max(256, min(2048, width))
         height = max(256, min(2048, height))
@@ -360,41 +594,62 @@ class ImageGen(Tool):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = int(time.time())
 
+        # Detect content type and pick model
+        content_type = detect_content_type(prompt)
+        if model == "auto":
+            model = get_model_for_content(content_type)
+            logger.info(f"Auto-selected model: {model} for content type: {content_type}")
+
+        # Enhance prompt
+        if enhance:
+            current_prompt = enhance_prompt_llm(prompt, content_type)
+        else:
+            current_prompt = enhance_prompt(prompt, content_type)
+
         best_image = None
         best_score = 0
         best_file = None
         best_critique = ""
-        current_prompt = prompt
+        best_seed = None
         logs = []
 
+        logs.append(f"Content type: {content_type} | Model: {model} | Quality: {quality}")
+        logs.append(f"Enhanced prompt: {current_prompt[:120]}...")
+
         for attempt in range(1, max_attempts + 1):
-            # 1. Generate
+            # 1. Pick seed
+            seeds = pick_seeds(best_seed, attempt)
+            seed = seeds[0]
+
+            # 2. Generate
             try:
                 image_bytes = generate_pollinations(
                     prompt=current_prompt,
                     width=width,
                     height=height,
                     model=model,
-                    seed=random.randint(1, 999999),
+                    seed=seed,
+                    quality=quality,
                 )
             except Exception as e:
                 logger.error(f"Attempt {attempt} generation failed: {e}")
                 logs.append(f"Attempt {attempt}: FAILED — {e}")
                 continue
 
-            # 2. Score aesthetics
+            # 3. Score aesthetics
             scores = score_aesthetics(image_bytes)
             total = scores["total"]
 
-            # 3. Save attempt
+            # 4. Save attempt
             attempt_file = DATA_DIR / f"img_{timestamp}_{attempt}.png"
             attempt_file.write_bytes(image_bytes)
 
-            log_entry = f"Attempt {attempt}: {total}/100 (color:{scores['color_harmony']} comp:{scores['composition']} detail:{scores['detail']} bright:{scores['brightness']} contrast:{scores['contrast']})"
+            score_parts = " ".join(f"{k}:{v}" for k, v in scores.items() if k not in ("total", "max"))
+            log_entry = f"Attempt {attempt}: {total}/100 ({score_parts})"
             logs.append(log_entry)
             logger.info(log_entry)
 
-            # 4. Vision critique (if score < 80 and more attempts remain)
+            # 5. Vision critique (if score < 80 and more attempts remain)
             critique = ""
             improved_prompt = ""
             if total < 80 and attempt < max_attempts:
@@ -407,35 +662,61 @@ class ImageGen(Tool):
                         best_score = total
                         best_file = attempt_file
                         best_critique = critique
+                        best_seed = seed
                     break
                 elif parsed.get("improved_prompt"):
                     improved_prompt = parsed["improved_prompt"]
                     logs.append(f"  Vision: FAIL — {parsed.get('issues', [])}")
                     logs.append(f"  New prompt: {improved_prompt[:100]}...")
 
-            # 5. Track best
+            # 6. Track best
             if total > best_score:
                 best_image = image_bytes
                 best_score = total
                 best_file = attempt_file
                 best_critique = critique
+                best_seed = seed
 
-            # 6. Check if good enough
+            # 7. Check if good enough
             if total >= 80:
                 logs.append(f"Quality passed at attempt {attempt}")
                 break
 
-            # 7. Prepare next attempt
+            # 8. Prepare next attempt
             if improved_prompt:
                 current_prompt = improved_prompt
             elif attempt < max_attempts:
-                # Fallback: add refinement keywords
                 refinements = ["extremely detailed", "high quality", "sharp focus", "professional"]
                 current_prompt = f"{prompt}, {random.choice(refinements)}"
 
             time.sleep(1)
 
-        # 8. Upscale best if requested
+        # 9. Image-to-image refinement pass (if score < 75 and we have a best image)
+        if best_image and best_score < 75 and max_attempts > 1:
+            try:
+                logs.append("--- Img2Img Refinement Pass ---")
+                refined = refine_with_kontext(
+                    best_image,
+                    f"Improve this image: fix quality issues, enhance details, better composition. Keep the same subject and style."
+                )
+                refined_scores = score_aesthetics(refined)
+                refined_total = refined_scores["total"]
+                logs.append(f"Refined score: {refined_total}/100 (was {best_score}/100)")
+
+                if refined_total > best_score:
+                    best_image = refined
+                    best_score = refined_total
+                    refined_file = DATA_DIR / f"img_{timestamp}_refined.png"
+                    refined_file.write_bytes(best_image)
+                    best_file = refined_file
+                    logs.append("Refinement improved the image!")
+                else:
+                    logs.append("Refinement didn't improve — keeping original best")
+            except Exception as e:
+                logger.warning(f"Refinement pass failed: {e}")
+                logs.append(f"Refinement failed: {e}")
+
+        # 10. Upscale best if requested
         if best_image and upscale and upscale > max(width, height):
             try:
                 best_image = upscale_image(best_image, target_size=upscale)
@@ -445,16 +726,17 @@ class ImageGen(Tool):
             except Exception as e:
                 logger.warning(f"Upscaling failed: {e}")
 
-        # 9. Build output
+        # 11. Build output
         if not best_image:
             return "Error: All generation attempts failed"
 
         best_size_kb = len(best_image) / 1024
 
         result = f"Image generated (score {best_score}/100)\n"
+        result += f"Model: {model} | Quality: {quality}\n"
         result += f"Saved to: {best_file}\n"
         result += f"Size: {best_size_kb:.1f} KB\n"
-        result += f"Attempts: {len(logs)}\n\n"
+        result += f"Attempts: {len([l for l in logs if l.startswith('Attempt')])}\n\n"
 
         result += "--- Quality Log ---\n"
         for log in logs:

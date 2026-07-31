@@ -304,16 +304,17 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 async def history(_auth=Depends(verify_auth)):
     messages = [
         {"role": msg.get("role", "unknown"), "content": msg.get("content", "")}
-        for msg in get_agent().get_history()
+        for msg in session_manager.get_history("web:default")
     ]
-    return {"messages": messages}
+    return {"messages": messages[1:] if messages and messages[0].get("role") == "system" else messages}
 
 
 # ── API: Clear ────────────────────────────────────────────
 
 @app.post("/api/clear")
 async def clear(_auth=Depends(verify_auth)):
-    get_agent().clear_history()
+    agent = session_manager.get("web:default")
+    agent.clear_history()
     return {"status": "cleared"}
 
 
