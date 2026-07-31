@@ -56,6 +56,12 @@ def _validate_file(path: Path, content: str) -> str:
         # Warn on 8-digit hex colors
         if re.search(r'#[0-9a-fA-F]{8}\b', content):
             return "WARNING: CSS uses 8-digit hex (#RRGGBBAA) — use rgba() for better browser compat"
+        # Warn on overflow-x: hidden on body (breaks iOS)
+        if re.search(r'overflow-x\s*:\s*hidden', content) and re.search(r'body\s*\{', content):
+            return "WARNING: CSS uses 'overflow-x: hidden' on body — breaks iOS rubber-banding, use overflow-x: clip instead"
+        # Warn on !important (specificity anti-pattern)
+        if ' !important' in content:
+            return "WARNING: CSS uses !important — increase selector specificity instead"
 
     elif suffix == ".js":
         stripped = content.rstrip()

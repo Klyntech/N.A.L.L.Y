@@ -215,6 +215,47 @@ States:
 - [ ] No information conveyed by color alone (add icons/text)
 - [ ] Images have `alt` text (or `aria-hidden="true"` for decorative)
 
+## Focus States
+Every interactive element MUST have a `:focus-visible` style. Never rely on browser defaults alone.
+
+```css
+/* Pattern: outline + offset (zero layout shift) */
+.btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Pattern: box-shadow for cards/links */
+.nav-link:focus-visible {
+    box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Remove default outline only when replacing it */
+*:focus { outline: none; }
+*:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+```
+
+**Do:** Use `outline` or `box-shadow` (zero layout shift)
+**Don't:** Use `border` (causes layout shift) or skip focus styles entirely
+
+## SVG Accessibility
+Decorative icons MUST have `aria-hidden="true"`. Meaningful SVGs need `role="img"` + `<title>`.
+
+```html
+<!-- Decorative icon (inside a button with aria-label) -->
+<button aria-label="Settings">
+    <svg aria-hidden="true" width="20" height="20">...</svg>
+</button>
+
+<!-- Meaningful SVG (standalone graphic) -->
+<svg role="img" aria-labelledby="chartTitle" width="200" height="200">
+    <title id="chartTitle">Revenue chart showing 12% growth</title>
+    ...
+</svg>
+```
+
+**Rule:** If the SVG is inside an element that already has text/aria-label, add `aria-hidden="true"` to the SVG.
+
 ## Security Checklist
 - [ ] No inline `onclick` with string interpolation
 - [ ] `innerHTML` uses escaped values (or use `textContent`/DOM APIs)

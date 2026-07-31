@@ -131,6 +131,7 @@ _rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "web:default"
+    tab_id: str = ""
 
 
 class ApprovalRequest(BaseModel):
@@ -280,6 +281,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         raise HTTPException(status_code=400, detail="No message provided")
 
     session_id = request.session_id
+    tab_id = request.tab_id
     queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
 
@@ -313,6 +315,9 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         # Clear any prior abort flag for this session
         _abort_flags.pop(session_id, None)
 
+        # Broadcast user message immediately to other tabs
+        broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id})
+
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         while True:
@@ -326,9 +331,15 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             if item is None:
                 break
             yield f"data: {json.dumps(item)}\n\n"
+
+            # Broadcast specific events to other tabs
+            evt_type = item.get("type", "")
+            if evt_type == "thought":
+                broadcast_manager.broadcast("thinking", {"text": item.get("text", ""), "tab_id": tab_id})
+            elif evt_type == "response":
+                broadcast_manager.broadcast("assistant_message", {"text": item.get("text", ""), "tab_id": tab_id})
+
         yield 'data: {"event": "done"}\n\n'
-        # Broadcast to other tabs that a new message was added
-        broadcast_manager.broadcast("message_added", {"session_id": session_id})
 
     response = StreamingResponse(
         event_generator(),

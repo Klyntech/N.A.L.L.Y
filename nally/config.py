@@ -205,6 +205,7 @@ PERFORMANCE:
 ACCESSIBILITY:
 - Every interactive element needs: aria-label or visible label, focus-visible style, keyboard accessibility.
 - Forms: every input/select/textarea needs a label or aria-label and a name attribute.
+- Decorative SVG icons MUST have aria-hidden="true". Meaningful SVGs need role="img" + <title>.
 
 BROWSER COMPAT:
 - Use rgba() for colors with alpha, never 8-digit hex (#RRGGBBAA).
@@ -217,6 +218,8 @@ XSS/SECURITY:
 CODE QUALITY:
 - Use addEventListener, not inline onclick. For filtering, toggle display/hidden instead of recreating DOM.
 - Persist state in localStorage. Stack notifications vertically. Use box-shadow for hover borders (zero layout shift).
+- Never use !important — increase selector specificity instead.
+- Never hardcode chart data in HTML — generate chart markup from JS data arrays.
 
 REASONING (always applies, even when being casual):
 - Before answering, think about what's actually being asked. What's the real question behind the question?

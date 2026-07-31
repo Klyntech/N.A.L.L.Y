@@ -2675,7 +2675,7 @@
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + NALLY_TOKEN,
         },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, tab_id: _tabId }),
         signal: chatAbort.signal,
       }).then(function(res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -3433,9 +3433,9 @@
     });
 
     // ─── Multi-Tab Sync (BroadcastChannel + SSE) ──
-    var _lastSentMessage = '';  // echo prevention: track own messages
     var _syncChannel = null;
     var _evtSource = null;
+    var _tabId = Math.random().toString(36).slice(2, 10);  // unique per tab
 
     // 1. BroadcastChannel: instant sync for settings across tabs
     try {
@@ -3458,6 +3458,7 @@
           document.body.classList.toggle('lock-mode', d.value);
           document.getElementById('lock-toggle').checked = d.value;
         } else if (d.type === 'clear') {
+          if (d.tab_id === _tabId) return;
           chatMessages.innerHTML = '';
         } else if (d.type === 'history') {
           loadHistory();
@@ -3490,39 +3491,54 @@
     var _origClearChat = clearChat;
     clearChat = function() {
       _origClearChat();
-      if (_syncChannel) _syncChannel.postMessage({ type: 'clear' });
+      if (_syncChannel) _syncChannel.postMessage({ type: 'clear', tab_id: _tabId });
     };
 
     // 2. Persistent SSE: subscribe to server-side events for real-time sync
     function subscribeEvents() {
       if (_evtSource) { _evtSource.close(); _evtSource = null; }
+      if (!NALLY_TOKEN) return;
       try {
         _evtSource = new EventSource(NALLY_API + '/api/events?token=' + encodeURIComponent(NALLY_TOKEN));
         _evtSource.addEventListener('connected', function() {
           console.log('[sync] Connected to event stream');
         });
-        _evtSource.addEventListener('message_added', function(e) {
-          // Only re-fetch if another tab sent the message
+        _evtSource.addEventListener('user_message', function(e) {
           var data = {};
           try { data = JSON.parse(e.data); } catch(err) {}
-          loadHistory();
+          if (data.tab_id === _tabId) return;  // echo prevention
+          addChatMsg(data.text || '', false);
         });
-        _evtSource.addEventListener('history_cleared', function() {
+        _evtSource.addEventListener('thinking', function(e) {
+          var data = {};
+          try { data = JSON.parse(e.data); } catch(err) {}
+          if (data.tab_id === _tabId) return;
+          showTyping();
+        });
+        _evtSource.addEventListener('assistant_message', function(e) {
+          var data = {};
+          try { data = JSON.parse(e.data); } catch(err) {}
+          if (data.tab_id === _tabId) return;
+          removeTyping();
+          addChatMsg(data.text || '', true);
+        });
+        _evtSource.addEventListener('history_cleared', function(e) {
+          var data = {};
+          try { data = JSON.parse(e.data); } catch(err) {}
+          if (data.tab_id === _tabId) return;
           chatMessages.innerHTML = '';
         });
         _evtSource.addEventListener('approval_resolved', function() {
-          // Refresh any pending approval cards
         });
         _evtSource.addEventListener('mcp_status', function() {
           renderServices();
         });
         _evtSource.onerror = function() {
-          console.warn('[sync] SSE error, reconnecting in 3s...');
           _evtSource.close();
           _evtSource = null;
-          // Don't reconnect if token is invalid
           if (!NALLY_TOKEN) return;
-          setTimeout(subscribeEvents, 3000);
+          console.warn('[sync] SSE error, will retry in 5s...');
+          setTimeout(subscribeEvents, 5000);
         };
       } catch(e) {
         console.warn('[sync] EventSource failed:', e);

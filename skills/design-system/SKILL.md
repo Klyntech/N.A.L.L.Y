@@ -290,6 +290,70 @@ Or use pseudo-elements (::before, ::after) instead of real children.
 - `100vh` on mobile includes the URL bar — use `100dvh` with `100vh` fallback
 - Touch targets must be at least 44x44px
 
+### 9. Dynamic Charts
+Never hardcode chart data in HTML. Generate chart markup from JS data arrays.
+
+```html
+<!-- BAD: static bars in HTML -->
+<div class="bar" style="height: 80%"></div>
+<div class="bar" style="height: 60%"></div>
+
+<!-- GOOD: empty container, JS fills it -->
+<div class="chart-bars" id="chartBars"></div>
+```
+
+```js
+// Generate bars from data
+const data = [320, 380, 290, 420, 350, 480];
+const max = Math.max(...data);
+container.innerHTML = data.map(v =>
+    `<div class="bar" style="height: ${(v/max)*100}%"></div>`
+).join('');
+
+// Animate with IntersectionObserver
+const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+        if (e.isIntersecting) {
+            e.target.querySelectorAll('.bar').forEach((bar, i) => {
+                setTimeout(() => bar.classList.add('visible'), i * 60);
+            });
+            observer.unobserve(e.target);
+        }
+    });
+}, { threshold: 0.3 });
+observer.observe(container);
+```
+
+### 10. Form State Persistence
+Save form drafts to localStorage so users don't lose progress on accidental navigation.
+
+```js
+// Save on input
+form.querySelectorAll('input, select, textarea').forEach(el => {
+    el.addEventListener('input', () => {
+        localStorage.setItem(`form-${el.name}`, el.value);
+    });
+});
+
+// Restore on load
+window.addEventListener('DOMContentLoaded', () => {
+    form.querySelectorAll('input, select, textarea').forEach(el => {
+        const saved = localStorage.getItem(`form-${el.name}`);
+        if (saved) el.value = saved;
+    });
+});
+
+// Clear on successful submit
+form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    // ... process form
+    form.querySelectorAll('input, select, textarea').forEach(el => {
+        localStorage.removeItem(`form-${el.name}`);
+    });
+    form.reset();
+});
+```
+
 ## Guidelines
 - Tokens over hardcoded values — always
 - Components should be composable, not monolithic
