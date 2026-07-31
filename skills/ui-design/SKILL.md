@@ -4,6 +4,8 @@ description: UI/UX design decisions: layout, typography, color, spacing, accessi
 allowed-tools: read_file
 ---
 
+**IMPORTANT:** Only use these design skills when the user is explicitly asking you to CREATE or IMPROVE a frontend page. If the user is asking a QUESTION about a project (pricing, timeline, tech stack, hiring), ANSWER THE QUESTION — don't start building anything.
+
 # UI Design
 
 Design principles, layout, color, typography, and accessibility.
