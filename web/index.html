@@ -2546,7 +2546,34 @@
       // Result zone
       if (resultText) {
         var truncated = resultText.substring(0, 5000);
-        tc.resultCode.textContent = truncated;
+
+        // Check for image file marker
+        var imgMatch = truncated.match(/IMAGE_FILE:(.+)/);
+        if (imgMatch) {
+          var imgPath = imgMatch[1].trim();
+          // Convert absolute path to URL
+          var imgFilename = imgPath.split(/[/\\]/).pop();
+          var imgUrl = '/generated/' + imgFilename;
+          var metaText = truncated.replace(/IMAGE_FILE:.+/, '').trim();
+
+          tc.resultCode.innerHTML = '';
+          if (metaText) {
+            var metaEl = document.createElement('div');
+            metaEl.className = 'tool-card-code';
+            metaEl.textContent = metaText;
+            tc.resultCode.appendChild(metaEl);
+          }
+          var img = document.createElement('img');
+          img.src = imgUrl;
+          img.style.cssText = 'max-width:100%;border-radius:8px;margin-top:8px;cursor:pointer;';
+          img.onload = function() { chatMessages.scrollTop = chatMessages.scrollHeight; };
+          img.onerror = function() { img.alt = 'Image failed to load: ' + imgFilename; };
+          img.addEventListener('click', function() { window.open(imgUrl, '_blank'); });
+          tc.resultCode.appendChild(img);
+        } else {
+          tc.resultCode.textContent = truncated;
+        }
+
         tc.resultSection.style.display = 'block';
       }
 

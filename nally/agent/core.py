@@ -233,6 +233,25 @@ class NallyAgent:
         except Exception:
             pass  # Skills not available
 
+        # Auto-inject design skills for code/creative tasks
+        _CODE_KEYWORDS = ["create", "build", "make", "design", "frontend", "website", "page",
+                          "html", "css", "javascript", "component", "landing", "ui", "interface",
+                          "layout", "page", "form", "dashboard", "app", "template"]
+        if any(kw in user_input.lower() for kw in _CODE_KEYWORDS):
+            try:
+                from ..skills.registry import skill_registry
+                if not skill_registry._loaded:
+                    skill_registry.load()
+                for skill_name in ["ui-design", "design-system"]:
+                    body = skill_registry.get_skill_content(skill_name)
+                    if body:
+                        self.messages.insert(1, {
+                            "role": "system",
+                            "content": f"[SKILL REFERENCE: {skill_name}]\n\n{body}"
+                        })
+            except Exception:
+                pass
+
         # Smart context management
         self.messages = context_manager.compact(self.messages)
         self.messages = context_manager.inject_memories(user_input, self.messages)

@@ -1,5 +1,6 @@
 """File Operation Tools"""
 import os
+import re
 from pathlib import Path
 from .registry import Tool, registry
 
@@ -30,6 +31,32 @@ def _is_safe_write_path(path: Path) -> bool:
         except ValueError:
             continue
     return False
+
+
+def _validate_file(path: Path, content: str) -> str:
+    """Quick syntax check after file write. Returns warning or empty string."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".html":
+        opens = len(re.findall(r'<(div|section|nav|main|header|footer|ul|li|a|form)\b', content))
+        closes = len(re.findall(r'</(div|section|nav|main|header|footer|ul|li|a|form)>', content))
+        if opens > 0 and closes == 0:
+            return "WARNING: HTML has opening tags but no closing tags — file may be truncated"
+        if abs(opens - closes) > 5:
+            return f"WARNING: HTML tag mismatch — {opens} opens vs {closes} closes"
+
+    elif suffix == ".css":
+        opens = content.count("{")
+        closes = content.count("}")
+        if opens != closes:
+            return f"WARNING: CSS brace mismatch — {opens} opens vs {closes} closes"
+
+    elif suffix == ".js":
+        stripped = content.rstrip()
+        if stripped and stripped[-1] not in (";", "}", ")", "]", "n"):
+            return "WARNING: JS file may be truncated — doesn't end with ;, }, or )"
+
+    return ""
 
 
 class ReadFile(Tool):
@@ -102,7 +129,11 @@ class FileOps(Tool):
                     return f"Error: content too large ({len(content)} chars, max {MAX_WRITE_SIZE})"
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
-                return f"Wrote {len(content)} chars to {file_path}"
+                result = f"Wrote {len(content)} chars to {file_path}"
+                warning = _validate_file(path, content)
+                if warning:
+                    result += f"\n{warning}"
+                return result
 
             elif action == "mkdir":
                 if not file_path:

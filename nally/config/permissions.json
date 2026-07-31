@@ -62,5 +62,6 @@
   "recall": "allow",
   "forget": "allow",
   "agent": "allow",
+  "generate_image": "allow",
   "mcp_*": "allow"
 }

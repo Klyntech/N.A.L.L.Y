@@ -164,6 +164,9 @@ async def _middleware(request: Request, call_next):
 # ── Static files ──────────────────────────────────────────
 
 _web_dir = _base / "web"
+_data_dir = _base / "data"
+_gen_dir = _data_dir / "generated"
+_gen_dir.mkdir(parents=True, exist_ok=True)
 
 @app.get("/")
 async def index():
@@ -171,6 +174,9 @@ async def index():
 
 # Serve JS/CSS assets from web/ directory
 app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
+
+# Serve generated images
+app.mount("/generated", StaticFiles(directory=str(_gen_dir)), name="generated")
 
 
 @app.get("/web/")

@@ -37,6 +37,10 @@ def load_all_tools():
         from .websearch import WebSearch
         registry.register(WebSearch())
 
+        # --- Image Generation (1 tool) ---
+        from .imagegen import ImageGen
+        registry.register(ImageGen())
+
         # --- Gmail Direct (4 tools — bypasses broken MCP server) ---
         from . import gmail
         gmail.register()
