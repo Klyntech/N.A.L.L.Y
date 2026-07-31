@@ -224,6 +224,72 @@ interface ButtonProps {
 - Migration guides for major versions
 - Regular audits for inconsistencies
 
+## Common Pitfalls (Learned from Real Projects)
+
+### 1. CSS/JS Agreement
+Every CSS selector must have a matching element in the HTML or JS that creates it.
+
+BAD:
+```css
+.mp-lipstick .mp-cap { background: #1A1A1A; }
+```
+```js
+// JS creates empty container — .mp-cap never exists
+`<div class="mini-product mp-lipstick"></div>`
+```
+
+GOOD:
+```css
+.mp-lipstick .mp-cap { background: #1A1A1A; }
+```
+```js
+// JS injects the children CSS expects
+`<div class="mini-product mp-lipstick"><div class="mp-cap"></div><div class="mp-body"></div></div>`
+```
+
+Or use pseudo-elements (::before, ::after) instead of real children.
+
+### 2. Performance
+- NEVER use `transition: all` — specify exact properties: `transition: transform 0.3s ease, opacity 0.3s ease`
+- Throttle scroll/mouse handlers with `requestAnimationFrame`
+- Cache DOM queries — don't `querySelectorAll` on every event
+- Use `100dvh` instead of `100vh` on mobile (includes browser chrome)
+- Don't use `overflow-x: hidden` on body (breaks iOS Safari)
+
+### 3. Accessibility
+- Every interactive element needs: visible label or `aria-label`, `focus-visible` style, keyboard access
+- Forms: every `<input>`, `<select>`, `<textarea>` needs a `<label>` or `aria-label` and a `name` attribute
+- Don't rely on color alone for meaning — add icons or text
+- Editorial/card elements that look clickable must be `<button>` or `<a>`, or have `tabindex="0"` and `role="button"`
+
+### 4. Browser Compatibility
+- Use `rgba()` for colors with alpha, never 8-digit hex (`#RRGGBBAA`)
+- Don't concatenate hex after CSS variable references (`var(--x)44` is fragile)
+- Provide fallbacks for newer CSS features (e.g., `100vh` fallback before `100dvh`)
+
+### 5. XSS/Security
+- Never build inline event handlers with string interpolation: `onclick="fn('${x}')"` breaks if `x` contains quotes
+- Use `addEventListener` instead of inline handlers
+- If using `innerHTML`, escape all dynamic values or use `textContent`
+- For user-generated content, use DOM APIs (`createElement`, `textContent`) instead of template strings
+
+### 6. Code Quality
+- Use `addEventListener` in JS, not inline `onclick` in HTML
+- For filtering/toggling, change `display`/`hidden` on existing elements — don't destroy and recreate the entire DOM
+- Persist state in `localStorage` (cart, preferences, form drafts)
+- Stack notifications vertically with offset, don't place all at same `top` position
+- Use `box-shadow` or `outline` for hover borders (zero layout shift), not `border` (causes shift)
+
+### 7. HTML Semantics
+- Every form element needs `name`, `value` (on options), and a label
+- Use real `<button>` for actions, `<a>` for navigation — never `<div onclick>`
+- Replace placeholder content (phone numbers, links, images) before marking as complete
+
+### 8. Mobile/Safari
+- `overflow-x: hidden` on `<body>` breaks iOS rubber-banding and `position: fixed`
+- `100vh` on mobile includes the URL bar — use `100dvh` with `100vh` fallback
+- Touch targets must be at least 44x44px
+
 ## Guidelines
 - Tokens over hardcoded values — always
 - Components should be composable, not monolithic

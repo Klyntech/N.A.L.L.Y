@@ -2301,6 +2301,8 @@
 
     // ─── Chat History ──────────────────────────────
     function loadHistory() {
+      // Echo prevention: skip re-fetch if this tab is currently streaming
+      if (window._streamMsgEl) return;
       fetch(NALLY_API + '/api/history', {
         headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
       }).then(function(r) { return r.json(); }).then(function(data) {
@@ -2619,6 +2621,7 @@
         loginOverlay.classList.add('hidden');
         setTimeout(function() { loginOverlay.remove(); }, 400);
         waitForMarked(loadHistory);
+        setTimeout(subscribeEvents, 500);
       }).catch(function() {
         loginErr.style.display = 'block';
       });
@@ -3428,6 +3431,109 @@
         setLockMode(lockToggle.checked);
       }
     });
+
+    // ─── Multi-Tab Sync (BroadcastChannel + SSE) ──
+    var _lastSentMessage = '';  // echo prevention: track own messages
+    var _syncChannel = null;
+    var _evtSource = null;
+
+    // 1. BroadcastChannel: instant sync for settings across tabs
+    try {
+      _syncChannel = new BroadcastChannel('nally-sync');
+      _syncChannel.onmessage = function(e) {
+        var d = e.data;
+        if (!d || !d.type) return;
+        if (d.type === 'theme') {
+          document.body.className = '';
+          document.body.classList.add('theme-' + d.value);
+          if (document.getElementById('compact-toggle').checked) document.body.classList.add('compact');
+          if (document.getElementById('lock-toggle').checked) document.body.classList.add('lock-mode');
+          document.querySelectorAll('.theme-swatch').forEach(function(s) {
+            s.classList.toggle('active', s.dataset.theme === d.value);
+          });
+        } else if (d.type === 'compact') {
+          document.body.classList.toggle('compact', d.value);
+          document.getElementById('compact-toggle').checked = d.value;
+        } else if (d.type === 'lock') {
+          document.body.classList.toggle('lock-mode', d.value);
+          document.getElementById('lock-toggle').checked = d.value;
+        } else if (d.type === 'clear') {
+          chatMessages.innerHTML = '';
+        } else if (d.type === 'history') {
+          loadHistory();
+        } else if (d.type === 'mcp') {
+          renderServices();
+        }
+      };
+    } catch(e) { console.warn('BroadcastChannel not supported'); }
+
+    // Wrap settings functions to broadcast changes
+    var _origSetTheme = setTheme;
+    setTheme = function(name) {
+      _origSetTheme(name);
+      if (_syncChannel) _syncChannel.postMessage({ type: 'theme', value: name });
+    };
+
+    var _origSetCompact = setCompact;
+    setCompact = function(on) {
+      _origSetCompact(on);
+      if (_syncChannel) _syncChannel.postMessage({ type: 'compact', value: on });
+    };
+
+    var _origSetLockMode = setLockMode;
+    setLockMode = function(on) {
+      _origSetLockMode(on);
+      if (_syncChannel) _syncChannel.postMessage({ type: 'lock', value: on });
+    };
+
+    // Wrap clearChat to broadcast
+    var _origClearChat = clearChat;
+    clearChat = function() {
+      _origClearChat();
+      if (_syncChannel) _syncChannel.postMessage({ type: 'clear' });
+    };
+
+    // 2. Persistent SSE: subscribe to server-side events for real-time sync
+    function subscribeEvents() {
+      if (_evtSource) { _evtSource.close(); _evtSource = null; }
+      try {
+        _evtSource = new EventSource(NALLY_API + '/api/events?token=' + encodeURIComponent(NALLY_TOKEN));
+        _evtSource.addEventListener('connected', function() {
+          console.log('[sync] Connected to event stream');
+        });
+        _evtSource.addEventListener('message_added', function(e) {
+          // Only re-fetch if another tab sent the message
+          var data = {};
+          try { data = JSON.parse(e.data); } catch(err) {}
+          loadHistory();
+        });
+        _evtSource.addEventListener('history_cleared', function() {
+          chatMessages.innerHTML = '';
+        });
+        _evtSource.addEventListener('approval_resolved', function() {
+          // Refresh any pending approval cards
+        });
+        _evtSource.addEventListener('mcp_status', function() {
+          renderServices();
+        });
+        _evtSource.onerror = function() {
+          console.warn('[sync] SSE error, reconnecting in 3s...');
+          _evtSource.close();
+          _evtSource = null;
+          // Don't reconnect if token is invalid
+          if (!NALLY_TOKEN) return;
+          setTimeout(subscribeEvents, 3000);
+        };
+      } catch(e) {
+        console.warn('[sync] EventSource failed:', e);
+        setTimeout(subscribeEvents, 5000);
+      }
+    }
+
+    // Start SSE subscription after auth
+    if (NALLY_TOKEN) {
+      setTimeout(subscribeEvents, 500);
+    }
 
     // ─── Init Lucide Icons ───────────────────────
     lucide.createIcons();

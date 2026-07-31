@@ -50,11 +50,20 @@ def _validate_file(path: Path, content: str) -> str:
         closes = content.count("}")
         if opens != closes:
             return f"WARNING: CSS brace mismatch — {opens} opens vs {closes} closes"
+        # Warn on transition: all (performance anti-pattern)
+        if re.search(r'transition\s*:\s*all\b', content):
+            return "WARNING: CSS uses 'transition: all' — specify exact properties for better performance"
+        # Warn on 8-digit hex colors
+        if re.search(r'#[0-9a-fA-F]{8}\b', content):
+            return "WARNING: CSS uses 8-digit hex (#RRGGBBAA) — use rgba() for better browser compat"
 
     elif suffix == ".js":
         stripped = content.rstrip()
         if stripped and stripped[-1] not in (";", "}", ")", "]", "n"):
             return "WARNING: JS file may be truncated — doesn't end with ;, }, or )"
+        # Warn on inline onclick with interpolation
+        if re.search(r"onclick\s*=\s*['\"].*\$\{", content):
+            return "WARNING: JS uses inline onclick with string interpolation — use addEventListener instead"
 
     return ""
 

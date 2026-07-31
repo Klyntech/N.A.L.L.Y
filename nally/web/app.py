@@ -31,6 +31,47 @@ from nally.core.errors import NallyError
 from nally.utils.logger import logger
 
 
+# ── Broadcast System (multi-tab sync) ─────────────────────
+
+class _BroadcastManager:
+    """Manages persistent SSE connections for real-time multi-tab sync."""
+
+    def __init__(self):
+        self._queues: dict[str, asyncio.Queue] = {}
+        self._counter = 0
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def subscribe(self) -> tuple[str, asyncio.Queue]:
+        """Subscribe to broadcasts. Returns (client_id, queue)."""
+        self._counter += 1
+        cid = f"tab_{self._counter}"
+        q: asyncio.Queue = asyncio.Queue()
+        self._queues[cid] = q
+        logger.info(f"SSE client connected: {cid} (total: {len(self._queues)})")
+        return cid, q
+
+    def unsubscribe(self, cid: str):
+        self._queues.pop(cid, None)
+        logger.info(f"SSE client disconnected: {cid} (total: {len(self._queues)})")
+
+    def broadcast(self, event: str, data: dict):
+        """Send an event to all connected SSE clients. Thread-safe."""
+        payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+        dead = []
+        for cid, q in self._queues.items():
+            try:
+                if self._loop and self._loop.is_running():
+                    self._loop.call_soon_threadsafe(q.put_nowait, payload)
+                else:
+                    q.put_nowait(payload)
+            except Exception:
+                dead.append(cid)
+        for cid in dead:
+            self._queues.pop(cid, None)
+
+broadcast_manager = _BroadcastManager()
+
+
 # ── Paths ─────────────────────────────────────────────────
 
 if getattr(sys, "frozen", False):
@@ -286,9 +327,49 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
                 break
             yield f"data: {json.dumps(item)}\n\n"
         yield 'data: {"event": "done"}\n\n'
+        # Broadcast to other tabs that a new message was added
+        broadcast_manager.broadcast("message_added", {"session_id": session_id})
+
+    response = StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+    return response
+
+
+# ── API: Persistent SSE (multi-tab sync) ──────────────────
+
+@app.get("/api/events")
+async def sse_events(request: Request):
+    """Persistent SSE connection for real-time multi-tab sync.
+    Uses query param auth since EventSource doesn't support headers."""
+    # Auth via query param (EventSource can't set headers)
+    token = request.query_params.get("token", "")
+    if not NALLY_ACCESS_TOKEN or not hmac.compare_digest(token, NALLY_ACCESS_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    cid, queue = broadcast_manager.subscribe()
+    broadcast_manager._loop = asyncio.get_event_loop()
+
+    async def event_stream():
+        try:
+            # Send initial snapshot
+            yield f"event: connected\ndata: {{}}\n\n"
+            while True:
+                payload = await queue.get()
+                yield payload
+        except asyncio.CancelledError:
+            pass
+        finally:
+            broadcast_manager.unsubscribe(cid)
 
     return StreamingResponse(
-        event_generator(),
+        event_stream(),
         media_type="text/event-stream",
         headers={
             "X-Accel-Buffering": "no",
@@ -315,6 +396,7 @@ async def history(_auth=Depends(verify_auth)):
 async def clear(_auth=Depends(verify_auth)):
     agent = session_manager.get("web:default")
     agent.clear_history()
+    broadcast_manager.broadcast("history_cleared", {})
     return {"status": "cleared"}
 
 
@@ -324,6 +406,7 @@ async def clear(_auth=Depends(verify_auth)):
 async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)):
     from nally.agent.graph import resolve_approval
     resolve_approval(request.tool_call_id, request.approved)
+    broadcast_manager.broadcast("approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved})
     return {"ok": True}
 
 
@@ -431,6 +514,7 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     # Check if already connected
     existing = await get_existing_tokens(service, db)
     if existing:
+        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True})
         return {"status": "connected", "service": service}
 
     if auth_mode == "oauth":
@@ -483,6 +567,7 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
             count = connect_stdio_with_token(server_cfg)
         except Exception:
             count = 0
+        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True})
         return {"status": "connected", "service": service, "tools": count}
 
     # HTTP service — store as OAuthToken
@@ -496,6 +581,7 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
     except Exception:
         count = 0
 
+    broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True})
     return {"status": "connected", "service": service, "tools": count}
 
 
@@ -587,6 +673,8 @@ async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
         return {"status": "disconnected"}
 
     removed = revoke_service(service, db)
+    if removed:
+        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": False})
     return {"status": "disconnected" if removed else "not_connected"}
 
 

@@ -195,6 +195,31 @@ States:
 - **Stacked cards** → grid on desktop
 - **Full-width buttons** on mobile, auto-width on desktop
 
+## Performance Checklist
+- [ ] `transition` specifies exact properties (never `transition: all`)
+- [ ] Scroll/mouse handlers throttled with `requestAnimationFrame`
+- [ ] DOM queries cached (not re-queried on every event)
+- [ ] No `overflow-x: hidden` on `<body>` (breaks iOS)
+- [ ] Mobile uses `100dvh` not `100vh` (browser chrome)
+- [ ] Hover effects use `box-shadow` or `outline` (zero layout shift, not `border`)
+- [ ] Filtering toggles `display`/`hidden` (not destroy/recreate DOM)
+- [ ] Animations use `transform` and `opacity` only (GPU-accelerated)
+
+## Accessibility Checklist
+- [ ] Every interactive element has `aria-label` or visible text label
+- [ ] Every form input has `<label>` or `aria-label` and `name` attribute
+- [ ] All interactive elements have `focus-visible` style
+- [ ] Keyboard navigation works (Tab, Enter, Escape)
+- [ ] Color contrast ≥ 4.5:1 for text, ≥ 3:1 for large text
+- [ ] Cards that look clickable are `<button>`/`<a>` or have `tabindex="0"`
+- [ ] No information conveyed by color alone (add icons/text)
+- [ ] Images have `alt` text (or `aria-hidden="true"` for decorative)
+
+## Security Checklist
+- [ ] No inline `onclick` with string interpolation
+- [ ] `innerHTML` uses escaped values (or use `textContent`/DOM APIs)
+- [ ] User content rendered via `createElement` + `textContent`
+
 ## Guidelines
 - Design for the user's goal, not your feature list
 - Consistency beats novelty — reuse patterns
