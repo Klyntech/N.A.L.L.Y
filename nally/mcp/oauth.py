@@ -17,10 +17,22 @@ import sqlite3
 import time
 
 import httpx
-from mcp.client.auth.oauth2 import OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 logger = logging.getLogger("nally.mcp.oauth")
+
+# Lazy MCP SDK imports — only fail at runtime if mcp is actually used
+try:
+    from mcp.client.auth.oauth2 import OAuthClientProvider
+    from mcp.shared.auth import (
+        OAuthClientInformationFull,
+        OAuthClientMetadata,
+        OAuthToken,
+    )
+except ImportError:
+    OAuthClientProvider = None  # type: ignore[assignment,misc]
+    OAuthClientInformationFull = None  # type: ignore[assignment,misc]
+    OAuthClientMetadata = None  # type: ignore[assignment,misc]
+    OAuthToken = None  # type: ignore[assignment,misc]
 
 # Pending callback: authorization_code waiting for callback_handler to consume
 _pending_callbacks: dict[str, asyncio.Event] = {}

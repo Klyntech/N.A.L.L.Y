@@ -40,7 +40,7 @@ jobs:
       - name: Install core deps
         run: |
           pip install --upgrade pip
-          pip install pytest openai python-dotenv httpx requests psutil Pillow tiktoken pydantic fastapi uvicorn langgraph langchain-core langgraph-checkpoint-sqlite cryptography duckduckgo-search
+          pip install pytest openai python-dotenv httpx requests psutil Pillow numpy tiktoken pydantic fastapi uvicorn langgraph langchain-core langgraph-checkpoint-sqlite cryptography duckduckgo-search
       - name: Install optional deps (allow failure)
         run: pip install mcp python-telegram-bot || true
       - name: Run tests

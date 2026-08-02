@@ -5,7 +5,6 @@ import logging
 import httpx
 
 from ..config import DATA_DIR
-from ..mcp.oauth import SQLiteTokenStorage
 from ..tools.registry import Tool, registry
 
 logger = logging.getLogger("nally.gmail")
@@ -30,6 +29,8 @@ GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 
 
 async def _get_token() -> str | None:
+    from ..mcp.oauth import SQLiteTokenStorage
+
     storage = SQLiteTokenStorage(str(DATA_DIR / "nally.db"), "gmail")
     token = await storage.get_tokens()
     return token.access_token if token else None
