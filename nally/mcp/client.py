@@ -4,11 +4,11 @@ Stdio servers: per-call subprocess, no auth needed.
 HTTP servers: OAuth2 flow, tokens stored in SQLite, reconnected per-call.
 All MCP tools default to permission="write" (approval required) unless overridden.
 """
+
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
 
-from ..config import MCP_SERVERS, DATA_DIR
+from ..config import DATA_DIR, MCP_SERVERS
 from ..tools.registry import Tool, registry
 
 logger = logging.getLogger("nally.mcp")
@@ -17,8 +17,7 @@ logger = logging.getLogger("nally.mcp")
 class MCPTool(Tool):
     """Wrapper that turns an MCP tool schema into a NALLY Tool."""
 
-    def __init__(self, name: str, description: str, parameters: dict,
-                 server_config: dict, permission: str = "write"):
+    def __init__(self, name: str, description: str, parameters: dict, server_config: dict, permission: str = "write"):
         super().__init__(name, description, parameters, permission=permission)
         self._server_config = server_config
 
@@ -41,8 +40,9 @@ class MCPTool(Tool):
 
     async def _call_stdio(self, arguments: dict) -> str:
         """Call via stdio transport (subprocess)."""
-        from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
+
+        from mcp import ClientSession, StdioServerParameters
 
         config = self._server_config
         server = StdioServerParameters(
@@ -71,8 +71,10 @@ class MCPTool(Tool):
 
         Tries raw HTTP POST first, falls back to SSE client if that fails.
         """
+
+        import httpx
+
         from nally.mcp.oauth import SQLiteTokenStorage
-        import httpx, json
 
         config = self._server_config
         db = str(DATA_DIR / "nally.db")
@@ -106,9 +108,13 @@ class MCPTool(Tool):
 
         # Fallback: use SSE client (for servers like Notion that need a session)
         try:
-            from mcp import ClientSession
             from mcp.client.sse import sse_client
-            sse_url = config["url"].rstrip("/mcp") + "/sse" if config["url"].endswith("/mcp") else config["url"] + "/sse"
+
+            from mcp import ClientSession
+
+            sse_url = (
+                config["url"].rstrip("/mcp") + "/sse" if config["url"].endswith("/mcp") else config["url"] + "/sse"
+            )
             sse_headers = {}
             if token:
                 sse_headers["Authorization"] = f"Bearer {token.access_token}"
@@ -142,6 +148,7 @@ def _extract_result(result) -> str:
 def _parse_sse_response(text: str) -> dict | None:
     """Parse SSE-formatted MCP response into a dict."""
     import json
+
     for line in text.strip().split("\n"):
         if line.startswith("data: "):
             try:
@@ -240,8 +247,10 @@ def connect_mcp_servers(reg):
 def _get_existing_tokens_sync(service: str, db_path: str):
     """Check if a service has stored tokens (synchronous, safe inside event loops)."""
     import sqlite3
-    from .oauth import _decrypt_token
+
     from mcp.shared.auth import OAuthToken
+
+    from .oauth import _decrypt_token
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -267,6 +276,7 @@ def _get_existing_tokens_sync(service: str, db_path: str):
 def _run_connect_http(server_config: dict, reg) -> int:
     """Run connect_http_server in a new event loop (safe for thread pools)."""
     import asyncio
+
     loop = asyncio.new_event_loop()
     try:
         loop.run_until_complete(connect_http_server(server_config, reg))
@@ -295,9 +305,7 @@ def _try_reconnect_http(server_config: dict, reg) -> bool:
     logger.info(f"MCP server '{name}': tokens found, reconnecting...")
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            count = pool.submit(
-                _run_connect_http, server_config, reg
-            ).result(timeout=30)
+            count = pool.submit(_run_connect_http, server_config, reg).result(timeout=30)
         if count and count > 0:
             logger.info(f"MCP server '{name}': reconnected with {count} tools")
             return True
@@ -312,6 +320,7 @@ def _try_reconnect_http(server_config: dict, reg) -> bool:
 def _try_reconnect_stdio_token(server_config: dict, reg) -> bool:
     """Try to reconnect to a stdio MCP server if env var token is set. Returns True if tools loaded."""
     import os
+
     name = server_config.get("name", "unknown")
     env_key = server_config.get("env_key", "")
     if not env_key or not os.getenv(env_key):
@@ -336,8 +345,9 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
     name = server_config.get("name", "unknown")
 
     async def _fetch_tools():
-        from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
+
+        from mcp import ClientSession, StdioServerParameters
 
         server = StdioServerParameters(
             command=server_config["command"],
@@ -352,9 +362,7 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
                 return result.tools
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        tools = pool.submit(
-            asyncio.run, asyncio.wait_for(_fetch_tools(), timeout=30.0)
-        ).result(timeout=45)
+        tools = pool.submit(asyncio.run, asyncio.wait_for(_fetch_tools(), timeout=30.0)).result(timeout=45)
     count = 0
 
     for tool_info in tools:
@@ -440,9 +448,16 @@ async def _connect_http_stateless(server_config: dict, headers: dict, reg) -> in
 
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(url, headers=h, json={
-                "jsonrpc": "2.0", "id": 1, "method": "tools/list",
-            }, timeout=15.0)
+            resp = await client.post(
+                url,
+                headers=h,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/list",
+                },
+                timeout=15.0,
+            )
 
         result = _parse_sse_response(resp.text)
         if not result or "result" not in result:
@@ -485,6 +500,7 @@ def _http_transport_fallback(server_config: dict, headers: dict):
     # 2. Try SSE at /sse endpoint (for servers like Notion that support both)
     try:
         from mcp.client.sse import sse_client
+
         sse_url = url.rstrip("/mcp") + "/sse" if url.endswith("/mcp") else url + "/sse"
         yield "sse", lambda: sse_client(sse_url, headers=headers)
     except ImportError:
@@ -500,6 +516,7 @@ def connect_stdio_with_token(server_config: dict, reg=None) -> int:
     Returns tool count, or 0 if env var is missing or connection fails.
     """
     import os
+
     name = server_config.get("name", "unknown")
     env_key = server_config.get("env_key", "")
     env_name = server_config.get("env_name", env_key)

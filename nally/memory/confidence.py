@@ -13,15 +13,15 @@ def decay_confidence(days_since_confirmed: float) -> float:
     Recent memories保持 their full confidence; old ones decay.
     """
     if days_since_confirmed < 7:
-        return 1.0       # No decay for recent memories
+        return 1.0  # No decay for recent memories
     elif days_since_confirmed < 30:
-        return 0.9       # Slight decay
+        return 0.9  # Slight decay
     elif days_since_confirmed < 90:
-        return 0.7       # Moderate decay
+        return 0.7  # Moderate decay
     elif days_since_confirmed < 180:
-        return 0.5       # Significant decay
+        return 0.5  # Significant decay
     else:
-        return 0.3       # Heavy decay — memory is fading
+        return 0.3  # Heavy decay — memory is fading
 
 
 def boost_confidence(current: float, amount: float = 0.1, maximum: float = 1.0) -> float:

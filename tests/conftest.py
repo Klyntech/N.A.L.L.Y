@@ -1,7 +1,9 @@
 """Shared test fixtures for NALLY test suite."""
+
 import os
 import sys
 import tempfile
+
 import pytest
 
 
@@ -36,15 +38,9 @@ def sample_code():
 # Markers for platform-specific tests
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line(
-        "markers", "windows: marks tests that only run on Windows"
-    )
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow"
-    )
-    config.addinivalue_line(
-        "markers", "integration: marks tests requiring external services"
-    )
+    config.addinivalue_line("markers", "windows: marks tests that only run on Windows")
+    config.addinivalue_line("markers", "slow: marks tests as slow")
+    config.addinivalue_line("markers", "integration: marks tests requiring external services")
 
 
 # Skip Windows-only tests on non-Windows platforms

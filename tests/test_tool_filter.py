@@ -1,5 +1,7 @@
 """Tests for nally.tools.filter.ToolFilter — keyword-based tool selection."""
+
 import pytest
+
 from nally.tools import load_all_tools, registry
 from nally.tools.filter import tool_filter
 

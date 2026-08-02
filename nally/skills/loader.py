@@ -1,6 +1,7 @@
 """Skill loader — scans skills/ directory, parses SKILL.md frontmatter, validates security."""
-import re
+
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -24,7 +25,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
         return {}, text
 
     raw = m.group(1)
-    body = text[m.end():]
+    body = text[m.end() :]
 
     # Minimal YAML parser for flat key-value pairs + lists
     meta = {}
@@ -101,7 +102,6 @@ def validate_skill(name: str, body: str) -> list[str]:
     Returns list of warning strings. Empty = clean.
     """
     warnings = []
-    lower = body.lower()
 
     for pattern in _SUSPICIOUS_PATTERNS:
         if re.search(pattern, body, re.IGNORECASE):
@@ -124,11 +124,11 @@ def validate_skill(name: str, body: str) -> list[str]:
 
 # ── Skill loading ────────────────────────────────────────
 
+
 class Skill:
     """Represents a loaded skill with metadata and body."""
 
-    def __init__(self, name: str, description: str, body: str,
-                 allowed_tools: list[str], source_path: Path):
+    def __init__(self, name: str, description: str, body: str, allowed_tools: list[str], source_path: Path):
         self.name = name
         self.description = description
         self.body = body

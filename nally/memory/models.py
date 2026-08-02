@@ -11,6 +11,7 @@ from typing import List, Optional
 @dataclass
 class Memory:
     """A long-term fact with confidence scoring."""
+
     key: str
     value: str
     category: str = "general"
@@ -33,6 +34,7 @@ class Memory:
 @dataclass
 class Episode:
     """A timestamped experience — what happened, outcome, solution."""
+
     topic: str
     what_happened: str
     outcome: str = ""
@@ -46,6 +48,7 @@ class Episode:
 @dataclass
 class ConversationSummary:
     """A summary of a past conversation session."""
+
     summary: str
     topics: List[str] = field(default_factory=list)
     start_date: str = ""
@@ -58,6 +61,7 @@ class ConversationSummary:
 @dataclass
 class SemanticPattern:
     """An extracted pattern or preference — strengthens with evidence."""
+
     pattern: str
     confidence: float = 0.5
     evidence_count: int = 1

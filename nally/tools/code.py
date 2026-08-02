@@ -1,12 +1,12 @@
 """Code Execution and Analysis Tools"""
-import sys
+
 import io
-import os
 import subprocess
+import sys
 import threading
 from pathlib import Path
-from .registry import Tool, registry
 
+from .registry import Tool
 
 # Thread lock for stdout/stderr hijacking (not thread-safe otherwise)
 _code_exec_lock = threading.Lock()

@@ -1,7 +1,9 @@
 """System Control Tools"""
+
 import os
 import subprocess
-from .registry import Tool, registry
+
+from .registry import Tool
 
 
 class RunCommand(Tool):
@@ -27,8 +29,8 @@ class RunCommand(Tool):
                 command,
                 shell=True,
                 capture_output=True,
-                encoding='utf-8',
-                errors='replace',
+                encoding="utf-8",
+                errors="replace",
                 timeout=30,
             )
             output = result.stdout
@@ -38,7 +40,7 @@ class RunCommand(Tool):
         except subprocess.TimeoutExpired:
             return "Command timed out after 30 seconds"
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
 
 
 class SystemHealth(Tool):
@@ -66,4 +68,4 @@ class SystemHealth(Tool):
         except ImportError:
             return "System health requires: pip install psutil"
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"

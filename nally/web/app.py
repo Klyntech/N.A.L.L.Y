@@ -1,37 +1,43 @@
 """Nally Web Server - FastAPI backend with SSE streaming"""
+
+import asyncio
 import hmac
 import json
-import time
 import os
 import sys
-import asyncio
+import time
 import uuid
 import webbrowser
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
-from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse, HTMLResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from nally.tools import load_all_tools
-from nally.tools.registry import registry
 from nally.agent import get_agent
 from nally.agent.sessions import session_manager
 from nally.config import (
-    PROVIDER, ACTIVE_MODEL, ALLOWED_ORIGINS,
-    RATE_LIMIT_ENABLED, RATE_LIMIT_RPM, RATE_LIMIT_BURST,
-    ensure_data_dir, DATA_DIR,
+    ACTIVE_MODEL,
+    ALLOWED_ORIGINS,
+    DATA_DIR,
+    PROVIDER,
+    RATE_LIMIT_BURST,
+    RATE_LIMIT_ENABLED,
+    RATE_LIMIT_RPM,
+    ensure_data_dir,
 )
 from nally.core.errors import NallyError
+from nally.tools import load_all_tools
+from nally.tools.registry import registry
 from nally.utils.logger import logger
 
-
 # ── Broadcast System (multi-tab sync) ─────────────────────
+
 
 class _BroadcastManager:
     """Manages persistent SSE connections for real-time multi-tab sync."""
@@ -69,6 +75,7 @@ class _BroadcastManager:
         for cid in dead:
             self._queues.pop(cid, None)
 
+
 broadcast_manager = _BroadcastManager()
 
 
@@ -93,6 +100,7 @@ async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depe
 
 
 # ── Rate limiter (in-memory, per-IP) ─────────────────────
+
 
 class _RateLimiter:
     """Simple token bucket rate limiter."""
@@ -128,6 +136,7 @@ _rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
 
 # ── Request models ────────────────────────────────────────
 
+
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "web:default"
@@ -140,6 +149,7 @@ class ApprovalRequest(BaseModel):
 
 
 # ── Lifespan ──────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -156,6 +166,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Agent pre-warm failed: {e}")
 
     import threading
+
     threading.Thread(target=_prewarm, daemon=True).start()
 
     if not NALLY_ACCESS_TOKEN:
@@ -172,7 +183,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Nally", lifespan=lifespan)
 
 # CORS from config
-_origins = ALLOWED_ORIGINS if isinstance(ALLOWED_ORIGINS, list) else [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+_origins = (
+    ALLOWED_ORIGINS
+    if isinstance(ALLOWED_ORIGINS, list)
+    else [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
@@ -183,6 +198,7 @@ app.add_middleware(
 
 
 # ── Middleware: rate limit + request ID ───────────────────
+
 
 @app.middleware("http")
 async def _middleware(request: Request, call_next):
@@ -210,9 +226,11 @@ _data_dir = _base / "data"
 _gen_dir = _data_dir / "generated"
 _gen_dir.mkdir(parents=True, exist_ok=True)
 
+
 @app.get("/")
 async def index():
     return FileResponse(str(_web_dir / "index.html"))
+
 
 # Serve JS/CSS assets from web/ directory
 app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
@@ -227,6 +245,7 @@ async def web_root():
 
 
 # ── Debug page ────────────────────────────────────────────
+
 
 @app.get("/debug")
 async def debug_page():
@@ -259,6 +278,7 @@ fetch('/api/status').then(r => r.json()).then(data => {
 
 # ── API: Status ───────────────────────────────────────────
 
+
 @app.get("/api/status")
 async def status():
     return {
@@ -273,6 +293,7 @@ async def status():
 
 
 # ── API: Chat (SSE streaming) ────────────────────────────
+
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
@@ -298,17 +319,11 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         def run_agent():
             try:
                 response = session_manager.process(session_id, message, emit=stream_event)
-                loop.call_soon_threadsafe(
-                    queue.put_nowait, {"type": "response", "text": response}
-                )
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
             except NallyError as e:
-                loop.call_soon_threadsafe(
-                    queue.put_nowait, {"type": "error", "text": e.to_llm_format()}
-                )
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
             except Exception as e:
-                loop.call_soon_threadsafe(
-                    queue.put_nowait, {"type": "error", "text": str(e)}
-                )
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
@@ -355,6 +370,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
 # ── API: Persistent SSE (multi-tab sync) ──────────────────
 
+
 @app.get("/api/events")
 async def sse_events(request: Request):
     """Persistent SSE connection for real-time multi-tab sync.
@@ -370,7 +386,7 @@ async def sse_events(request: Request):
     async def event_stream():
         try:
             # Send initial snapshot
-            yield f"event: connected\ndata: {{}}\n\n"
+            yield "event: connected\ndata: {}\n\n"
             while True:
                 payload = await queue.get()
                 yield payload
@@ -392,6 +408,7 @@ async def sse_events(request: Request):
 
 # ── API: History ──────────────────────────────────────────
 
+
 @app.get("/api/history")
 async def history(_auth=Depends(verify_auth)):
     messages = [
@@ -403,6 +420,7 @@ async def history(_auth=Depends(verify_auth)):
 
 # ── API: Clear ────────────────────────────────────────────
 
+
 @app.post("/api/clear")
 async def clear(_auth=Depends(verify_auth)):
     agent = session_manager.get("web:default")
@@ -413,11 +431,15 @@ async def clear(_auth=Depends(verify_auth)):
 
 # ── API: Approval ─────────────────────────────────────────
 
+
 @app.post("/api/approve")
 async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)):
     from nally.agent.graph import resolve_approval
+
     resolve_approval(request.tool_call_id, request.approved)
-    broadcast_manager.broadcast("approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved})
+    broadcast_manager.broadcast(
+        "approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved}
+    )
     return {"ok": True}
 
 
@@ -425,13 +447,16 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
 
 _abort_flags: dict[str, bool] = {}
 
+
 def check_abort(session_id: str = "web:default") -> bool:
     return _abort_flags.get(session_id, False)
+
 
 @app.post("/api/abort")
 async def abort_session(session_id: str = "web:default", _auth=Depends(verify_auth)):
     _abort_flags[session_id] = True
     return {"status": "aborted"}
+
 
 @app.post("/api/abort/clear")
 async def abort_clear(session_id: str = "web:default", _auth=Depends(verify_auth)):
@@ -441,9 +466,11 @@ async def abort_clear(session_id: str = "web:default", _auth=Depends(verify_auth
 
 # ── API: Permissions ──────────────────────────────────────
 
+
 @app.get("/api/permissions")
 async def get_permissions(_auth=Depends(verify_auth)):
     from nally.tools.permissions import get_config
+
     return {"permissions": get_config()}
 
 
@@ -451,29 +478,34 @@ async def get_permissions(_auth=Depends(verify_auth)):
 async def get_skills(_auth=Depends(verify_auth)):
     """List available skills with their descriptions and allowed tools."""
     from nally.skills.registry import skill_registry
+
     if not skill_registry._loaded:
         skill_registry.load()
     skills = []
     for name in sorted(skill_registry.names):
         skill = skill_registry.get(name)
         if skill:
-            skills.append({
-                "name": name,
-                "description": skill.description,
-                "allowed_tools": skill.allowed_tools,
-                "warnings": skill.warnings,
-            })
+            skills.append(
+                {
+                    "name": name,
+                    "description": skill.description,
+                    "allowed_tools": skill.allowed_tools,
+                    "warnings": skill.warnings,
+                }
+            )
     return {"skills": skills, "count": len(skills)}
 
 
 # ── API: MCP Services ────────────────────────────────────
 
+
 @app.get("/api/mcp/services")
 async def mcp_services(_auth=Depends(verify_auth)):
     """List available MCP services and their connection status."""
+    import os
+
     from nally.config import MCP_SERVERS
     from nally.mcp.oauth import get_existing_tokens
-    import os
 
     db = str(DATA_DIR / "nally.db")
     services = []
@@ -486,22 +518,26 @@ async def mcp_services(_auth=Depends(verify_auth)):
             # Stdio services with env var token — check if env var is set
             env_key = server.get("env_key", "")
             token_set = bool(os.getenv(env_key, ""))
-            services.append({
-                "name": name,
-                "transport": transport,
-                "auth_mode": auth_mode,
-                "description": server.get("description", ""),
-                "connected": token_set,
-            })
+            services.append(
+                {
+                    "name": name,
+                    "transport": transport,
+                    "auth_mode": auth_mode,
+                    "description": server.get("description", ""),
+                    "connected": token_set,
+                }
+            )
         else:
             token = await get_existing_tokens(name, db)
-            services.append({
-                "name": name,
-                "transport": transport,
-                "auth_mode": auth_mode,
-                "description": server.get("description", ""),
-                "connected": token is not None,
-            })
+            services.append(
+                {
+                    "name": name,
+                    "transport": transport,
+                    "auth_mode": auth_mode,
+                    "description": server.get("description", ""),
+                    "connected": token is not None,
+                }
+            )
     return {"services": services}
 
 
@@ -512,8 +548,8 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     OAuth services: returns auth_url for browser redirect.
     API key services: returns status.
     """
-    from nally.config import MCP_SERVERS, DATA_DIR
-    from nally.mcp.oauth import SQLiteTokenStorage, get_existing_tokens
+    from nally.config import DATA_DIR, MCP_SERVERS
+    from nally.mcp.oauth import get_existing_tokens
 
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
     if server_cfg is None:
@@ -532,6 +568,7 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
         # Start OAuth flow — return auth_url for browser redirect
         if service == "notion":
             from nally.mcp.oauth import start_notion_oauth
+
             try:
                 auth_url = await start_notion_oauth(db)
             except ValueError as e:
@@ -539,6 +576,7 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
             return {"status": "auth_required", "auth_url": auth_url, "service": service}
         elif service in ("gmail", "gdrive", "gcalendar"):
             from nally.mcp.oauth import start_google_oauth
+
             try:
                 auth_url = await start_google_oauth(service, db)
                 return {"status": "auth_required", "auth_url": auth_url, "service": service}
@@ -553,12 +591,14 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
 class TokenSubmit(BaseModel):
     token: str
 
+
 @app.post("/api/mcp/token/{service}")
 async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify_auth)):
     """Submit a PAT/API token for an HTTP MCP service, or bot token for stdio."""
-    from nally.config import MCP_SERVERS, DATA_DIR
-    from nally.mcp.oauth import SQLiteTokenStorage
     from mcp.shared.auth import OAuthToken
+
+    from nally.config import DATA_DIR, MCP_SERVERS
+    from nally.mcp.oauth import SQLiteTokenStorage
 
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
     if server_cfg is None:
@@ -572,8 +612,10 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
         env_key = server_cfg.get("env_key", "")
         if env_key:
             import os
+
             os.environ[env_key] = body.token
         from nally.mcp.client import connect_stdio_with_token
+
         try:
             count = connect_stdio_with_token(server_cfg)
         except Exception:
@@ -587,6 +629,7 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
     await storage.set_tokens(token)
 
     from nally.mcp.client import connect_http_server
+
     try:
         count = await connect_http_server(server_cfg)
     except Exception:
@@ -617,10 +660,9 @@ async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""
     if not code:
         return JSONResponse(status_code=400, content={"error": "missing_code"})
 
-    from nally.config import DATA_DIR
-    from nally.mcp.oauth import exchange_notion_code
+    from nally.config import DATA_DIR, MCP_SERVERS
     from nally.mcp.client import connect_http_server
-    from nally.config import MCP_SERVERS
+    from nally.mcp.oauth import exchange_notion_code
 
     db = str(DATA_DIR / "nally.db")
     success = await exchange_notion_code(code, db)
@@ -648,8 +690,8 @@ async def google_oauth_callback(code: str = "", state: str = "", error: str = ""
         return JSONResponse(status_code=400, content={"error": "missing_code"})
 
     from nally.config import DATA_DIR, MCP_SERVERS
-    from nally.mcp.oauth import exchange_google_code, GOOGLE_SERVICES
     from nally.mcp.client import connect_http_server
+    from nally.mcp.oauth import GOOGLE_SERVICES, exchange_google_code
 
     db = str(DATA_DIR / "nally.db")
     success = await exchange_google_code(code, db)
@@ -673,7 +715,7 @@ async def google_oauth_callback(code: str = "", state: str = "", error: str = ""
 async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
     """Disconnect an MCP service by removing stored tokens."""
     from nally.config import DATA_DIR
-    from nally.mcp.oauth import revoke_service, GOOGLE_SERVICES
+    from nally.mcp.oauth import GOOGLE_SERVICES, revoke_service
 
     db = str(DATA_DIR / "nally.db")
 
@@ -693,6 +735,7 @@ async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.environ.get("PORT", 5000))
     print(f"\n  Nally Jarvis starting on http://localhost:{port}")
     print("  Press Ctrl+C to stop\n")
@@ -702,6 +745,7 @@ if __name__ == "__main__":
         webbrowser.open(f"http://localhost:{port}")
 
     import threading
+
     threading.Thread(target=_open_browser, daemon=True).start()
 
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

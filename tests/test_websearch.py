@@ -1,18 +1,20 @@
 """Tests for web search tool: usage tracking, fallback logic, result formatting."""
+
 import os
 import sqlite3
 import tempfile
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 
 from nally.tools.websearch import (
+    PARALLEL_MONTHLY_LIMIT,
     WebSearch,
     _ensure_usage_table,
     _get_monthly_count,
     _increment_monthly_count,
-    _search_parallel,
     _search_duckduckgo,
-    PARALLEL_MONTHLY_LIMIT,
+    _search_parallel,
 )
 
 
@@ -27,13 +29,12 @@ def tmp_db():
 
 # ── Usage Tracking ───────────────────────────────────────
 
+
 def test_ensure_usage_table_creates_table(tmp_db):
     """_ensure_usage_table creates web_search_usage table."""
     _ensure_usage_table(tmp_db)
     conn = sqlite3.connect(tmp_db)
-    tables = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()
+    tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     conn.close()
     assert any("web_search_usage" in t[0] for t in tables)
 
@@ -66,6 +67,7 @@ def test_increment_monthly_count_different_providers(tmp_db):
 
 # ── Parallel.ai Search ──────────────────────────────────
 
+
 def test_search_parallel_no_api_key(tmp_db):
     """_search_parallel returns None when no API key set."""
     with patch.dict(os.environ, {}, clear=True):
@@ -79,6 +81,7 @@ def test_search_parallel_quota_exceeded(tmp_db):
     _ensure_usage_table(tmp_db)
     # Set count directly to limit
     from datetime import datetime
+
     month = datetime.now().strftime("%Y-%m")
     conn = sqlite3.connect(tmp_db)
     conn.execute(
@@ -88,8 +91,10 @@ def test_search_parallel_quota_exceeded(tmp_db):
     conn.commit()
     conn.close()
 
-    with patch("nally.tools.websearch._get_db_path", return_value=tmp_db), \
-         patch.dict(os.environ, {"PARALLEL_API_KEY": "test_key"}):
+    with (
+        patch("nally.tools.websearch._get_db_path", return_value=tmp_db),
+        patch.dict(os.environ, {"PARALLEL_API_KEY": "test_key"}),
+    ):
         result = _search_parallel("test query")
         assert result is None
 
@@ -110,9 +115,11 @@ def test_search_parallel_success(tmp_db):
         ]
     }
 
-    with patch("nally.tools.websearch._get_db_path", return_value=tmp_db), \
-         patch.dict(os.environ, {"PARALLEL_API_KEY": "test_key"}), \
-         patch("nally.tools.websearch.httpx.post", return_value=mock_resp):
+    with (
+        patch("nally.tools.websearch._get_db_path", return_value=tmp_db),
+        patch.dict(os.environ, {"PARALLEL_API_KEY": "test_key"}),
+        patch("nally.tools.websearch.httpx.post", return_value=mock_resp),
+    ):
         result = _search_parallel("test query")
 
     assert result is not None
@@ -129,14 +136,17 @@ def test_search_parallel_api_error(tmp_db):
     mock_resp.status_code = 500
     mock_resp.text = "Internal Server Error"
 
-    with patch("nally.tools.websearch._get_db_path", return_value=tmp_db), \
-         patch.dict(os.environ, {"PARALLEL_API_KEY": "test_key"}), \
-         patch("nally.tools.websearch.httpx.post", return_value=mock_resp):
+    with (
+        patch("nally.tools.websearch._get_db_path", return_value=tmp_db),
+        patch.dict(os.environ, {"PARALLEL_API_KEY": "test_key"}),
+        patch("nally.tools.websearch.httpx.post", return_value=mock_resp),
+    ):
         result = _search_parallel("test query")
         assert result is None
 
 
 # ── DuckDuckGo Fallback ─────────────────────────────────
+
 
 def test_search_duckduckgo_returns_results():
     """_search_duckduckgo returns formatted results."""
@@ -166,6 +176,7 @@ def test_search_duckduckgo_import_error():
 
 
 # ── Tool Schema ─────────────────────────────────────────
+
 
 def test_web_search_tool_schema():
     """WebSearch tool has correct schema."""

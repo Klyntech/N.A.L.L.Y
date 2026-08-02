@@ -12,11 +12,11 @@ The agent converts them to LLM-friendly format.
 The API layer converts them to JSON responses.
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Dict, Optional
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"

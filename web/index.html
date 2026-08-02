@@ -859,76 +859,80 @@
       aspect-ratio: 1 / 1;
       border-radius: 12px;
       overflow: hidden;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.06);
+      background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.02) 100%);
+      border: 1px solid rgba(124,106,239,0.08);
       margin: 4px 0 8px;
+      animation: skelBreathe 2.5s ease-in-out infinite;
     }
     .img-skel::before {
       content: '';
       position: absolute; inset: 0;
       background: linear-gradient(
-        90deg,
+        105deg,
         transparent 0%,
-        rgba(124,106,239,0.06) 30%,
-        rgba(124,106,239,0.1) 50%,
-        rgba(124,106,239,0.06) 70%,
+        transparent 35%,
+        rgba(124,106,239,0.07) 45%,
+        rgba(167,139,250,0.12) 50%,
+        rgba(124,106,239,0.07) 55%,
+        transparent 65%,
         transparent 100%
       );
-      animation: shimmer 1.8s ease-in-out infinite;
+      width: 200%;
+      animation: shimmerSweep 1.6s ease-in-out infinite;
     }
     .img-skel::after {
       content: '';
-      position: absolute; inset: 0;
-      background: radial-gradient(circle at center, rgba(124,106,239,0.08) 0%, transparent 70%);
-      animation: shimmerPulse 2s ease-in-out infinite;
+      position: absolute; inset: -1px;
+      border-radius: 12px;
+      background: conic-gradient(
+        from 0deg,
+        transparent 0%,
+        rgba(124,106,239,0.15) 10%,
+        transparent 20%,
+        transparent 100%
+      );
+      animation: shimmerSpin 3s linear infinite;
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask-composite: exclude;
+      -webkit-mask-composite: xor;
+      padding: 1px;
     }
-    @keyframes shimmer {
-      0% { transform: translateX(-100%); }
-      100% { transform: translateX(100%); }
+    @keyframes shimmerSweep {
+      0% { transform: translateX(-50%); }
+      100% { transform: translateX(0%); }
     }
-    @keyframes shimmerPulse {
-      0%, 100% { opacity: 0.4; }
-      50% { opacity: 1; }
+    @keyframes shimmerSpin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
-    .img-skel-label {
-      position: absolute;
-      bottom: 12px; left: 50%; transform: translateX(-50%);
-      font-size: 11px; color: rgba(228,226,220,0.25);
-      font-family: 'JetBrains Mono', monospace;
-      letter-spacing: 1px; text-transform: uppercase;
-      z-index: 1;
-    }
-    .img-skel-icon {
-      position: absolute;
-      top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 48px; height: 48px;
-      color: rgba(124,106,239,0.2);
-      z-index: 1;
+    @keyframes skelBreathe {
+      0%, 100% { border-color: rgba(124,106,239,0.06); box-shadow: 0 0 0 0 rgba(124,106,239,0); }
+      50% { border-color: rgba(124,106,239,0.15); box-shadow: 0 0 20px -4px rgba(124,106,239,0.08); }
     }
     .img-skel.loaded {
-      animation: skelFadeOut 0.4s ease forwards;
+      animation: skelFadeOut 0.5s ease forwards;
+      border-color: transparent;
     }
     .img-skel.loaded::before,
     .img-skel.loaded::after {
-      animation: none; opacity: 0;
-    }
-    .img-skel.loaded .img-skel-label,
-    .img-skel.loaded .img-skel-icon {
-      opacity: 0; transition: opacity 0.3s;
+      animation: none; opacity: 0; transition: opacity 0.3s;
     }
     .img-skel img {
+      position: relative;
       width: 100%; height: 100%;
       object-fit: cover;
       opacity: 0;
-      transition: opacity 0.5s ease;
+      transition: opacity 0.6s ease;
       border-radius: 12px;
+      z-index: 1;
     }
     .img-skel.loaded img {
       opacity: 1;
     }
     @keyframes skelFadeOut {
       0% { background: rgba(255,255,255,0.03); }
-      100% { background: transparent; border-color: transparent; }
+      100% { background: transparent; }
     }
 
     /* ─── Mobile Orb (FAB) ──────────────────────── */
@@ -2667,14 +2671,6 @@
       if (name === 'generate_image') {
         var skelEl = document.createElement('div');
         skelEl.className = 'img-skel';
-        var skelIcon = document.createElement('div');
-        skelIcon.className = 'img-skel-icon';
-        skelIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
-        skelEl.appendChild(skelIcon);
-        var skelLabel = document.createElement('div');
-        skelLabel.className = 'img-skel-label';
-        skelLabel.textContent = 'Generating';
-        skelEl.appendChild(skelLabel);
         chatMessages.appendChild(skelEl);
         chatMessages.scrollTop = chatMessages.scrollHeight;
         toolCards[id] = {
@@ -2782,8 +2778,7 @@
       // Image generation: only skeleton, no tool card
       if (tc.name === 'generate_image' && tc.skelEl) {
         if (isError) {
-          tc.skelEl.classList.remove('loaded');
-          tc.skelEl.querySelector('.img-skel-label').textContent = 'Failed';
+          tc.skelEl.style.opacity = '0.3';
           delete toolCards[id];
           return;
         }
@@ -2803,10 +2798,10 @@
               chatMessages.scrollTop = chatMessages.scrollHeight;
             };
             img.onerror = function() {
-              tc.skelEl.querySelector('.img-skel-label').textContent = 'Failed to load';
+              tc.skelEl.style.opacity = '0.3';
             };
           } else {
-            tc.skelEl.querySelector('.img-skel-label').textContent = 'No image';
+            tc.skelEl.style.opacity = '0.3';
           }
         }
         delete toolCards[id];

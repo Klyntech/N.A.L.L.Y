@@ -3,25 +3,30 @@
 State machine using LangGraph. ReAct pattern:
 Think -> Use Tool -> Observe -> Think -> ... -> Finish
 """
+
 import difflib
-import glob
 import json
-import os
 import re
 import threading
 import time
-from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from pathlib import Path
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import MemorySaver
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
+
 from langchain_core.messages import (
-    BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage,
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
 )
-from ..tools.registry import registry
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
+
+from ..config import DATABASE_URL, MAX_TOOL_CALLS, ensure_data_dir
+from ..core.errors import LLMError
 from ..tools.permissions import gate as permission_gate
-from ..core.errors import LLMError, ToolError, PermissionDenied
-from ..config import DATABASE_URL, ensure_data_dir, MAX_TOOL_CALLS
+from ..tools.registry import registry
 from ..utils.logger import logger
 
 
@@ -48,12 +53,15 @@ def _compute_file_diff(tool_args: dict) -> Optional[str]:
         old_lines = old_content.splitlines(keepends=True)
         new_lines = new_content.splitlines(keepends=True)
 
-        diff = list(difflib.unified_diff(
-            old_lines, new_lines,
-            fromfile=f"a/{file_path}",
-            tofile=f"b/{file_path}",
-            lineterm="",
-        ))
+        diff = list(
+            difflib.unified_diff(
+                old_lines,
+                new_lines,
+                fromfile=f"a/{file_path}",
+                tofile=f"b/{file_path}",
+                lineterm="",
+            )
+        )
 
         if not diff:
             return None
@@ -81,6 +89,7 @@ def _should_skip(p: Path) -> bool:
 def _snapshot_project_files() -> dict:
     """Snapshot mtimes + content of tracked files in the project. Returns {path: (mtime, content)}."""
     from ..config import BASE_DIR
+
     snap = {}
     try:
         for p in BASE_DIR.rglob("*"):
@@ -97,6 +106,7 @@ def _snapshot_project_files() -> dict:
 def _diff_snapshots(before: dict) -> list:
     """Compare current files against before snapshot. Returns list of (filepath, diff_text)."""
     from ..config import BASE_DIR
+
     results = []
     try:
         for p in BASE_DIR.rglob("*"):
@@ -107,19 +117,28 @@ def _diff_snapshots(before: dict) -> list:
                     new_content = p.read_text(encoding="utf-8")
                     if old is None:
                         # New file
-                        diff = list(difflib.unified_diff(
-                            [], new_content.splitlines(keepends=True),
-                            fromfile=f"a/{fp}", tofile=f"b/{fp}", lineterm="",
-                        ))
+                        diff = list(
+                            difflib.unified_diff(
+                                [],
+                                new_content.splitlines(keepends=True),
+                                fromfile=f"a/{fp}",
+                                tofile=f"b/{fp}",
+                                lineterm="",
+                            )
+                        )
                         if diff:
                             results.append((fp, "".join(diff)))
                     elif old[0] != p.stat().st_mtime:
                         # Modified file
-                        diff = list(difflib.unified_diff(
-                            old[1].splitlines(keepends=True),
-                            new_content.splitlines(keepends=True),
-                            fromfile=f"a/{fp}", tofile=f"b/{fp}", lineterm="",
-                        ))
+                        diff = list(
+                            difflib.unified_diff(
+                                old[1].splitlines(keepends=True),
+                                new_content.splitlines(keepends=True),
+                                fromfile=f"a/{fp}",
+                                tofile=f"b/{fp}",
+                                lineterm="",
+                            )
+                        )
                         if diff:
                             results.append((fp, "".join(diff)))
                 except (PermissionError, OSError, UnicodeDecodeError):
@@ -149,11 +168,13 @@ def _parse_text_tool_calls(text: str) -> tuple:
             name = parsed.get("name", "")
             args = parsed.get("args", {})
             if name:
-                tool_calls.append({
-                    "id": f"tc_{name}_{len(tool_calls)}",
-                    "name": name,
-                    "args": args if isinstance(args, dict) else {},
-                })
+                tool_calls.append(
+                    {
+                        "id": f"tc_{name}_{len(tool_calls)}",
+                        "name": name,
+                        "args": args if isinstance(args, dict) else {},
+                    }
+                )
         except json.JSONDecodeError:
             continue
     cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL).strip()
@@ -168,11 +189,14 @@ _RETRYABLE_CODES = {"500", "502", "503", "429"}
 # ── Thread-local state ────────────────────────────────────
 _tlocal = threading.local()
 
+
 def _get_emit():
     return getattr(_tlocal, "emit", None)
 
+
 def _set_emit(emit):
     _tlocal.emit = emit
+
 
 # ── Approval gate ─────────────────────────────────────────
 _approval_events: Dict[str, threading.Event] = {}
@@ -214,11 +238,13 @@ def _convert_to_openai(messages: List[BaseMessage]) -> List[dict]:
                 ]
             openai_messages.append(msg_dict)
         elif isinstance(msg, ToolMessage):
-            openai_messages.append({
-                "role": "tool",
-                "tool_call_id": msg.tool_call_id,
-                "content": msg.content,
-            })
+            openai_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": msg.tool_call_id,
+                    "content": msg.content,
+                }
+            )
     return openai_messages
 
 
@@ -265,9 +291,7 @@ def _stream_with_emit(llm_client, openai_messages, tools, cache_key, emit):
             }
             for tc in collected_tool_calls
         ]
-        assistant_msg = ChatCompletionMessage(
-            role="assistant", content=full_content or "", tool_calls=tc_list
-        )
+        assistant_msg = ChatCompletionMessage(role="assistant", content=full_content or "", tool_calls=tc_list)
     else:
         assistant_msg = ChatCompletionMessage(role="assistant", content=full_content)
 
@@ -294,9 +318,7 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit):
                         emit("stream_done", {})
                     except Exception:
                         pass
-            response = llm_client.chat(
-                openai_messages, tools=tools if tools else None, cache_key=cache_key
-            )
+            response = llm_client.chat(openai_messages, tools=tools if tools else None, cache_key=cache_key)
             return response
 
         except Exception as e:
@@ -306,8 +328,7 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit):
             if attempt < _MAX_RETRIES - 1 and is_retryable:
                 wait = min(2 ** (attempt + 1), 15)
                 logger.warning(
-                    f"LLM call failed (attempt {attempt + 1}/{_MAX_RETRIES}), "
-                    f"retrying in {wait}s: {str(e)[:80]}"
+                    f"LLM call failed (attempt {attempt + 1}/{_MAX_RETRIES}), retrying in {wait}s: {str(e)[:80]}"
                 )
                 time.sleep(wait)
             else:
@@ -347,17 +368,21 @@ def llm_call(state: AgentState) -> AgentState:
         logger.warning(f"Circuit breaker: {tool_calls_total} total tool calls, stopping agent")
         # Make one final LLM call to summarize findings — no tools, no recursion
         try:
-            summary_msgs = _convert_to_openai(messages) + [{
-                "role": "system",
-                "content": (
-                    "You have reached the maximum number of tool calls. "
-                    "Do NOT call any more tools. Instead, summarize everything you have found so far "
-                    "based on the conversation history and tool results. Be thorough and specific — "
-                    "reference actual findings, not generic placeholders."
-                ),
-            }]
+            summary_msgs = _convert_to_openai(messages) + [
+                {
+                    "role": "system",
+                    "content": (
+                        "You have reached the maximum number of tool calls. "
+                        "Do NOT call any more tools. Instead, summarize everything you have found so far "
+                        "based on the conversation history and tool results. Be thorough and specific — "
+                        "reference actual findings, not generic placeholders."
+                    ),
+                }
+            ]
             response = llm.chat(summary_msgs, tools=None, cache_key=cache_key)
-            summary = response.choices[0].message.content or "I've reached the tool call limit. Here's what I found so far."
+            summary = (
+                response.choices[0].message.content or "I've reached the tool call limit. Here's what I found so far."
+            )
         except Exception as e:
             logger.warning(f"Circuit breaker summary call failed: {e}")
             summary = "I've reached the maximum number of tool calls. Please try again or rephrase your request."
@@ -396,6 +421,7 @@ def llm_call(state: AgentState) -> AgentState:
             assistant_msg.content = cleaned_text
             from openai.types.chat.chat_completion_message import ChatCompletionMessageToolCall
             from openai.types.chat.chat_completion_message_function import Function
+
             assistant_msg.tool_calls = [
                 ChatCompletionMessageToolCall(
                     id=tc["id"],
@@ -422,12 +448,15 @@ def llm_call(state: AgentState) -> AgentState:
     if emit and assistant_msg.tool_calls:
         for tc in assistant_msg.tool_calls:
             try:
-                emit("tool_call", {
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "args": json.loads(tc.function.arguments) if tc.function.arguments else {},
-                    "iteration": iteration + 1,
-                })
+                emit(
+                    "tool_call",
+                    {
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "args": json.loads(tc.function.arguments) if tc.function.arguments else {},
+                        "iteration": iteration + 1,
+                    },
+                )
             except Exception:
                 pass
 
@@ -522,7 +551,7 @@ def tool_executor(state: AgentState) -> AgentState:
         try:
             result = registry.execute(tool_name, tool_args)
         except Exception as e:
-            result = f"Error executing {tool_name}: {str(e)}"
+            result = f"Error executing {tool_name}: {e!s}"
             logger.error_with_context(f"Tool {tool_name} failed", e)
 
         duration = (time.time() - start) * 1000
@@ -540,10 +569,16 @@ def tool_executor(state: AgentState) -> AgentState:
 
         if emit:
             try:
+                result_str = str(result)
+                if len(result_str) > 500:
+                    if "IMAGE_FILE:" in result_str:
+                        result_str = "..." + result_str[-497:]
+                    else:
+                        result_str = result_str[:500]
                 payload = {
                     "tool_call_id": tool_id,
                     "name": tool_name,
-                    "result": str(result)[:500],
+                    "result": result_str,
                     "duration_ms": round(duration),
                     "success": not str(result).startswith("Error"),
                 }
@@ -564,9 +599,7 @@ def tool_executor(state: AgentState) -> AgentState:
                 tool_messages.append(future.result())
             except Exception as e:
                 tc = futures[future]
-                tool_messages.append(ToolMessage(
-                    content=f"Error: {str(e)}", tool_call_id=tc["id"]
-                ))
+                tool_messages.append(ToolMessage(content=f"Error: {e!s}", tool_call_id=tc["id"]))
 
     return {
         "messages": tool_messages,
@@ -601,7 +634,9 @@ def _create_checkpointer():
     if DATABASE_URL:
         try:
             import sqlite3
+
             from langgraph.checkpoint.sqlite import SqliteSaver
+
             conn = sqlite3.connect(DATABASE_URL, check_same_thread=False)
             logger.info(f"Using database checkpointer: {DATABASE_URL}")
             return SqliteSaver(conn)
@@ -610,9 +645,12 @@ def _create_checkpointer():
 
     try:
         import sqlite3
+
         from langgraph.checkpoint.sqlite import SqliteSaver
+
         ensure_data_dir()
         from ..config import DATA_DIR
+
         db_path = str(DATA_DIR / "checkpoints.db")
         conn = sqlite3.connect(db_path, check_same_thread=False)
         logger.info(f"Using local SQLite checkpointer: {db_path}")
@@ -671,9 +709,7 @@ def run_agent(
             tool_calls = msg.get("tool_calls", [])
             lc_messages.append(AIMessage(content=content, tool_calls=tool_calls))
         elif role == "tool":
-            lc_messages.append(ToolMessage(
-                content=content, tool_call_id=msg.get("tool_call_id", "")
-            ))
+            lc_messages.append(ToolMessage(content=content, tool_call_id=msg.get("tool_call_id", "")))
 
     _set_emit(emit)
     config = {"configurable": {"thread_id": thread_id}}

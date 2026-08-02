@@ -1,14 +1,14 @@
 """Nally Logging System"""
+
+import io
 import logging
 import logging.handlers
 import sys
-import io
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Fix Windows console encoding for emoji/unicode (only if not already wrapped)
-if sys.platform == "win32" and hasattr(sys.stdout, 'buffer') and not isinstance(sys.stdout, io.TextIOWrapper):
+if sys.platform == "win32" and hasattr(sys.stdout, "buffer") and not isinstance(sys.stdout, io.TextIOWrapper):
     try:
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
@@ -43,9 +43,7 @@ class NallyLogger:
                 logfile, maxBytes=1_000_000, backupCount=7, encoding="utf-8"
             )
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(
-                logging.Formatter("%(asctime)s | %(levelname)-8s | %(message)s")
-            )
+            file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)-8s | %(message)s"))
             self.logger.addHandler(file_handler)
         except Exception:
             # Log to console only if file logging fails

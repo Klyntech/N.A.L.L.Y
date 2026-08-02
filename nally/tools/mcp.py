@@ -1,5 +1,7 @@
 """MCP Status Tool — shows configured MCP servers and their connection status."""
+
 import os
+
 from .registry import Tool
 
 
@@ -12,7 +14,7 @@ class McpStatus(Tool):
         )
 
     def execute(self, **kwargs) -> str:
-        from ..config import MCP_SERVERS, DATA_DIR
+        from ..config import DATA_DIR, MCP_SERVERS
 
         db = str(DATA_DIR / "nally.db")
 
@@ -25,9 +27,7 @@ class McpStatus(Tool):
         for server in MCP_SERVERS:
             name = server["name"]
             transport = server.get("transport", "stdio")
-            auth_mode = server.get("auth_mode", "")
             permission = server.get("permission", "safe")
-            description = server.get("description", "")
 
             # Determine connection status
             status = _check_status(server, db, mcp_registry)
@@ -59,8 +59,10 @@ def _check_status(server: dict, db: str, mcp_registry) -> str:
         if auth_mode == "oauth":
             # Check if tokens exist in DB
             try:
-                from ..mcp.oauth import get_existing_tokens
                 import asyncio
+
+                from ..mcp.oauth import get_existing_tokens
+
                 tokens = asyncio.run(get_existing_tokens(name, db))
                 if tokens:
                     return "Token stored (tools not loaded)"

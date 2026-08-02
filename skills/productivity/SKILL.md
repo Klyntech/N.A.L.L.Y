@@ -20,25 +20,25 @@ Quick helper skills: regex, templates, explanations.
 **Common Patterns:**
 ```python
 # Email (simplified)
-r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
 # Phone (US)
-r'^\+?1?\d{10,14}$'
+r"^\+?1?\d{10,14}$"
 
 # URL
-r'^https?://[^\s/$.?#].[^\s]*$'
+r"^https?://[^\s/$.?#].[^\s]*$"
 
 # IP Address (v4)
-r'^(\d{1,3}\.){3}\d{1,3}$'
+r"^(\d{1,3}\.){3}\d{1,3}$"
 
 # Date (YYYY-MM-DD)
-r'^\d{4}-\d{2}-\d{2}$'
+r"^\d{4}-\d{2}-\d{2}$"
 
 # Hex Color
-r'^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$'
+r"^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
 
 # Slug
-r'^[a-z0-9]+(?:-[a-z0-9]+)*$'
+r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 ```
 
 **Anchors & Quantifiers:**
@@ -71,12 +71,12 @@ $       end of string
 ```python
 import re
 
-pattern = r'^\d{3}-\d{4}$'
-test_cases = ['123-4567', '12-3456', '1234-567', 'abc-defg']
+pattern = r"^\d{3}-\d{4}$"
+test_cases = ["123-4567", "12-3456", "1234-567", "abc-defg"]
 
 for test in test_cases:
     match = re.fullmatch(pattern, test)
-    print(f'{test}: {"✓" if match else "✗"}')
+    print(f"{test}: {'✓' if match else '✗'}")
 ```
 
 ## Concept Explainer

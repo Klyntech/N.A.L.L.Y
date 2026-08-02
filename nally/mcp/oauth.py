@@ -6,20 +6,18 @@ and provides OAuthClientProvider instances for the MCP SDK.
 Includes RFC 9470/8414 OAuth discovery for Notion MCP and
 SQLite-backed PKCE state persistence to survive server restarts.
 """
+
 import asyncio
 import base64
 import hashlib
-import json
 import logging
 import os
 import secrets
 import sqlite3
 import time
-from pathlib import Path
-from typing import Any
 
 import httpx
-from mcp.client.auth.oauth2 import OAuthClientProvider, TokenStorage
+from mcp.client.auth.oauth2 import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 logger = logging.getLogger("nally.mcp.oauth")
@@ -270,9 +268,7 @@ _pending_pkce: dict[str, dict] = {}
 def generate_pkce() -> tuple[str, str]:
     """Generate PKCE code_verifier and code_challenge (S256)."""
     code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-    code_challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode()).digest()
-    ).rstrip(b"=").decode()
+    code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b"=").decode()
     return code_verifier, code_challenge
 
 
@@ -299,9 +295,9 @@ def _ensure_state_table(db_path: str):
     conn.close()
 
 
-def save_oauth_state(db_path: str, service: str, code_verifier: str,
-                     client_id: str, state: str, token_endpoint: str,
-                     auth_endpoint: str) -> None:
+def save_oauth_state(
+    db_path: str, service: str, code_verifier: str, client_id: str, state: str, token_endpoint: str, auth_endpoint: str
+) -> None:
     """Persist OAuth state to SQLite so it survives server restarts."""
     _ensure_state_table(db_path)
     conn = sqlite3.connect(db_path)
@@ -424,14 +420,18 @@ async def start_notion_oauth(db_path: str) -> str:
 
     # Dynamic Client Registration
     async with httpx.AsyncClient() as client:
-        resp = await client.post(register_endpoint, json={
-            "client_name": "Nally",
-            "client_uri": "http://localhost:5000",
-            "redirect_uris": [NOTION_REDIRECT_URI],
-            "grant_types": ["authorization_code", "refresh_token"],
-            "response_types": ["code"],
-            "token_endpoint_auth_method": "none",
-        }, timeout=15.0)
+        resp = await client.post(
+            register_endpoint,
+            json={
+                "client_name": "Nally",
+                "client_uri": "http://localhost:5000",
+                "redirect_uris": [NOTION_REDIRECT_URI],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+            },
+            timeout=15.0,
+        )
         if resp.status_code not in (200, 201):
             logger.error(f"Notion DCR failed: {resp.status_code} {resp.text[:500]}")
             raise ValueError(f"Notion client registration failed ({resp.status_code}): {resp.text[:200]}")
@@ -449,11 +449,11 @@ async def start_notion_oauth(db_path: str) -> str:
         "auth_endpoint": auth_endpoint,
     }
     _pending_pkce["notion"] = state_entry
-    save_oauth_state(db_path, "notion", code_verifier, client_id, state,
-                     token_endpoint, auth_endpoint)
+    save_oauth_state(db_path, "notion", code_verifier, client_id, state, token_endpoint, auth_endpoint)
 
     # Build authorization URL
     from urllib.parse import urlencode
+
     params = {
         "response_type": "code",
         "client_id": client_id,
@@ -483,13 +483,17 @@ async def exchange_notion_code(code: str, db_path: str) -> bool:
     token_endpoint = state_data.get("token_endpoint", NOTION_TOKEN_ENDPOINT_FALLBACK)
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(token_endpoint, data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": state_data["client_id"],
-            "redirect_uri": NOTION_REDIRECT_URI,
-            "code_verifier": state_data["code_verifier"],
-        }, timeout=15.0)
+        resp = await client.post(
+            token_endpoint,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": state_data["client_id"],
+                "redirect_uri": NOTION_REDIRECT_URI,
+                "code_verifier": state_data["code_verifier"],
+            },
+            timeout=15.0,
+        )
 
         if resp.status_code != 200:
             logger.error(f"Notion token exchange failed: {resp.status_code} {resp.text[:500]}")
@@ -565,6 +569,7 @@ async def start_google_oauth(service: str, db_path: str) -> str:
     }
 
     from urllib.parse import urlencode
+
     params = {
         "response_type": "code",
         "client_id": client_id,
@@ -593,14 +598,18 @@ async def exchange_google_code(code: str, db_path: str) -> bool:
     _, client_secret = creds
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(GOOGLE_TOKEN_ENDPOINT, data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": state_data["client_id"],
-            "client_secret": client_secret,
-            "redirect_uri": GOOGLE_REDIRECT_URI,
-            "code_verifier": state_data["code_verifier"],
-        }, timeout=15.0)
+        resp = await client.post(
+            GOOGLE_TOKEN_ENDPOINT,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": state_data["client_id"],
+                "client_secret": client_secret,
+                "redirect_uri": GOOGLE_REDIRECT_URI,
+                "code_verifier": state_data["code_verifier"],
+            },
+            timeout=15.0,
+        )
 
         if resp.status_code != 200:
             logger.error(f"Google token exchange failed: {resp.status_code} {resp.text}")

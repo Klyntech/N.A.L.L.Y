@@ -1,7 +1,8 @@
 """Nally Tools Package - Core tool registry"""
-import json
-from .registry import registry, Tool
 
+import json
+
+from .registry import Tool, registry
 
 _loaded = False
 
@@ -16,37 +17,45 @@ def load_all_tools():
 
         # --- System (2 tools) ---
         from .system import RunCommand, SystemHealth
+
         registry.register(RunCommand())
         registry.register(SystemHealth())
 
         # --- MCP Status (1 tool) ---
         from .mcp import McpStatus
+
         registry.register(McpStatus())
 
         # --- Files (2 tools) ---
-        from .files import ReadFile, FileOps
+        from .files import FileOps, ReadFile
+
         registry.register(ReadFile())
         registry.register(FileOps())
 
         # --- Code (2 tools) ---
-        from .code import RunCode, CodeAnalysis
+        from .code import CodeAnalysis, RunCode
+
         registry.register(RunCode())
         registry.register(CodeAnalysis())
 
         # --- Web Search (1 tool) ---
         from .websearch import WebSearch
+
         registry.register(WebSearch())
 
         # --- Image Generation (1 tool) ---
         from .imagegen import ImageGen
+
         registry.register(ImageGen())
 
         # --- Gmail Direct (4 tools — bypasses broken MCP server) ---
         from . import gmail
+
         gmail.register()
 
         # --- Memory (3 tools) ---
-    from ..memory.store_v2 import memory_v2 as mem_store, memory_tools_v2 as mem_tools
+    from ..memory.store_v2 import memory_tools_v2 as mem_tools
+    from ..memory.store_v2 import memory_v2 as mem_store
 
     for tool_def in mem_tools.to_tool_list():
         func = tool_def["function"]
@@ -104,7 +113,11 @@ def load_all_tools():
                                 lines.append(f"Preferred name: {result['preferred_name']}")
                             if result.get("aliases"):
                                 try:
-                                    aliases = json.loads(result["aliases"]) if isinstance(result["aliases"], str) else result["aliases"]
+                                    aliases = (
+                                        json.loads(result["aliases"])
+                                        if isinstance(result["aliases"], str)
+                                        else result["aliases"]
+                                    )
                                     lines.append(f"Also known as: {', '.join(aliases)}")
                                 except (json.JSONDecodeError, TypeError):
                                     pass
@@ -120,7 +133,11 @@ def load_all_tools():
                                 lines.append(f"Timezone: {result['timezone']}")
                             if result.get("languages_spoken"):
                                 try:
-                                    langs = json.loads(result["languages_spoken"]) if isinstance(result["languages_spoken"], str) else result["languages_spoken"]
+                                    langs = (
+                                        json.loads(result["languages_spoken"])
+                                        if isinstance(result["languages_spoken"], str)
+                                        else result["languages_spoken"]
+                                    )
                                     lines.append(f"Languages: {', '.join(langs)}")
                                 except (json.JSONDecodeError, TypeError):
                                     pass
@@ -128,25 +145,41 @@ def load_all_tools():
                                 lines.append(f"Coding level: {result['coding_level']}")
                             if result.get("coding_languages"):
                                 try:
-                                    langs = json.loads(result["coding_languages"]) if isinstance(result["coding_languages"], str) else result["coding_languages"]
+                                    langs = (
+                                        json.loads(result["coding_languages"])
+                                        if isinstance(result["coding_languages"], str)
+                                        else result["coding_languages"]
+                                    )
                                     lines.append(f"Coding languages: {', '.join(langs)}")
                                 except (json.JSONDecodeError, TypeError):
                                     pass
                             if result.get("projects"):
                                 try:
-                                    proj = json.loads(result["projects"]) if isinstance(result["projects"], str) else result["projects"]
+                                    proj = (
+                                        json.loads(result["projects"])
+                                        if isinstance(result["projects"], str)
+                                        else result["projects"]
+                                    )
                                     lines.append(f"Projects: {', '.join(proj)}")
                                 except (json.JSONDecodeError, TypeError):
                                     pass
                             if result.get("goals"):
                                 try:
-                                    goals = json.loads(result["goals"]) if isinstance(result["goals"], str) else result["goals"]
+                                    goals = (
+                                        json.loads(result["goals"])
+                                        if isinstance(result["goals"], str)
+                                        else result["goals"]
+                                    )
                                     lines.append(f"Goals: {', '.join(goals)}")
                                 except (json.JSONDecodeError, TypeError):
                                     pass
                             if result.get("interests"):
                                 try:
-                                    interests = json.loads(result["interests"]) if isinstance(result["interests"], str) else result["interests"]
+                                    interests = (
+                                        json.loads(result["interests"])
+                                        if isinstance(result["interests"], str)
+                                        else result["interests"]
+                                    )
                                     lines.append(f"Interests: {', '.join(interests)}")
                                 except (json.JSONDecodeError, TypeError):
                                     pass
@@ -201,10 +234,12 @@ def load_all_tools():
 
     # --- One-time profile migration ---
     from ..memory.store import migrate_profile
+
     migrate_profile(mem_store)
 
     # --- SubAgents (1 tool) ---
     from ..subagent.tools import register_tools as register_subagent_tools
+
     register_subagent_tools()
 
     # --- Load user plugins ---
@@ -214,7 +249,8 @@ def load_all_tools():
 
     # --- Connect MCP servers (runs every call, retries if previous timed out) ---
     from ..mcp.client import connect_mcp_servers
+
     connect_mcp_servers(registry)
 
 
-__all__ = ["registry", "Tool", "load_all_tools"]
+__all__ = ["Tool", "load_all_tools", "registry"]

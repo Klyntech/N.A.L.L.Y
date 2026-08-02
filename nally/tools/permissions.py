@@ -20,7 +20,7 @@ Usage:
 
 import json
 import re
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 
@@ -29,8 +29,9 @@ from ..core.errors import PermissionDenied
 from ..utils.logger import logger
 
 
-class PermissionDecision(str, Enum):
+class PermissionDecision(StrEnum):
     """Outcome of a permission check."""
+
     ALLOW = "allow"
     ASK = "ask"
     DENY = "deny"
@@ -112,7 +113,7 @@ class PermissionGate:
         assert self._config is not None
 
         # Check skill overrides first — active skills grant their allowed-tools
-        for skill_name, allowed_tools in self._skill_overrides.items():
+        for _skill_name, allowed_tools in self._skill_overrides.items():
             if tool_name in allowed_tools:
                 return PermissionDecision.ALLOW
 
@@ -188,6 +189,7 @@ gate = PermissionGate()
 
 
 # ── Backward-compatible functions ──────────────────────────
+
 
 def check(tool_name: str, tool_args: dict) -> str:
     """Check permission. Returns "allow", "ask", or "deny" as strings."""

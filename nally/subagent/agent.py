@@ -1,11 +1,10 @@
 """SubAgent - An autonomous sub-agent with its own LLM session, tools, and message history"""
-import json
+
 import threading
-import time
 import uuid
-from typing import Optional, Callable, List, Dict, Any
 from datetime import datetime
-from ..agent.llm import llm
+from typing import Callable, Dict, List, Optional
+
 from ..tools.registry import registry
 from ..utils.logger import logger
 
@@ -14,6 +13,7 @@ def _get_filtered_tools(query: str) -> List[Dict]:
     """Get tool schemas filtered for the given query."""
     try:
         from ..tools.filter import tool_filter
+
         if not tool_filter._ready:
             tool_filter.build_index(registry.tools)
         return tool_filter.select(query)
@@ -55,9 +55,7 @@ class SubAgent:
         """Start the sub-agent in its own thread."""
         if emit:
             self._emit = emit
-        self._thread = threading.Thread(
-            target=self._run, daemon=True, name=f"SubAgent-{self.id}"
-        )
+        self._thread = threading.Thread(target=self._run, daemon=True, name=f"SubAgent-{self.id}")
         self._thread.start()
 
     def _run(self):
@@ -65,23 +63,31 @@ class SubAgent:
         with self._lock:
             self.status = "running"
 
-        self._emit_event("subagent_status", {
-            "id": self.id, "goal": self.goal, "status": "running",
-        })
+        self._emit_event(
+            "subagent_status",
+            {
+                "id": self.id,
+                "goal": self.goal,
+                "status": "running",
+            },
+        )
 
         self.messages = [
-            {"role": "system", "content": (
-                f"You are a focused sub-agent. Your sole goal is:\n{self.goal}\n\n"
-                f"Context:\n{self.context}\n\n"
-                "OUTPUT FORMAT: End your response with a structured summary in this exact format:\n"
-                "---RESULT---\n"
-                "STATUS: success|failure|partial\n"
-                "SUMMARY: [one-line summary]\n"
-                "FILES_CHANGED: [comma-separated list or \"none\"]\n"
-                "KEY_FINDINGS: [bullet points or \"none\"]\n"
-                "---END---\n\n"
-                "Complete your goal using the available tools. Be concise. NO EMOJIS."
-            )},
+            {
+                "role": "system",
+                "content": (
+                    f"You are a focused sub-agent. Your sole goal is:\n{self.goal}\n\n"
+                    f"Context:\n{self.context}\n\n"
+                    "OUTPUT FORMAT: End your response with a structured summary in this exact format:\n"
+                    "---RESULT---\n"
+                    "STATUS: success|failure|partial\n"
+                    "SUMMARY: [one-line summary]\n"
+                    'FILES_CHANGED: [comma-separated list or "none"]\n'
+                    'KEY_FINDINGS: [bullet points or "none"]\n'
+                    "---END---\n\n"
+                    "Complete your goal using the available tools. Be concise. NO EMOJIS."
+                ),
+            },
             {"role": "user", "content": self.goal},
         ]
 
@@ -92,10 +98,15 @@ class SubAgent:
                 self.status = "completed"
                 self.completed_at = datetime.now().isoformat()
 
-            self._emit_event("subagent_result", {
-                "id": self.id, "goal": self.goal,
-                "result": result[:500], "steps": self.steps_taken,
-            })
+            self._emit_event(
+                "subagent_result",
+                {
+                    "id": self.id,
+                    "goal": self.goal,
+                    "result": result[:500],
+                    "steps": self.steps_taken,
+                },
+            )
             logger.debug(f"SubAgent {self.id} completed: {result[:100]}")
 
         except Exception as e:
@@ -104,9 +115,14 @@ class SubAgent:
                 self.status = "failed"
                 self.completed_at = datetime.now().isoformat()
 
-            self._emit_event("subagent_error", {
-                "id": self.id, "goal": self.goal, "error": str(e),
-            })
+            self._emit_event(
+                "subagent_error",
+                {
+                    "id": self.id,
+                    "goal": self.goal,
+                    "error": str(e),
+                },
+            )
             logger.error(f"SubAgent {self.id} failed: {e}")
 
     def _agent_loop(self) -> str:
@@ -117,9 +133,14 @@ class SubAgent:
         selected_names = [t["function"]["name"] for t in tools]
         logger.debug(f"SubAgent {self.id}: selected {len(tools)} tools: {selected_names}")
 
-        self._emit_event("subagent_status", {
-            "id": self.id, "status": "thinking", "tools": selected_names,
-        })
+        self._emit_event(
+            "subagent_status",
+            {
+                "id": self.id,
+                "status": "thinking",
+                "tools": selected_names,
+            },
+        )
 
         return run_agent(
             messages=self.messages,

@@ -4,10 +4,12 @@ Each session (web, Telegram DM, Telegram group) gets its own agent with
 isolated conversation history and LangGraph thread. Memory (facts/episodes)
 stays global across sessions.
 """
+
 import threading
-from typing import Optional, Callable, Dict
-from .core import NallyAgent
+from typing import Callable, Dict, Optional
+
 from ..utils.logger import logger
+from .core import NallyAgent
 
 
 class AgentSessionManager:

@@ -9,6 +9,7 @@ Usage:
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # ── Load .env (no side effects) ───────────────────────────
@@ -435,6 +436,7 @@ def get_system_prompt(personality=None, user_context=None):
     # Level 1 skill manifest: inject skill names + descriptions
     try:
         from nally.skills.loader import get_skill_manifest
+
         skill_manifest = get_skill_manifest()
         if skill_manifest:
             prompt += f"\n\n{skill_manifest}\n\nWhen a task matches a skill description, activate that skill for structured guidance. Do not mention the skill system to the user.\n\nIMPORTANT: The skill list above is ALWAYS current. When asked about your skills or capabilities, use ONLY this list from the system prompt — never rely on conversation history which may be outdated."

@@ -1,9 +1,10 @@
 """Skill registry — manages skill state, hot-swap, and activation."""
+
 import logging
 from pathlib import Path
 from typing import Optional
 
-from .loader import load_skills, get_skill_manifest, activate_skill, Skill, SKILLS_DIR
+from .loader import SKILLS_DIR, Skill, get_skill_manifest, load_skills
 
 logger = logging.getLogger("nally.skills")
 
@@ -71,8 +72,7 @@ class SkillRegistry:
         matches.sort(key=lambda x: x[1], reverse=True)
         return [m[0] for m in matches]
 
-    def create_skill(self, name: str, description: str, body: str,
-                     skills_dir: Optional[Path] = None) -> bool:
+    def create_skill(self, name: str, description: str, body: str, skills_dir: Optional[Path] = None) -> bool:
         """Create a new skill from a successful workflow (self-creation)."""
         skills_dir = skills_dir or SKILLS_DIR
         skill_dir = skills_dir / name

@@ -1,14 +1,13 @@
 """Nally Core Agent - The Brain"""
-import json
-import os
-import re
-import time
-import threading
-from typing import List, Optional, Callable
 
-from ..config import get_system_prompt, SESSION_ID, ACTIVE_MODEL, MAX_ITERATIONS_PER_TURN
-from ..core.errors import NallyError, LLMError, ToolError
-from ..memory.store_v2 import memory_v2 as memory_store, memory_tools_v2
+import re
+import threading
+import time
+from typing import Callable, List, Optional
+
+from ..config import MAX_ITERATIONS_PER_TURN, SESSION_ID, get_system_prompt
+from ..core.errors import LLMError, NallyError
+from ..memory.store_v2 import memory_v2 as memory_store
 from ..utils.logger import logger
 from .router import matcher
 
@@ -17,18 +16,18 @@ def _strip_emojis(text: str) -> str:
     """Remove emojis and special unicode symbols from text"""
     emoji_pattern = re.compile(
         "["
-        "\U0001F600-\U0001F64F"
-        "\U0001F300-\U0001F5FF"
-        "\U0001F680-\U0001F6FF"
-        "\U0001F1E0-\U0001F1FF"
-        "\U00002702-\U000027B0"
-        "\U000024C2-\U0001F251"
+        "\U0001f600-\U0001f64f"
+        "\U0001f300-\U0001f5ff"
+        "\U0001f680-\U0001f6ff"
+        "\U0001f1e0-\U0001f1ff"
+        "\U00002702-\U000027b0"
+        "\U000024c2-\U0001f251"
         "\U0001f926-\U0001f937"
         "\U00010000-\U0010ffff"
         "\u200d"
         "\ufe0f"
         "\u2640-\u2642"
-        "\u2600-\u2B55"
+        "\u2600-\u2b55"
         "\u23cf"
         "\u23e9"
         "\u231a"
@@ -44,7 +43,7 @@ def _strip_emojis(text: str) -> str:
 def _capitalize_sentences(text: str) -> str:
     """Capitalize the first letter of every sentence."""
     return re.sub(
-        r'(^|[.!?]\s+)([a-z])',
+        r"(^|[.!?]\s+)([a-z])",
         lambda m: m.group(1) + m.group(2).upper(),
         text,
     )
@@ -130,9 +129,7 @@ class NallyAgent:
 
         system_content = get_system_prompt(user_context=user_context)
 
-        self.messages = [
-            {"role": "system", "content": system_content, "cache_control": {"type": "ephemeral"}}
-        ]
+        self.messages = [{"role": "system", "content": system_content, "cache_control": {"type": "ephemeral"}}]
 
     def _load_history(self):
         """Load conversation history from database on startup."""
@@ -186,7 +183,7 @@ class NallyAgent:
                     result = e.to_llm_format()
                 except Exception as e:
                     logger.error_with_context("Local handler error", e)
-                    result = f"Error: {str(e)}"
+                    result = f"Error: {e!s}"
 
                 if result == "__EXIT__":
                     self._save_history()
@@ -203,9 +200,9 @@ class NallyAgent:
 
     def _llm_process(self, user_input: str, emit: Optional[Callable] = None) -> str:
         """Process using LLM with LangGraph agent loop."""
-        from .graph import run_agent
-        from .context import context_manager
         from ..tools.registry import registry
+        from .context import context_manager
+        from .graph import run_agent
 
         start = time.time()
 
@@ -213,9 +210,9 @@ class NallyAgent:
 
         # Skill activation (Level 2): check if a skill matches this request
         try:
-            from ..skills.loader import activate_skill
             from ..skills.registry import skill_registry
             from ..tools.permissions import gate as perm_gate
+
             if not skill_registry._loaded:
                 skill_registry.load()
             matched = skill_registry.find_by_intent(user_input)
@@ -223,10 +220,12 @@ class NallyAgent:
                 skill_body = skill_registry.activate(matched[0])
                 skill_obj = skill_registry.get(matched[0])
                 if skill_body:
-                    self.messages.append({
-                        "role": "system",
-                        "content": f"[SKILL ACTIVATED: {matched[0]}]\n\n{skill_body}\n\nFollow these instructions for this task."
-                    })
+                    self.messages.append(
+                        {
+                            "role": "system",
+                            "content": f"[SKILL ACTIVATED: {matched[0]}]\n\n{skill_body}\n\nFollow these instructions for this task.",
+                        }
+                    )
                     # Grant skill's allowed-tools temporarily
                     if skill_obj and skill_obj.allowed_tools:
                         perm_gate.set_skill_overrides(matched[0], skill_obj.allowed_tools)
@@ -256,21 +255,40 @@ class NallyAgent:
             return True
 
         # Auto-inject design skills for code/creative tasks (skip for questions)
-        _CODE_KEYWORDS = ["create", "build", "make", "design", "frontend", "website", "page",
-                          "html", "css", "javascript", "component", "landing", "ui", "interface",
-                          "layout", "page", "form", "dashboard", "app", "template"]
+        _CODE_KEYWORDS = [
+            "create",
+            "build",
+            "make",
+            "design",
+            "frontend",
+            "website",
+            "page",
+            "html",
+            "css",
+            "javascript",
+            "component",
+            "landing",
+            "ui",
+            "interface",
+            "layout",
+            "page",
+            "form",
+            "dashboard",
+            "app",
+            "template",
+        ]
         if _is_creation_request(user_input) and any(kw in user_input.lower() for kw in _CODE_KEYWORDS):
             try:
                 from ..skills.registry import skill_registry
+
                 if not skill_registry._loaded:
                     skill_registry.load()
                 for skill_name in ["ui-design", "design-system"]:
                     body = skill_registry.get_skill_content(skill_name)
                     if body:
-                        self.messages.insert(1, {
-                            "role": "system",
-                            "content": f"[SKILL REFERENCE: {skill_name}]\n\n{body}"
-                        })
+                        self.messages.insert(
+                            1, {"role": "system", "content": f"[SKILL REFERENCE: {skill_name}]\n\n{body}"}
+                        )
             except Exception:
                 pass
 
@@ -281,6 +299,7 @@ class NallyAgent:
         # Build tool set
         try:
             from ..tools.filter import tool_filter
+
             if not tool_filter._ready:
                 tool_filter.build_index(registry.tools)
             tools = tool_filter.select(user_input)
@@ -292,13 +311,13 @@ class NallyAgent:
         if _needs_web_search(user_input):
             try:
                 from ..tools.websearch import WebSearch
+
                 ws = WebSearch()
                 results = ws.execute(query=user_input, num_results=3)
                 if results:
-                    self.messages.insert(1, {
-                        "role": "system",
-                        "content": f"[Auto-searched web for '{user_input}']:\n{results}"
-                    })
+                    self.messages.insert(
+                        1, {"role": "system", "content": f"[Auto-searched web for '{user_input}']:\n{results}"}
+                    )
             except Exception:
                 pass  # fallback to LLM's own knowledge
 
@@ -317,6 +336,7 @@ class NallyAgent:
             # Clear skill overrides after task completion
             try:
                 from ..tools.permissions import gate as perm_gate
+
                 perm_gate.clear_all_skill_overrides()
             except Exception:
                 pass
@@ -346,7 +366,7 @@ class NallyAgent:
 
         except Exception as e:
             logger.error_with_context("Processing failed", e)
-            error_msg = f"I encountered an error: {str(e)}"
+            error_msg = f"I encountered an error: {e!s}"
             self.messages.append({"role": "assistant", "content": error_msg})
             self._save_history()
             return error_msg

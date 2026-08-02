@@ -3,14 +3,16 @@
 Selects a relevant subset of tools per-request to reduce prompt size.
 Keyword-only (no embeddings) for determinism and prompt-cache stability.
 """
+
 import re
 from typing import Dict, List, Set
+
 from .registry import Tool
 
 
 def _tokenize(text: str) -> Set[str]:
     """Lowercase, split on non-alphanumeric, drop short tokens."""
-    return {t for t in re.split(r'[^a-z0-9]+', text.lower()) if len(t) > 2}
+    return {t for t in re.split(r"[^a-z0-9]+", text.lower()) if len(t) > 2}
 
 
 class ToolFilter:
@@ -72,11 +74,7 @@ class ToolFilter:
         always_on = {"system_health", "web_search"}
         selected_names = always_on | {name for name, _ in scored}
 
-        return [
-            self._tool_names[name].to_openai_schema()
-            for name in selected_names
-            if name in self._tool_names
-        ]
+        return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
 
 
 # Module-level singleton — matches existing call pattern in core.py and agent.py

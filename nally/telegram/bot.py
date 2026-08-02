@@ -6,20 +6,21 @@ Usage:
 
 Requires TELEGRAM_BOT_TOKEN in .env.
 """
+
+import asyncio
 import os
 import re
-import asyncio
-import logging
 from typing import Optional
 
-from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
-    MessageHandler,
     ContextTypes,
+    MessageHandler,
     filters,
 )
+
+from telegram import Update
 
 from ..agent.sessions import session_manager
 from ..utils.logger import logger
@@ -70,8 +71,7 @@ def _clean_message_text(text: str) -> str:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
     await update.message.reply_text(
-        "Hey! I'm Nally. Send me a message and I'll respond.\n"
-        "In groups, mention me with @NallyFirstbot."
+        "Hey! I'm Nally. Send me a message and I'll respond.\nIn groups, mention me with @NallyFirstbot."
     )
 
 
@@ -102,9 +102,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Process in a thread (agent.process is blocking)
     try:
-        response = await asyncio.to_thread(
-            session_manager.process, session_id, text
-        )
+        response = await asyncio.to_thread(session_manager.process, session_id, text)
     except Exception as e:
         logger.error(f"Telegram agent error: {e}")
         response = f"Something went wrong: {e}"
@@ -149,10 +147,12 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
 
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_message,
-    ))
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message,
+        )
+    )
     app.add_error_handler(error_handler)
 
     return app

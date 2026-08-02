@@ -1,9 +1,9 @@
 """Tests for MCP client: schema wrapping, permission defaults, no-op when empty."""
-import pytest
-from unittest.mock import patch, MagicMock
 
-from nally.tools.registry import ToolRegistry, Tool
-from nally.mcp.client import _wrap_mcp_schema, MCPTool, connect_mcp_servers
+from unittest.mock import MagicMock, patch
+
+from nally.mcp.client import MCPTool, _wrap_mcp_schema, connect_mcp_servers
+from nally.tools.registry import ToolRegistry
 
 
 def test_wrap_mcp_schema_basic():
@@ -103,12 +103,14 @@ def test_connect_mcp_servers_skips_non_stdio():
 def test_connect_mcp_servers_error_handling():
     """connect_mcp_servers catches connection errors gracefully."""
     reg = ToolRegistry()
-    fake_server = [{
-        "name": "broken",
-        "transport": "stdio",
-        "command": "nonexistent_command",
-        "args": [],
-    }]
+    fake_server = [
+        {
+            "name": "broken",
+            "transport": "stdio",
+            "command": "nonexistent_command",
+            "args": [],
+        }
+    ]
     with patch("nally.mcp.client.MCP_SERVERS", fake_server):
         connect_mcp_servers(reg)  # should not raise
     assert len(reg.tools) == 0
@@ -116,9 +118,11 @@ def test_connect_mcp_servers_error_handling():
 
 # ── McpStatus Tool ──────────────────────────────────────
 
+
 def test_mcp_status_tool_schema():
     """McpStatus tool has correct schema."""
     from nally.tools.mcp import McpStatus
+
     tool = McpStatus()
     assert tool.name == "mcp_status"
     assert tool.permission == "safe"
@@ -129,19 +133,29 @@ def test_mcp_status_tool_schema():
 def test_mcp_status_lists_servers():
     """McpStatus returns output listing configured servers."""
     from nally.tools.mcp import McpStatus
+
     tool = McpStatus()
 
     fake_servers = [
-        {"name": "fetch", "transport": "stdio", "command": "python", "args": [], "permission": "safe", "description": "Fetch"},
+        {
+            "name": "fetch",
+            "transport": "stdio",
+            "command": "python",
+            "args": [],
+            "permission": "safe",
+            "description": "Fetch",
+        },
         {"name": "notion", "transport": "http", "auth_mode": "oauth", "permission": "write", "description": "Notion"},
     ]
 
     fake_registry = MagicMock()
     fake_registry.tools = {}
 
-    with patch("nally.config.MCP_SERVERS", fake_servers), \
-         patch("nally.mcp.client.registry", fake_registry), \
-         patch("nally.tools.mcp._check_status", return_value="Disconnected"):
+    with (
+        patch("nally.config.MCP_SERVERS", fake_servers),
+        patch("nally.mcp.client.registry", fake_registry),
+        patch("nally.tools.mcp._check_status", return_value="Disconnected"),
+    ):
         result = tool.execute()
 
     assert "2 configured" in result
@@ -154,10 +168,18 @@ def test_mcp_status_lists_servers():
 def test_mcp_status_connected_server():
     """McpStatus shows Connected when tools are registered."""
     from nally.tools.mcp import McpStatus
+
     tool = McpStatus()
 
     fake_servers = [
-        {"name": "fetch", "transport": "stdio", "command": "python", "args": [], "permission": "safe", "description": "Fetch"},
+        {
+            "name": "fetch",
+            "transport": "stdio",
+            "command": "python",
+            "args": [],
+            "permission": "safe",
+            "description": "Fetch",
+        },
     ]
 
     fake_registry = MagicMock()
@@ -165,8 +187,7 @@ def test_mcp_status_connected_server():
     mock_tool.name = "mcp_fetch_fetch_page"
     fake_registry.tools = {"mcp_fetch_fetch_page": mock_tool}
 
-    with patch("nally.config.MCP_SERVERS", fake_servers), \
-         patch("nally.mcp.client.registry", fake_registry):
+    with patch("nally.config.MCP_SERVERS", fake_servers), patch("nally.mcp.client.registry", fake_registry):
         result = tool.execute()
 
     assert "1 connected" in result

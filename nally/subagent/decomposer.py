@@ -1,9 +1,10 @@
 """Task Decomposer - Breaks complex requests into subtasks using LLM reasoning"""
+
 import json
-from typing import List, Dict, Optional
+from typing import Dict, List
+
 from ..agent.llm import llm
 from ..utils.logger import logger
-
 
 DECOMPOSE_PROMPT = """You are a task decomposition specialist. Break the following goal into 2-5 independent subtasks that can be executed in parallel by separate AI agents.
 
@@ -38,13 +39,10 @@ class TaskDecomposer:
         try:
             messages = [
                 {"role": "system", "content": DECOMPOSE_PROMPT},
-                {"role": "user", "content": f"{goal}\n\nAdditional context:\n{context}" if context else goal}
+                {"role": "user", "content": f"{goal}\n\nAdditional context:\n{context}" if context else goal},
             ]
 
-            response = llm.simple_chat(
-                user_message=messages[1]["content"],
-                system_prompt=DECOMPOSE_PROMPT
-            )
+            response = llm.simple_chat(user_message=messages[1]["content"], system_prompt=DECOMPOSE_PROMPT)
 
             return self._parse_response(response, goal)
 
@@ -59,7 +57,7 @@ class TaskDecomposer:
             start = response.find("[")
             end = response.rfind("]")
             if start != -1 and end != -1:
-                json_str = response[start:end+1]
+                json_str = response[start : end + 1]
                 tasks = json.loads(json_str)
                 if isinstance(tasks, list) and len(tasks) > 0:
                     return tasks

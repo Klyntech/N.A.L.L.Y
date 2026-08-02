@@ -1,4 +1,5 @@
 """Image Generation Tool — Vision-guided quality loop with MIMO critique."""
+
 import base64
 import io
 import json
@@ -10,7 +11,8 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+from PIL import Image, ImageEnhance, ImageFilter
+
 from .registry import Tool, registry
 
 logger = logging.getLogger("nally.tools.imagegen")
@@ -80,23 +82,35 @@ CONTENT_ROUTER = {
 def detect_content_type(prompt: str) -> str:
     lower = prompt.lower()
     # Text-in-image detection (check before other categories)
-    if any(w in lower for w in ["text says", "text:", "write", "sign says", "label says",
-                                  "with text", "typography", "lettering", "font"]):
+    if any(
+        w in lower
+        for w in [
+            "text says",
+            "text:",
+            "write",
+            "sign says",
+            "label says",
+            "with text",
+            "typography",
+            "lettering",
+            "font",
+        ]
+    ):
         return "text"
     if any(w in lower for w in ["logo", "icon", "brand", "emblem", "symbol"]):
         return "logo"
-    if any(w in lower for w in ["photo", "realistic", "portrait", "landscape", "camera",
-                                  "dslr", "photograph", "hyperrealistic"]):
+    if any(
+        w in lower
+        for w in ["photo", "realistic", "portrait", "landscape", "camera", "dslr", "photograph", "hyperrealistic"]
+    ):
         return "photo"
     if any(w in lower for w in ["anime", "cartoon", "manga", "ghibli", "chibi"]):
         return "anime"
     if any(w in lower for w in ["3d", "render", "blender", "octane", "cinema"]):
         return "3d"
-    if any(w in lower for w in ["painting", "oil", "watercolor", "canvas", "brush",
-                                  "acrylic", "pastel"]):
+    if any(w in lower for w in ["painting", "oil", "watercolor", "canvas", "brush", "acrylic", "pastel"]):
         return "painting"
-    if any(w in lower for w in ["product", "commercial", "studio", "white background",
-                                  "ecommerce", "e-commerce"]):
+    if any(w in lower for w in ["product", "commercial", "studio", "white background", "ecommerce", "e-commerce"]):
         return "product"
     if any(w in lower for w in ["art", "illustration", "concept", "digital"]):
         return "art"
@@ -128,11 +142,11 @@ def enhance_prompt(prompt: str, content_type: str = None) -> str:
 
 # ── LLM-Powered Prompt Enhancement ────────────────────────
 
+
 def enhance_prompt_llm(prompt: str, content_type: str = None) -> str:
     """Use MIMO to enhance a short prompt. Falls back to keyword enhancement."""
     if content_type is None:
         content_type = detect_content_type(prompt)
-    route = CONTENT_ROUTER.get(content_type, CONTENT_ROUTER["default"])
 
     # Only use LLM for very short prompts — long ones are already detailed enough
     if len(prompt) > 40:
@@ -140,6 +154,7 @@ def enhance_prompt_llm(prompt: str, content_type: str = None) -> str:
 
     try:
         from ..agent.llm import NallyLLM
+
         llm = NallyLLM()
         llm._ensure_client()
 
@@ -156,10 +171,7 @@ Rules:
 
         response = llm.client.chat.completions.create(
             model=llm.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Enhance: {prompt}"}
-            ],
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Enhance: {prompt}"}],
             temperature=0.7,
             max_tokens=100,
         )
@@ -178,6 +190,7 @@ Rules:
 
 
 # ── Aesthetic Quality Scoring (expanded) ───────────────────
+
 
 def score_aesthetics(image_bytes: bytes) -> dict:
     """Score image on 8 aesthetic qualities. Returns dict with scores and total (0-100)."""
@@ -199,13 +212,20 @@ def score_aesthetics(image_bytes: bytes) -> dict:
     h, w = gray.shape
     third_h, third_w = h // 3, w // 3
     # Edge regions should have some content (not blank)
-    edge_density = float(np.mean(gray[:third_h, :] > 30) + np.mean(gray[-third_h:, :] > 30) +
-                         np.mean(gray[:, :third_w] > 30) + np.mean(gray[:, -third_w:] > 30)) / 4
+    edge_density = (
+        float(
+            np.mean(gray[:third_h, :] > 30)
+            + np.mean(gray[-third_h:, :] > 30)
+            + np.mean(gray[:, :third_w] > 30)
+            + np.mean(gray[:, -third_w:] > 30)
+        )
+        / 4
+    )
     # Center region should be the focal point
-    center_density = float(np.mean(gray[third_h:2*third_h, third_w:2*third_w] > 50))
+    center_density = float(np.mean(gray[third_h : 2 * third_h, third_w : 2 * third_w] > 50))
     # Golden ratio check — subject near 0.618 intersection
     golden_h, golden_w = int(h * 0.618), int(w * 0.618)
-    golden_region = float(np.mean(gray[golden_h-20:golden_h+20, golden_w-20:golden_w+20] > 50))
+    golden_region = float(np.mean(gray[golden_h - 20 : golden_h + 20, golden_w - 20 : golden_w + 20] > 50))
     comp_score = min(20, int(edge_density * 6 + center_density * 8 + golden_region * 6))
     scores["composition"] = comp_score
 
@@ -294,10 +314,12 @@ def score_aesthetics(image_bytes: bytes) -> dict:
 
 # ── Vision Critique (MIMO) ────────────────────────────────
 
+
 def vision_critique(image_bytes: bytes, prompt: str, scores: dict) -> str:
     """Send image to MIMO for visual critique. Returns critique text."""
     try:
         from ..agent.llm import NallyLLM
+
         llm = NallyLLM()
         llm._ensure_client()
 
@@ -308,15 +330,15 @@ def vision_critique(image_bytes: bytes, prompt: str, scores: dict) -> str:
 The image was generated with this prompt: "{prompt}"
 
 Quality metrics:
-- Color harmony: {scores.get('color_harmony', 0)}/15
-- Composition: {scores.get('composition', 0)}/20
-- Detail: {scores.get('detail', 0)}/15
-- Brightness: {scores.get('brightness', 0)}/10
-- Contrast: {scores.get('contrast', 0)}/10
-- Palette coherence: {scores.get('palette_coherence', 0)}/10
-- Noise: {scores.get('noise', 0)}/10
-- Dynamic range: {scores.get('dynamic_range', 0)}/10
-- Total: {scores.get('total', 0)}/100
+- Color harmony: {scores.get("color_harmony", 0)}/15
+- Composition: {scores.get("composition", 0)}/20
+- Detail: {scores.get("detail", 0)}/15
+- Brightness: {scores.get("brightness", 0)}/10
+- Contrast: {scores.get("contrast", 0)}/10
+- Palette coherence: {scores.get("palette_coherence", 0)}/10
+- Noise: {scores.get("noise", 0)}/10
+- Dynamic range: {scores.get("dynamic_range", 0)}/10
+- Total: {scores.get("total", 0)}/100
 
 Your task:
 1. Look at the image and identify what's wrong (blurry, bad composition, missing elements, wrong style, artifacts, text errors, etc.)
@@ -338,11 +360,8 @@ Be concise. Max 3 issues. The improved prompt should be ready to use directly.""
                 "role": "user",
                 "content": [
                     {"type": "text", "text": critique_prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64}"}
-                    }
-                ]
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                ],
             }
         ]
 
@@ -388,6 +407,7 @@ def parse_critique(critique_text: str) -> dict:
 # Models that support the quality parameter
 QUALITY_SUPPORTED_MODELS = {"gptimage", "gptimage-large", "gpt-image-2"}
 
+
 def generate_pollinations(
     prompt: str,
     width: int = 1024,
@@ -416,6 +436,7 @@ def generate_pollinations(
 
 
 # ── Upscaling ─────────────────────────────────────────────
+
 
 def upscale_image(image_bytes: bytes, target_size: int = 2048) -> bytes:
     img = Image.open(io.BytesIO(image_bytes))
@@ -453,6 +474,7 @@ def upscale_image(image_bytes: bytes, target_size: int = 2048) -> bytes:
 
 # ── Smart Seed Strategy ───────────────────────────────────
 
+
 def pick_seeds(best_seed: int = None, attempt: int = 1) -> list:
     """Return a list of seeds to try, ordered by likelihood of good results."""
     if attempt == 1:
@@ -468,6 +490,7 @@ def pick_seeds(best_seed: int = None, attempt: int = 1) -> list:
 
 
 # ── Main Tool ─────────────────────────────────────────────
+
 
 class ImageGen(Tool):
     """Generate images with vision-guided quality loop. NALLY sees and critiques her own work."""

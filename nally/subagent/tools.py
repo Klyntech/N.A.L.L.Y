@@ -1,4 +1,5 @@
 """SubAgent Tool - Delegate tasks to autonomous sub-agents"""
+
 from ..tools.registry import Tool, registry
 from .pool import pool
 
@@ -36,7 +37,7 @@ class Agent(Tool):
                         },
                         "required": ["goal"],
                     },
-                    "description": "List of tasks for spawn. Each item MUST be an object with a goal key, e.g. {\"goal\": \"read file X\", \"context\": \"optional background\"}. Do NOT send plain strings.",
+                    "description": 'List of tasks for spawn. Each item MUST be an object with a goal key, e.g. {"goal": "read file X", "context": "optional background"}. Do NOT send plain strings.',
                 },
                 "task_ids": {
                     "type": "array",
@@ -66,9 +67,7 @@ class Agent(Tool):
                 if not tasks:
                     return "Error: tasks list is required for spawn"
                 ids = pool.spawn_many(tasks)
-                return f"Spawned {len(ids)} sub-agents:\n" + "\n".join(
-                    f"  {i+1}. {tid}" for i, tid in enumerate(ids)
-                )
+                return f"Spawned {len(ids)} sub-agents:\n" + "\n".join(f"  {i + 1}. {tid}" for i, tid in enumerate(ids))
 
             elif action == "collect":
                 if not task_ids:
@@ -112,7 +111,7 @@ class Agent(Tool):
             else:
                 return f"Unknown action: {action}. Use delegate, spawn, collect, or status."
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
 
 
 def register_tools():

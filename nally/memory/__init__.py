@@ -7,9 +7,9 @@ Exports:
     MemoryRepository: The repository class
 """
 
-from .store import MemoryRepository, MEMORY_TOOL_SCHEMAS
-from .models import Memory, Episode, ConversationSummary, SemanticPattern
-from .confidence import decay_confidence, boost_confidence
+from .confidence import boost_confidence, decay_confidence
+from .models import ConversationSummary, Episode, Memory, SemanticPattern
+from .store import MEMORY_TOOL_SCHEMAS, MemoryRepository
 
 # Singleton repository
 memory_store = MemoryRepository()
@@ -37,14 +37,16 @@ except ImportError:
     user_profile = None
 
 __all__ = [
-    "memory_store",
-    "memory_v2",
-    "memory_tools_v2",
+    "ConversationSummary",
+    "Episode",
+    "Memory",
     "MemoryRepository",
     "MemoryToolsV2",
-    "Memory",
-    "Episode",
-    "ConversationSummary",
     "SemanticPattern",
+    "boost_confidence",
+    "decay_confidence",
+    "memory_store",
+    "memory_tools_v2",
+    "memory_v2",
     "user_profile",
 ]

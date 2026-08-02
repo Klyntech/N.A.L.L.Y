@@ -1,11 +1,12 @@
 """Test profile migration flow."""
+
 import json
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from nally.memory.store import MemoryRepository, migrate_profile, RECOGNIZED_PROFILE_KEYS
+from nally.memory.store import RECOGNIZED_PROFILE_KEYS, MemoryRepository, migrate_profile
 
 
 def test_migration():

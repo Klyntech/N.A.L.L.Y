@@ -6,28 +6,38 @@ Handles:
 - Memory injection (search and inject relevant memories)
 - Cost tracking (log token usage)
 """
+
 import json
-import re
-import time
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List
+
 from ..utils.logger import logger
 
 # Try tiktoken for accurate token counting, fall back to char estimation
 try:
     import tiktoken
+
     _enc = tiktoken.encoding_for_model("gpt-4")
+
     def _count_tokens(text):
         return len(_enc.encode(str(text)))
 except Exception:
     _enc = None
+
     def _count_tokens(text):
         return len(str(text)) // 4
 
+
 # Import from config (single source of truth)
 from ..config import (
-    CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS,
-    CONTEXT_RECENT_MESSAGES as RECENT_MESSAGES,
     CONTEXT_COMPRESSION_THRESHOLD as COMPRESSION_THRESHOLD,
+)
+from ..config import (
+    CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS,
+)
+from ..config import (
+    CONTEXT_RECENT_MESSAGES as RECENT_MESSAGES,
+)
+from ..config import (
     MAX_MEMORIES_TO_INJECT as MAX_MEMORIES,
 )
 
@@ -87,7 +97,7 @@ class ContextManager:
 
         system_msg = messages[0]
         recent = messages[-(RECENT_MESSAGES):]  # Last N messages
-        old = messages[1:-(RECENT_MESSAGES)]    # Everything between system and recent
+        old = messages[1:-(RECENT_MESSAGES)]  # Everything between system and recent
 
         if len(old) <= 5:
             return messages  # Not worth compressing
@@ -96,14 +106,7 @@ class ContextManager:
         summary = self._summarize_messages(old)
 
         # Build compacted context
-        compacted = [
-            system_msg,
-            {
-                "role": "system",
-                "content": f"[Previous conversation context]\n{summary}"
-            },
-            *recent
-        ]
+        compacted = [system_msg, {"role": "system", "content": f"[Previous conversation context]\n{summary}"}, *recent]
 
         # Log compaction
         old_tokens = self.estimate_tokens(messages)
@@ -188,6 +191,7 @@ class ContextManager:
         """Search memories and inject relevant ones into context"""
         try:
             from ..memory.store_v2 import memory_v2
+
             memories = memory_v2.recall(search=query, min_confidence=0.5, limit=MAX_MEMORIES)
         except Exception as e:
             logger.debug(f"Memory recall failed: {e}")
@@ -211,10 +215,7 @@ class ContextManager:
                 break
 
         # Inject memory context
-        messages.insert(inject_index, {
-            "role": "system",
-            "content": f"[Relevant memories]\n{memory_text}"
-        })
+        messages.insert(inject_index, {"role": "system", "content": f"[Relevant memories]\n{memory_text}"})
 
         self._stats["memories_injected"] += 1
         logger.debug(f"Injected {len(memories)} memories into context")
@@ -225,6 +226,7 @@ class ContextManager:
         """Inject recent conversation summaries"""
         try:
             from ..memory.store_v2 import memory_v2
+
             summaries_text = memory_v2.get_conversation_summaries_text(3)
         except Exception as e:
             logger.debug(f"Conversation history injection failed: {e}")
@@ -234,10 +236,7 @@ class ContextManager:
             return messages
 
         # Inject after system prompt
-        messages.insert(1, {
-            "role": "system",
-            "content": summaries_text
-        })
+        messages.insert(1, {"role": "system", "content": summaries_text})
 
         return messages
 
@@ -251,9 +250,7 @@ class ContextManager:
         """Get context management statistics"""
         return {
             **self._stats,
-            "avg_tokens_per_request": (
-                self._stats["total_tokens_in"] // max(1, self._stats["total_requests"])
-            ),
+            "avg_tokens_per_request": (self._stats["total_tokens_in"] // max(1, self._stats["total_requests"])),
         }
 
     def get_context_preview(self, messages: List[Dict]) -> Dict:

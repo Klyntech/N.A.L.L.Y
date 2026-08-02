@@ -1,11 +1,13 @@
 """Tests for plugin system hardening: allowlist + permission validation."""
-import pytest
-import tempfile
+
 import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from nally.tools.registry import ToolRegistry, Tool, VALID_PERMISSIONS
+import pytest
+
+from nally.tools.registry import VALID_PERMISSIONS, Tool, ToolRegistry
 
 
 def test_valid_permissions_set():

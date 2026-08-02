@@ -1,10 +1,10 @@
 """Nally LLM Client - Supports Groq and OpenCode with model routing"""
+
 import json
-import os
-import threading
-import time
+
 from openai import OpenAI
-from ..config import API_KEY, BASE_URL, ACTIVE_MODEL, PROVIDER
+
+from ..config import ACTIVE_MODEL, API_KEY, BASE_URL, PROVIDER
 from ..utils.logger import logger
 
 
@@ -19,6 +19,7 @@ class NallyLLM:
         if self._router is None:
             try:
                 from ..router import model_router
+
                 self._router = model_router
             except (ImportError, ModuleNotFoundError):
                 self._router = None
@@ -60,8 +61,7 @@ class NallyLLM:
                 return selected
         return self.model
 
-    def chat(self, messages: list, tools: list = None, temperature: float = 0.7,
-             cache_key: str = "default") -> dict:
+    def chat(self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default") -> dict:
         self._ensure_client()
 
         # Route to best model for this task
@@ -87,17 +87,17 @@ class NallyLLM:
         response = self.client.chat.completions.create(**kwargs)
 
         # Track actual token usage from API response
-        if hasattr(response, 'usage') and response.usage:
+        if hasattr(response, "usage") and response.usage:
             try:
                 from .context import context_manager
+
                 context_manager.track_usage(response.usage.prompt_tokens, response.usage.completion_tokens)
             except Exception as e:
                 logger.debug(f"Token tracking failed: {e}")
 
         return response
 
-    def stream_chat(self, messages: list, temperature: float = 0.7,
-                    cache_key: str = "default"):
+    def stream_chat(self, messages: list, temperature: float = 0.7, cache_key: str = "default"):
         self._ensure_client()
 
         model = self._select_model(messages)
@@ -118,8 +118,9 @@ class NallyLLM:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
 
-    def stream_chat_with_tools(self, messages: list, tools: list = None,
-                               temperature: float = 0.7, cache_key: str = "default"):
+    def stream_chat_with_tools(
+        self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default"
+    ):
         """Stream chat with tool support. Yields dicts:
         {'type': 'content', 'text': '...'} for text chunks
         {'type': 'tool_call', 'id': '...', 'name': '...', 'args': {...}} for tool calls
@@ -162,7 +163,7 @@ class NallyLLM:
                     for tc in delta.tool_calls:
                         if not tc:
                             continue
-                        idx = tc.index if hasattr(tc, 'index') and tc.index is not None else 0
+                        idx = tc.index if hasattr(tc, "index") and tc.index is not None else 0
                         if idx not in tool_calls:
                             tool_calls[idx] = {"id": "", "name": "", "args_str": ""}
                         if tc.id:
@@ -205,8 +206,9 @@ class NallyLLM:
 
         return self.stream_chat(messages)
 
-    def chat_with_model(self, model: str, messages: list, tools: list = None,
-                        temperature: float = 0.7, cache_key: str = "default") -> dict:
+    def chat_with_model(
+        self, model: str, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default"
+    ) -> dict:
         """Chat with a specific model (bypasses routing)"""
         self._ensure_client()
 

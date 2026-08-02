@@ -91,11 +91,11 @@ Every error in the system carries structured data:
 
 ```python
 class NallyError(Exception):
-    code: str           # e.g. "llm_rate_limit"
-    message: str        # Human-readable
+    code: str  # e.g. "llm_rate_limit"
+    message: str  # Human-readable
     severity: Severity  # low/medium/high/critical
-    retryable: bool     # Whether caller should retry
-    context: dict       # Additional metadata
+    retryable: bool  # Whether caller should retry
+    context: dict  # Additional metadata
 ```
 
 Error hierarchy:
@@ -159,9 +159,11 @@ Single source of truth, no import-time side effects:
 # Loads .env at import (no side effects beyond that)
 PROVIDER = os.getenv("NALLY_PROVIDER", "opencode")
 
+
 # Lazy directory creation
 def ensure_data_dir():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # Runtime personality injection
 def get_system_prompt(user_context=None):
@@ -178,6 +180,7 @@ All singletons use double-checked locking:
 ```python
 _instance = None
 _lock = threading.Lock()
+
 
 def get_agent():
     global _instance

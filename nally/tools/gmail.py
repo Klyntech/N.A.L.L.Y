@@ -1,25 +1,30 @@
 """Gmail Direct — bypasses the broken Google MCP server, uses Gmail REST API directly."""
-import json
+
 import logging
+
 import httpx
 
-from ..tools.registry import Tool, registry
-from ..mcp.oauth import SQLiteTokenStorage
 from ..config import DATA_DIR
+from ..mcp.oauth import SQLiteTokenStorage
+from ..tools.registry import Tool, registry
 
 logger = logging.getLogger("nally.gmail")
 
+
 def _run_async(coro):
     import asyncio
+
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
     if loop and loop.is_running():
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
             return pool.submit(asyncio.run, coro).result()
     return asyncio.run(coro)
+
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 
@@ -35,7 +40,9 @@ async def _gmail_get(path: str, params: dict = None) -> dict:
     if not token:
         return {"error": "No Gmail token — connect Gmail in Services panel"}
     async with httpx.AsyncClient() as client:
-        r = await client.get(f"{GMAIL_API}{path}", headers={"Authorization": f"Bearer {token}"}, params=params, timeout=15)
+        r = await client.get(
+            f"{GMAIL_API}{path}", headers={"Authorization": f"Bearer {token}"}, params=params, timeout=15
+        )
         return r.json()
 
 
@@ -44,7 +51,12 @@ async def _gmail_post(path: str, body: dict = None) -> dict:
     if not token:
         return {"error": "No Gmail token — connect Gmail in Services panel"}
     async with httpx.AsyncClient() as client:
-        r = await client.post(f"{GMAIL_API}{path}", headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=body or {}, timeout=15)
+        r = await client.post(
+            f"{GMAIL_API}{path}",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=body or {},
+            timeout=15,
+        )
         return r.json()
 
 
@@ -54,8 +66,16 @@ class GmailSearch(Tool):
             name="gmail_search",
             description="Search Gmail threads. Returns thread IDs, snippets, subjects, senders. Use Gmail query syntax: from:user@example.com, subject:keyword, is:unread, newer_than:7d, has:attachment, in:inbox, etc.",
             parameters={
-                "query": {"type": "string", "description": "Gmail search query (e.g. 'is:unread', 'from:boss@work.com', 'subject:invoice newer_than:30d')", "required": False},
-                "max_results": {"type": "integer", "description": "Max threads to return (default 10, max 50)", "required": False},
+                "query": {
+                    "type": "string",
+                    "description": "Gmail search query (e.g. 'is:unread', 'from:boss@work.com', 'subject:invoice newer_than:30d')",
+                    "required": False,
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max threads to return (default 10, max 50)",
+                    "required": False,
+                },
             },
         )
 
@@ -86,7 +106,11 @@ class GmailReadThread(Tool):
             name="gmail_read_thread",
             description="Read full messages in a Gmail thread. Returns subject, sender, recipients, date, and body text.",
             parameters={
-                "thread_id": {"type": "string", "description": "The Gmail thread ID from gmail_search results", "required": True},
+                "thread_id": {
+                    "type": "string",
+                    "description": "The Gmail thread ID from gmail_search results",
+                    "required": True,
+                },
             },
         )
 
@@ -103,7 +127,7 @@ class GmailReadThread(Tool):
         lines = [f"Thread: {thread_id} ({len(msgs)} messages)\n"]
         for i, msg in enumerate(msgs):
             headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
-            lines.append(f"--- Message {i+1} ---")
+            lines.append(f"--- Message {i + 1} ---")
             lines.append(f"From: {headers.get('from', '?')}")
             lines.append(f"To: {headers.get('to', '?')}")
             lines.append(f"Subject: {headers.get('subject', '?')}")
@@ -118,6 +142,7 @@ class GmailReadThread(Tool):
             for part in parts:
                 if part.get("mimeType") == "text/plain":
                     import base64
+
                     data = part.get("body", {}).get("data", "")
                     if data:
                         return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
@@ -128,6 +153,7 @@ class GmailReadThread(Tool):
         else:
             if payload.get("mimeType") == "text/plain":
                 import base64
+
                 data = payload.get("body", {}).get("data", "")
                 if data:
                     return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")

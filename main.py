@@ -3,17 +3,19 @@
 Nally - Your Personal AI Assistant
 Inspired by Jarvis from Iron Man
 """
+
+import argparse
 import sys
 import time
-import argparse
 from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+
 def print_banner():
     """Print Nally banner with personalized greeting"""
-    from nally.config import PROVIDER, ACTIVE_PERSONALITY
+    from nally.config import ACTIVE_PERSONALITY, PROVIDER
 
     print()
     print("  +==================================================+")
@@ -25,6 +27,7 @@ def print_banner():
     # Personalized greeting
     try:
         from nally.memory.profile import user_profile
+
         user_name = user_profile.get_name()
         if user_name:
             print(f"  Welcome back, {user_name}!")
@@ -35,6 +38,7 @@ def print_banner():
     print("=" * 50)
     print()
 
+
 def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
     parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
@@ -44,21 +48,23 @@ def main():
     parser.add_argument("--port", type=int, default=5000, help="Web server port (default: 5000)")
     parser.add_argument("--provider", choices=["groq", "opencode"], help="Override LLM provider")
     args = parser.parse_args()
-    
+
     if args.port < 1024 or args.port > 65535:
         print(f"Error: port must be between 1024 and 65535, got {args.port}")
         sys.exit(1)
-    
+
     # Override provider if specified
     if args.provider:
         import os
+
         os.environ["NALLY_PROVIDER"] = args.provider
-    
+
     print_banner()
-    
+
     # Start system monitor (optional)
     try:
         from nally.system import system_monitor
+
         print("Starting system monitor...")
         system_monitor.start_monitoring(interval=10)
     except ImportError:
@@ -70,6 +76,7 @@ def main():
     automation_engine = None
     try:
         from nally.automation.engine import automation_engine
+
         print("Starting automation engine...")
         automation_engine.start()
     except ImportError:
@@ -81,17 +88,22 @@ def main():
     def _connect_cloud():
         try:
             from nally.memory.cloud import cloud_db
+
             cloud_db.connect_cloud()
         except ImportError:
             pass
         except Exception as e:
             from nally.utils.logger import logger
+
             logger.debug(f"Cloud DB connection failed: {e}")
+
     import threading
+
     threading.Thread(target=_connect_cloud, daemon=True).start()
 
     if automation_engine:
         import atexit
+
         atexit.register(automation_engine.stop)
 
     print()
@@ -99,6 +111,7 @@ def main():
     # Load tools for non-web modes (web mode loads via app.py lifespan)
     if args.cli or args.telegram_only:
         from nally.tools import load_all_tools
+
         load_all_tools()
 
     if args.cli:
@@ -112,9 +125,11 @@ def main():
     else:
         run_web(port=args.port)
 
+
 def run_cli():
     """Run Nally in CLI mode"""
     from nally.agent import get_agent
+
     agent = get_agent()
 
     print("Nally CLI Mode")
@@ -126,7 +141,7 @@ def run_cli():
         try:
             user_input = input("You]: ").strip()
 
-            if user_input.lower() in ['quit', 'exit', 'bye']:
+            if user_input.lower() in ["quit", "exit", "bye"]:
                 print("\nNally: Goodbye!")
                 break
 
@@ -142,7 +157,7 @@ def run_cli():
             print(response)
 
             if elapsed < 1:
-                print(f"  [{elapsed*1000:.0f}ms]", end="")
+                print(f"  [{elapsed * 1000:.0f}ms]", end="")
             print()
 
         except KeyboardInterrupt:
@@ -151,38 +166,44 @@ def run_cli():
         except Exception as e:
             print(f"\nError: {e}")
 
+
 def run_voice():
     """Run Nally in voice-only mode (requires nally/voice/ module)"""
     print("Voice mode requires nally/voice/ module which was not copied during migration.")
     print("Use --cli or default web mode instead.")
 
+
 def run_web(port=5000):
     """Run Nally in web mode (Jarvis React UI)"""
-    import webbrowser
+    import os
     import threading
     import time
-    import os
-    
+    import webbrowser
+
     os.environ["PORT"] = str(port)
-    
+
     print(f"Nally Jarvis starting on http://localhost:{port}")
     print("Press Ctrl+C to stop")
     print()
-    
+
     # Auto-open browser
     def _open():
         time.sleep(2)
         webbrowser.open(f"http://localhost:{port}")
+
     threading.Thread(target=_open, daemon=True).start()
-    
-    from nally.web.app import app
+
     import uvicorn
+
+    from nally.web.app import app
+
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
 
 def run_telegram(polling=True, webhook_url=None):
     """Run Nally Telegram bot."""
     from nally.telegram.bot import run_telegram_bot
+
     print("Starting Nally Telegram bot...")
     print("Press Ctrl+C to stop")
     print()
@@ -191,8 +212,8 @@ def run_telegram(polling=True, webhook_url=None):
 
 def run_web_with_telegram(port=5000):
     """Run both web server and Telegram bot concurrently."""
-    import threading
     import os
+    import threading
 
     os.environ["PORT"] = str(port)
 
@@ -204,6 +225,7 @@ def run_web_with_telegram(port=5000):
     def _start_telegram():
         try:
             from nally.telegram.bot import run_telegram_bot
+
             run_telegram_bot(polling=True)
         except Exception as e:
             print(f"Telegram bot failed: {e}")
@@ -212,16 +234,19 @@ def run_web_with_telegram(port=5000):
     tg_thread.start()
 
     # Start web server (blocking)
-    import webbrowser
     import time
+    import webbrowser
 
     def _open():
         time.sleep(2)
         webbrowser.open(f"http://localhost:{port}")
+
     threading.Thread(target=_open, daemon=True).start()
 
-    from nally.web.app import app
     import uvicorn
+
+    from nally.web.app import app
+
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
 

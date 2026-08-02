@@ -1,10 +1,10 @@
 """SubAgentPool - Manages creation, execution, and result collection of sub-agents"""
+
 import threading
-import time
 from datetime import datetime
-from typing import Dict, List, Optional, Callable, Any
+from typing import Callable, Dict, List, Optional
+
 from .agent import SubAgent
-from ..utils.logger import logger
 
 
 class SubAgentPool:
@@ -29,11 +29,14 @@ class SubAgentPool:
 
     def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None) -> List[str]:
         """Spawn multiple sub-agents in parallel. Each task: {goal, context}"""
-        return [self.spawn(
-            t.get("goal", "") if isinstance(t, dict) else str(t),
-            t.get("context", "") if isinstance(t, dict) else "",
-            emit
-        ) for t in tasks]
+        return [
+            self.spawn(
+                t.get("goal", "") if isinstance(t, dict) else str(t),
+                t.get("context", "") if isinstance(t, dict) else "",
+                emit,
+            )
+            for t in tasks
+        ]
 
     def get_status(self, agent_id: str) -> Optional[dict]:
         """Get status of a single sub-agent."""
@@ -113,8 +116,7 @@ class SubAgentPool:
         """Clear all completed agents from the pool."""
         with self._lock:
             to_remove = [
-                aid for aid, agent in self._agents.items()
-                if agent.status in ("completed", "failed", "cancelled")
+                aid for aid, agent in self._agents.items() if agent.status in ("completed", "failed", "cancelled")
             ]
             for aid in to_remove:
                 del self._agents[aid]

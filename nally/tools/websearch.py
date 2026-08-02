@@ -3,20 +3,19 @@
 Searches the web for current information. Tracks monthly usage
 and falls back to DuckDuckGo when the Parallel.ai quota is exhausted.
 """
-import json
+
 import logging
 import os
 import sqlite3
-import time
 from datetime import datetime
-from pathlib import Path
 
 import httpx
+
 try:
     from duckduckgo_search import DDGS
 except ImportError:
     DDGS = None
-from .registry import Tool, registry
+from .registry import Tool
 
 logger = logging.getLogger("nally.tools.websearch")
 
@@ -27,6 +26,7 @@ PARALLEL_MONTHLY_LIMIT = 5000
 def _get_db_path() -> str:
     """Get path to the usage tracking database."""
     from ..config import DATA_DIR
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     return str(DATA_DIR / "nally.db")
 
@@ -63,11 +63,14 @@ def _increment_monthly_count(db_path: str, provider: str):
     """Increment the current month's search count."""
     month = datetime.now().strftime("%Y-%m")
     conn = sqlite3.connect(db_path)
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO web_search_usage (month, provider, count)
         VALUES (?, ?, 1)
         ON CONFLICT(month, provider) DO UPDATE SET count = count + 1
-    """, (month, provider))
+    """,
+        (month, provider),
+    )
     conn.commit()
     conn.close()
 
@@ -170,12 +173,15 @@ def _search_fallback(query: str, num_results: int = 3) -> str:
     try:
         # Use DuckDuckGo HTML lite as a last resort
         import urllib.parse
+
         encoded = urllib.parse.quote_plus(query)
         url = f"https://lite.duckduckgo.com/lite/?q={encoded}"
 
         result = subprocess.run(
             ["curl", "-sL", "--max-time", "8", "-A", "Mozilla/5.0", url],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
 
         if result.returncode == 0 and result.stdout:
@@ -183,20 +189,21 @@ def _search_fallback(query: str, num_results: int = 3) -> str:
             text = result.stdout
             # Find result links and titles
             import re
+
             links = re.findall(r'<a[^>]+class="result-link"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', text)
             snippets = re.findall(r'<td class="result-snippet">(.*?)</td>', text, re.DOTALL)
 
             if links:
                 parts = []
                 for i, (href, title) in enumerate(links[:num_results], 1):
-                    snippet = snippets[i-1].strip()[:300] if i-1 < len(snippets) else ""
-                    snippet = re.sub(r'<[^>]+>', '', snippet)  # Strip HTML tags
+                    snippet = snippets[i - 1].strip()[:300] if i - 1 < len(snippets) else ""
+                    snippet = re.sub(r"<[^>]+>", "", snippet)  # Strip HTML tags
                     parts.append(f"[{i}] {title.strip()}\n{href}\n{snippet}")
                 return "\n\n".join(parts)
 
         return f"Web search unavailable. Try searching manually for: {query}"
 
-    except Exception as e:
+    except Exception:
         return f"Web search unavailable. Try searching manually for: {query}"
 
 

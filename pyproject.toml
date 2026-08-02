@@ -2,7 +2,7 @@
 name = "nally"
 version = "1.0.0"
 description = "Personal AI assistant inspired by Jarvis"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 [project.optional-dependencies]
 dev = [
@@ -13,7 +13,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 120
 src = ["nally", "tests"]
 
@@ -30,11 +30,26 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
+    "E722",   # bare except (used intentionally in router.py catch-all handlers)
+    "E731",   # lambda assignment (router pattern matcher)
     "B008",   # function call in default argument (FastAPI Depends)
     "B905",   # zip without strict= (needs Python 3.10+)
+    "B904",   # raise ... from err (not always helpful)
+    "SIM105", # contextlib.suppress (readability tradeoff)
+    "SIM102", # combine if statements (readability tradeoff)
     "SIM108", # ternary operator (readability tradeoff)
+    "SIM110", # any/all (readability tradeoff)
+    "SIM113", # enumerate (not always applicable)
     "SIM115", # context manager for open() (not always applicable)
+    "SIM117", # nested with statements (readability tradeoff)
     "E741",   # ambiguous variable name (math contexts)
+    "UP035",  # import from collections.abc (not always needed)
+    "UP045",  # X | None vs Optional[X] (both fine)
+    "UP006",  # dict vs Dict (both fine)
+    "RUF001", # ambiguous dash character (intentional in regex)
+    "RUF005", # iterable unpacking (not always clearer)
+    "RUF006", # store ensure_future ref (fire-and-forget pattern)
+    "RUF013", # implicit Optional (existing code pattern)
 ]
 
 [tool.ruff.lint.isort]

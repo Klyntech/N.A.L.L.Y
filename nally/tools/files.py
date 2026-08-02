@@ -1,8 +1,9 @@
 """File Operation Tools"""
-import os
+
 import re
 from pathlib import Path
-from .registry import Tool, registry
+
+from .registry import Tool
 
 MAX_WRITE_SIZE = 500_000  # 500KB max write
 
@@ -10,7 +11,7 @@ MAX_WRITE_SIZE = 500_000  # 500KB max write
 # Only these roots are writable. Path.home() deliberately excluded
 # to block ~/.ssh, ~/.aws, .gitconfig, browser profiles, etc.
 _ALLOWED_ROOTS = [
-    Path.cwd(),                          # project directory
+    Path.cwd(),  # project directory
     Path.home() / "Desktop",
     Path.home() / "Documents",
     Path.home() / "Downloads",
@@ -39,13 +40,15 @@ def _validate_file(path: Path, content: str) -> str:
     suffix = path.suffix.lower()
 
     # Emoji detection — applies to ALL file types
-    emoji_chars = re.findall(r'[\U0001F300-\U0001F9FF\u2600-\u26FF\u2700-\u27BF\u200D\uFE0F]', content)
+    emoji_chars = re.findall(r"[\U0001F300-\U0001F9FF\u2600-\u26FF\u2700-\u27BF\u200D\uFE0F]", content)
     if emoji_chars:
-        warnings.append(f"EMOJI BLOCKED: Found {len(emoji_chars)} emoji in source code — use text labels or SVG icons instead")
+        warnings.append(
+            f"EMOJI BLOCKED: Found {len(emoji_chars)} emoji in source code — use text labels or SVG icons instead"
+        )
 
     if suffix == ".html":
-        opens = len(re.findall(r'<(div|section|nav|main|header|footer|ul|li|a|form)\b', content))
-        closes = len(re.findall(r'</(div|section|nav|main|header|footer|ul|li|a|form)>', content))
+        opens = len(re.findall(r"<(div|section|nav|main|header|footer|ul|li|a|form)\b", content))
+        closes = len(re.findall(r"</(div|section|nav|main|header|footer|ul|li|a|form)>", content))
         if opens > 0 and closes == 0:
             warnings.append("HTML: Opening tags but no closing tags — file may be truncated")
         if abs(opens - closes) > 5:
@@ -54,7 +57,7 @@ def _validate_file(path: Path, content: str) -> str:
         if not re.search(r'<meta\s+name=["\']description["\']', content, re.IGNORECASE):
             warnings.append("HTML: Missing <meta name='description'> — needed for SEO")
         # Check for main landmark
-        if '<main' not in content.lower():
+        if "<main" not in content.lower():
             warnings.append("HTML: Missing <main> landmark — needed for accessibility")
 
     elif suffix == ".css":
@@ -63,20 +66,24 @@ def _validate_file(path: Path, content: str) -> str:
         if opens != closes:
             warnings.append(f"CSS: Brace mismatch — {opens} opens vs {closes} closes")
         # Warn on transition: all (performance anti-pattern)
-        if re.search(r'transition\s*:\s*all\b', content):
+        if re.search(r"transition\s*:\s*all\b", content):
             warnings.append("CSS: 'transition: all' — specify exact properties for better performance")
         # Warn on transition shorthand without property (e.g. "transition: 0.3s")
-        if re.search(r'transition\s*:\s*[\d.]+s\b', content) and not re.search(r'transition\s*:\s*all\b', content):
-            if not re.search(r'transition\s*:\s*[\d.]+s\s+\w', content):
-                warnings.append("CSS: 'transition: 0.3s' shorthand — specify exact properties (e.g. 'transition: transform 0.3s ease')")
+        if re.search(r"transition\s*:\s*[\d.]+s\b", content) and not re.search(r"transition\s*:\s*all\b", content):
+            if not re.search(r"transition\s*:\s*[\d.]+s\s+\w", content):
+                warnings.append(
+                    "CSS: 'transition: 0.3s' shorthand — specify exact properties (e.g. 'transition: transform 0.3s ease')"
+                )
         # Warn on 8-digit hex colors
-        if re.search(r'#[0-9a-fA-F]{8}\b', content):
+        if re.search(r"#[0-9a-fA-F]{8}\b", content):
             warnings.append("CSS: 8-digit hex (#RRGGBBAA) — use rgba() for better browser compat")
         # Warn on overflow-x: hidden on body (breaks iOS)
-        if re.search(r'overflow-x\s*:\s*hidden', content) and re.search(r'body\s*\{', content):
-            warnings.append("CSS: 'overflow-x: hidden' on body — breaks iOS rubber-banding, use overflow-x: clip instead")
+        if re.search(r"overflow-x\s*:\s*hidden", content) and re.search(r"body\s*\{", content):
+            warnings.append(
+                "CSS: 'overflow-x: hidden' on body — breaks iOS rubber-banding, use overflow-x: clip instead"
+            )
         # Warn on !important (specificity anti-pattern)
-        if ' !important' in content:
+        if " !important" in content:
             warnings.append("CSS: !important — increase selector specificity instead")
 
     elif suffix == ".js":
@@ -87,15 +94,15 @@ def _validate_file(path: Path, content: str) -> str:
         if re.search(r"onclick\s*=\s*['\"].*\$\{", content):
             warnings.append("JS: Inline onclick with string interpolation — use addEventListener instead")
         # Warn on native WebSocket when Socket.IO is likely needed
-        if 'new WebSocket(' in content and 'socket.io' not in content.lower():
+        if "new WebSocket(" in content and "socket.io" not in content.lower():
             warnings.append("JS: Native WebSocket — if backend uses Socket.IO, use socket.io-client instead")
         # Warn on bare var declarations
-        if re.search(r'^var\s+\w+', content, re.MULTILINE):
+        if re.search(r"^var\s+\w+", content, re.MULTILINE):
             warnings.append("JS: Bare 'var' declarations — use 'const' or 'let' instead")
         # Warn if no IIFE or module pattern (for files > 50 lines)
         if len(content.splitlines()) > 50:
-            has_iife = re.search(r'\(function\s*\(\)', content) or re.search(r'\(\(\)\s*=>', content)
-            has_module = re.search(r'export\s+(default\s+)?', content) or re.search(r'import\s+', content)
+            has_iife = re.search(r"\(function\s*\(\)", content) or re.search(r"\(\(\)\s*=>", content)
+            has_module = re.search(r"export\s+(default\s+)?", content) or re.search(r"import\s+", content)
             if not has_iife and not has_module:
                 warnings.append("JS: No IIFE or module pattern — wrap in IIFE or use modules to avoid global pollution")
 

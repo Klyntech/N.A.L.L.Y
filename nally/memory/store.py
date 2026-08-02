@@ -13,19 +13,31 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..config import DATABASE_URL, TURSO_URL, TURSO_TOKEN, DATA_DIR
-from ..core.errors import MemoryError
-from .models import Memory, Episode, ConversationSummary, SemanticPattern
-from .confidence import decay_confidence, boost_confidence, days_since, initial_confidence
-
+from ..config import DATA_DIR
+from .confidence import boost_confidence, days_since, decay_confidence, initial_confidence
 
 # ── Profile Keys ───────────────────────────────────────────
 
 RECOGNIZED_PROFILE_KEYS = {
-    "name", "preferred_name", "aliases", "age", "location", "occupation",
-    "education", "communication_style", "timezone", "languages_spoken",
-    "languages_to_learn", "coding_level", "coding_languages", "projects",
-    "goals", "interests", "favorite_apps", "work_hours", "notes",
+    "name",
+    "preferred_name",
+    "aliases",
+    "age",
+    "location",
+    "occupation",
+    "education",
+    "communication_style",
+    "timezone",
+    "languages_spoken",
+    "languages_to_learn",
+    "coding_level",
+    "coding_languages",
+    "projects",
+    "goals",
+    "interests",
+    "favorite_apps",
+    "work_hours",
+    "notes",
 }
 
 
@@ -146,6 +158,7 @@ class MemoryRepository:
         # Warn when storing profile facts with unrecognized keys
         if category == "profile" and key not in RECOGNIZED_PROFILE_KEYS:
             import logging
+
             logging.getLogger("nally.memory").warning(
                 f"Profile fact '{key}' is not a recognized profile key. "
                 f"Recognized keys: {', '.join(sorted(RECOGNIZED_PROFILE_KEYS))}"
@@ -183,9 +196,7 @@ class MemoryRepository:
         """Recall memories with confidence filtering."""
         with self._connection() as conn:
             if key:
-                row = conn.execute(
-                    "SELECT * FROM memories WHERE key = ? AND deleted = 0", (key,)
-                ).fetchone()
+                row = conn.execute("SELECT * FROM memories WHERE key = ? AND deleted = 0", (key,)).fetchone()
                 if row:
                     # Boost confidence on recall
                     conn.execute(
@@ -221,9 +232,7 @@ class MemoryRepository:
     def forget(self, key: str) -> str:
         """Soft delete a memory."""
         with self._connection() as conn:
-            row = conn.execute(
-                "SELECT id FROM memories WHERE key = ? AND deleted = 0", (key,)
-            ).fetchone()
+            row = conn.execute("SELECT id FROM memories WHERE key = ? AND deleted = 0", (key,)).fetchone()
             if row:
                 conn.execute("UPDATE memories SET deleted = 1 WHERE id = ?", (row["id"],))
                 return f"Forgot: {key}"
@@ -257,11 +266,8 @@ class MemoryRepository:
 
         Uses a single bulk UPDATE instead of N individual updates.
         """
-        now = datetime.now()
         with self._connection() as conn:
-            rows = conn.execute(
-                "SELECT id, last_confirmed FROM memories WHERE deleted = 0"
-            ).fetchall()
+            rows = conn.execute("SELECT id, last_confirmed FROM memories WHERE deleted = 0").fetchall()
 
             updates = []
             for row in rows:
@@ -316,9 +322,7 @@ class MemoryRepository:
                     (like, like, like, limit),
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM episodes ORDER BY date DESC LIMIT ?", (limit,)
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM episodes ORDER BY date DESC LIMIT ?", (limit,)).fetchall()
 
             return [dict(row) for row in rows]
 
@@ -343,9 +347,7 @@ class MemoryRepository:
     def get_recent_conversations(self, limit: int = 5) -> List[Dict]:
         """Get recent conversation summaries for context injection."""
         with self._connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM conversations ORDER BY end_date DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM conversations ORDER BY end_date DESC LIMIT ?", (limit,)).fetchall()
             return [dict(row) for row in rows]
 
     def get_conversation_summaries_text(self, limit: int = 3) -> str:
@@ -387,9 +389,7 @@ class MemoryRepository:
                 )
                 return f"Pattern learned: {pattern}"
 
-    def recall_semantic(
-        self, search: Optional[str] = None, min_confidence: float = 0.5
-    ) -> List[Dict]:
+    def recall_semantic(self, search: Optional[str] = None, min_confidence: float = 0.5) -> List[Dict]:
         """Recall semantic patterns."""
         with self._connection() as conn:
             if search:
@@ -445,14 +445,16 @@ class MemoryRepository:
             # Bulk insert with executemany
             rows = []
             for msg in messages:
-                rows.append((
-                    session_id,
-                    msg.get("role", "user"),
-                    msg.get("content", ""),
-                    json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
-                    msg.get("tool_call_id"),
-                    now,
-                ))
+                rows.append(
+                    (
+                        session_id,
+                        msg.get("role", "user"),
+                        msg.get("content", ""),
+                        json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
+                        msg.get("tool_call_id"),
+                        now,
+                    )
+                )
             conn.executemany(
                 "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
                 rows,
@@ -486,15 +488,14 @@ class MemoryRepository:
         """Get the most recent session ID."""
         with self._connection() as conn:
             try:
-                row = conn.execute(
-                    "SELECT session_id FROM conversation_messages ORDER BY id DESC LIMIT 1"
-                ).fetchone()
+                row = conn.execute("SELECT session_id FROM conversation_messages ORDER BY id DESC LIMIT 1").fetchone()
                 return row["session_id"] if row else None
             except sqlite3.OperationalError:
                 return None
 
 
 # ── Profile Migration ─────────────────────────────────────
+
 
 def migrate_profile(store: "MemoryRepository"):
     """One-time migration: read data/user_profile.json into memory store.
@@ -508,7 +509,7 @@ def migrate_profile(store: "MemoryRepository"):
 
     try:
         data = json.loads(profile_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return
 
     if not isinstance(data, dict):
