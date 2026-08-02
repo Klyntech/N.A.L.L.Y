@@ -137,13 +137,21 @@ class PostgreSQLDatabase:
                 new_count = row["mention_count"] + 1
                 await conn.execute(
                     "UPDATE memories SET value = $1, category = $2, confidence = $3, mention_count = $4, last_confirmed = $5 WHERE id = $6",
-                    value, category, new_confidence, new_count, now, row["id"],
+                    value,
+                    category,
+                    new_confidence,
+                    new_count,
+                    now,
+                    row["id"],
                 )
                 return f"Updated: {key} = {value} (confidence: {new_confidence:.1f}, mentions: {new_count})"
             else:
                 await conn.execute(
                     "INSERT INTO memories (key, value, category, confidence, mention_count, created, last_confirmed) VALUES ($1, $2, $3, 0.5, 1, $4, $4)",
-                    key, value, category, now,
+                    key,
+                    value,
+                    category,
+                    now,
                 )
                 return f"Remembered: {key} = {value}"
 
@@ -160,14 +168,13 @@ class PostgreSQLDatabase:
 
         async with self._pool.acquire() as conn:
             if key:
-                row = await conn.fetchrow(
-                    "SELECT * FROM memories WHERE key = $1 AND deleted = 0", key
-                )
+                row = await conn.fetchrow("SELECT * FROM memories WHERE key = $1 AND deleted = 0", key)
                 if row:
                     # Boost confidence on recall
                     await conn.execute(
                         "UPDATE memories SET confidence = LEAST(1.0, confidence + 0.05), last_confirmed = $1 WHERE id = $2",
-                        self._now(), row["id"],
+                        self._now(),
+                        row["id"],
                     )
                     return row["value"]
                 return None
@@ -175,7 +182,9 @@ class PostgreSQLDatabase:
             if category:
                 rows = await conn.fetch(
                     "SELECT * FROM memories WHERE category = $1 AND deleted = 0 AND confidence >= $2 ORDER BY confidence DESC, last_confirmed DESC LIMIT $3",
-                    category, min_confidence, limit,
+                    category,
+                    min_confidence,
+                    limit,
                 )
                 return {row["key"]: row["value"] for row in rows}
 
@@ -183,14 +192,17 @@ class PostgreSQLDatabase:
                 like_pattern = f"%{search}%"
                 rows = await conn.fetch(
                     "SELECT * FROM memories WHERE deleted = 0 AND confidence >= $1 AND (key LIKE $2 OR value LIKE $2 OR category LIKE $2) ORDER BY confidence DESC LIMIT $3",
-                    min_confidence, like_pattern, limit,
+                    min_confidence,
+                    like_pattern,
+                    limit,
                 )
                 return {row["key"]: row["value"] for row in rows}
 
             # Return all high-confidence memories
             rows = await conn.fetch(
                 "SELECT * FROM memories WHERE deleted = 0 AND confidence >= $1 ORDER BY confidence DESC, last_confirmed DESC LIMIT $2",
-                min_confidence, limit,
+                min_confidence,
+                limit,
             )
             return {row["key"]: row["value"] for row in rows}
 
@@ -199,9 +211,7 @@ class PostgreSQLDatabase:
         await self._ensure_schema()
 
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT id FROM memories WHERE key = $1 AND deleted = 0", key
-            )
+            row = await conn.fetchrow("SELECT id FROM memories WHERE key = $1 AND deleted = 0", key)
             if row:
                 await conn.execute("UPDATE memories SET deleted = 1 WHERE id = $1", row["id"])
                 return f"Forgot: {key}"
@@ -245,7 +255,8 @@ class PostgreSQLDatabase:
                 if factor < 1.0:
                     await conn.execute(
                         "UPDATE memories SET confidence = confidence * $1 WHERE id = $2",
-                        factor, row["id"],
+                        factor,
+                        row["id"],
                     )
 
     # ── Episodic Memory ───────────────────────────────────
@@ -265,7 +276,13 @@ class PostgreSQLDatabase:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO episodes (date, topic, what_happened, outcome, solution, tags, created) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                now, topic, what_happened, outcome, solution, json.dumps(tags or []), now,
+                now,
+                topic,
+                what_happened,
+                outcome,
+                solution,
+                json.dumps(tags or []),
+                now,
             )
         return f"Episode recorded: {topic}"
 
@@ -283,13 +300,15 @@ class PostgreSQLDatabase:
             if topic:
                 rows = await conn.fetch(
                     "SELECT * FROM episodes WHERE topic LIKE $1 ORDER BY date DESC LIMIT $2",
-                    f"%{topic}%", limit,
+                    f"%{topic}%",
+                    limit,
                 )
             elif search:
                 like = f"%{search}%"
                 rows = await conn.fetch(
                     "SELECT * FROM episodes WHERE what_happened LIKE $1 OR topic LIKE $1 OR solution LIKE $1 ORDER BY date DESC LIMIT $2",
-                    like, limit,
+                    like,
+                    limit,
                 )
             else:
                 rows = await conn.fetch("SELECT * FROM episodes ORDER BY date DESC LIMIT $1", limit)
@@ -312,7 +331,12 @@ class PostgreSQLDatabase:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO conversations (summary, topics, start_date, end_date, message_count, created) VALUES ($1, $2, $3, $4, $5, $6)",
-                summary, json.dumps(topics or []), start_date or now, now, message_count, now,
+                summary,
+                json.dumps(topics or []),
+                start_date or now,
+                now,
+                message_count,
+                now,
             )
         return "Conversation saved"
 
@@ -390,34 +414,41 @@ class PostgreSQLDatabase:
     def remember_sync(self, key: str, value: str, category: str = "general") -> str:
         """Sync wrapper for remember()."""
         import asyncio
+
         return asyncio.run(self.remember(key, value, category))
 
     def recall_sync(self, **kwargs) -> Any:
         """Sync wrapper for recall()."""
         import asyncio
+
         return asyncio.run(self.recall(**kwargs))
 
     def forget_sync(self, key: str) -> str:
         """Sync wrapper for forget()."""
         import asyncio
+
         return asyncio.run(self.forget(key))
 
     def add_episode_sync(self, **kwargs) -> str:
         """Sync wrapper for add_episode()."""
         import asyncio
+
         return asyncio.run(self.add_episode(**kwargs))
 
     def search_episodes_sync(self, **kwargs) -> List[Dict]:
         """Sync wrapper for search_episodes()."""
         import asyncio
+
         return asyncio.run(self.search_episodes(**kwargs))
 
     def save_messages_sync(self, messages: List[Dict], session_id: str = "default") -> str:
         """Sync wrapper for save_messages()."""
         import asyncio
+
         return asyncio.run(self.save_messages(messages, session_id))
 
     def load_messages_sync(self, session_id: str = "default") -> List[Dict]:
         """Sync wrapper for load_messages()."""
         import asyncio
+
         return asyncio.run(self.load_messages(session_id))

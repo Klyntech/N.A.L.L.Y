@@ -132,9 +132,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     continue
 
                 # Process in background
-                asyncio.create_task(
-                    _process_message(cid, session_id, text, tab_id)
-                )
+                asyncio.create_task(_process_message(cid, session_id, text, tab_id))
 
             # ── Abort ───────────────────────────────────
             elif msg_type == "abort":

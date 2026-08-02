@@ -35,6 +35,7 @@ def get_db():
     else:
         # Fall back to existing SQLite store
         from ..memory.store import MemoryRepository
+
         _db = MemoryRepository()
 
     return _db

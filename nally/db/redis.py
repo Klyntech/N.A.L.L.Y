@@ -37,6 +37,7 @@ class RedisCache:
             # Layerbase REST API (Upstash-compatible)
             try:
                 import httpx
+
                 self._client = httpx.AsyncClient(
                     base_url=self._url,
                     headers={
@@ -52,6 +53,7 @@ class RedisCache:
             # Self-hosted Redis via redis-py
             try:
                 import redis.asyncio as aioredis
+
                 self._client = aioredis.from_url(
                     self._url,
                     decode_responses=True,
@@ -66,9 +68,12 @@ class RedisCache:
         await self._ensure_client()
 
         if self._is_rest:
-            resp = await self._client.post("/execute", json={
-                "commands": [["GET", key]],
-            })
+            resp = await self._client.post(
+                "/execute",
+                json={
+                    "commands": [["GET", key]],
+                },
+            )
             if resp.status_code == 200:
                 result = resp.json()
                 return result.get("result", [None])[0]
@@ -84,9 +89,12 @@ class RedisCache:
             cmd = ["SET", key, value]
             if ex:
                 cmd.extend(["EX", str(ex)])
-            resp = await self._client.post("/execute", json={
-                "commands": [cmd],
-            })
+            resp = await self._client.post(
+                "/execute",
+                json={
+                    "commands": [cmd],
+                },
+            )
             return resp.status_code == 200
         else:
             return await self._client.set(key, value, ex=ex)
@@ -96,9 +104,12 @@ class RedisCache:
         await self._ensure_client()
 
         if self._is_rest:
-            resp = await self._client.post("/execute", json={
-                "commands": [["DEL", key]],
-            })
+            resp = await self._client.post(
+                "/execute",
+                json={
+                    "commands": [["DEL", key]],
+                },
+            )
             return resp.status_code == 200
         else:
             return await self._client.delete(key) > 0
@@ -108,9 +119,12 @@ class RedisCache:
         await self._ensure_client()
 
         if self._is_rest:
-            resp = await self._client.post("/execute", json={
-                "commands": [["EXISTS", key]],
-            })
+            resp = await self._client.post(
+                "/execute",
+                json={
+                    "commands": [["EXISTS", key]],
+                },
+            )
             if resp.status_code == 200:
                 result = resp.json()
                 return result.get("result", [0])[0] > 0
@@ -123,9 +137,12 @@ class RedisCache:
         await self._ensure_client()
 
         if self._is_rest:
-            resp = await self._client.post("/execute", json={
-                "commands": [["INCR", key]],
-            })
+            resp = await self._client.post(
+                "/execute",
+                json={
+                    "commands": [["INCR", key]],
+                },
+            )
             if resp.status_code == 200:
                 result = resp.json()
                 return result.get("result", [0])[0]
@@ -138,9 +155,12 @@ class RedisCache:
         await self._ensure_client()
 
         if self._is_rest:
-            resp = await self._client.post("/execute", json={
-                "commands": [["EXPIRE", key, str(seconds)]],
-            })
+            resp = await self._client.post(
+                "/execute",
+                json={
+                    "commands": [["EXPIRE", key, str(seconds)]],
+                },
+            )
             return resp.status_code == 200
         else:
             return await self._client.expire(key, seconds)
@@ -150,9 +170,12 @@ class RedisCache:
         try:
             await self._ensure_client()
             if self._is_rest:
-                resp = await self._client.post("/execute", json={
-                    "commands": [["PING"]],
-                })
+                resp = await self._client.post(
+                    "/execute",
+                    json={
+                        "commands": [["PING"]],
+                    },
+                )
                 if resp.status_code == 200:
                     return {"status": "ok", "engine": "redis", "provider": "layerbase"}
                 return {"status": "error", "error": f"HTTP {resp.status_code}"}

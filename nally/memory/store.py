@@ -670,8 +670,6 @@ def create_memory_store():
         except Exception as e:
             import logging
 
-            logging.getLogger("nally.memory").warning(
-                f"PostgreSQL backend failed ({e}), falling back to SQLite"
-            )
+            logging.getLogger("nally.memory").warning(f"PostgreSQL backend failed ({e}), falling back to SQLite")
 
     return MemoryRepository()
