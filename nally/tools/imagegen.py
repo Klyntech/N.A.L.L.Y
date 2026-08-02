@@ -126,7 +126,6 @@ def enhance_prompt(prompt: str, content_type: str = None) -> str:
     """Natural-language prompt enhancement for Flux (not tag lists)."""
     if content_type is None:
         content_type = detect_content_type(prompt)
-    route = CONTENT_ROUTER.get(content_type, CONTENT_ROUTER["default"])
 
     # Flux uses a T5 encoder — write natural sentences, not tag soup
     style_map = {

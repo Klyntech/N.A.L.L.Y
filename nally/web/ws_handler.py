@@ -24,8 +24,6 @@ import hmac
 import json
 import logging
 import os
-import time
-from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -170,7 +168,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
 async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
     """Process a user message and stream events back."""
-    from ..web.app import _abort_flags, broadcast_manager
+    from ..web.app import _abort_flags
 
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_event_loop()

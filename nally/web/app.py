@@ -36,6 +36,8 @@ from nally.tools import load_all_tools
 from nally.tools.registry import registry
 from nally.utils.logger import logger
 
+from .health import router as health_router
+
 # ── Broadcast System (multi-tab sync) ─────────────────────
 
 
@@ -157,7 +159,7 @@ async def lifespan(app: FastAPI):
 
     # Validate config on startup
     try:
-        from nally.core.validator import validate_config, print_validation_report
+        from nally.core.validator import print_validation_report, validate_config
 
         errors = validate_config(strict=True)
         print_validation_report(errors)
@@ -184,7 +186,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown: save all active sessions before exit
     try:
-        for sid, agent in session_manager._sessions.items():
+        for _sid, agent in session_manager._sessions.items():
             if len(agent.messages) > 2:
                 agent.clear_history()
         logger.info("Saved all session summaries on shutdown.")
@@ -213,8 +215,6 @@ app.add_middleware(
 
 
 # ── Health check (no auth required) ───────────────────────
-
-from .health import router as health_router
 
 app.include_router(health_router)
 

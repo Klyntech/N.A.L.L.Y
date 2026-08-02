@@ -63,7 +63,7 @@ def main():
 
     # Validate configuration
     try:
-        from nally.core.validator import validate_config, print_validation_report
+        from nally.core.validator import print_validation_report, validate_config
 
         errors = validate_config(strict=False)
         print_validation_report(errors)

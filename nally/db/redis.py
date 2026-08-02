@@ -12,10 +12,9 @@ Usage:
         value = await cache.get("key")
 """
 
-import json
 import logging
 import os
-from typing import Any, Optional
+from typing import Optional
 
 logger = logging.getLogger("nally.db.redis")
 
@@ -158,7 +157,7 @@ class RedisCache:
                     return {"status": "ok", "engine": "redis", "provider": "layerbase"}
                 return {"status": "error", "error": f"HTTP {resp.status_code}"}
             else:
-                pong = await self._client.ping()
+                await self._client.ping()
                 return {"status": "ok", "engine": "redis", "provider": "self-hosted"}
         except Exception as e:
             return {"status": "error", "engine": "redis", "error": str(e)}

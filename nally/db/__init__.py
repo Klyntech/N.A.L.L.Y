@@ -28,7 +28,6 @@ def get_db():
     if _db is not None:
         return _db
 
-    import os
     from ..config import DATABASE_URL
 
     if DATABASE_URL and DATABASE_URL.startswith(("postgresql://", "postgres://")):
@@ -41,4 +40,4 @@ def get_db():
     return _db
 
 
-__all__ = ["get_db", "get_cache", "PostgreSQLDatabase", "RedisCache"]
+__all__ = ["PostgreSQLDatabase", "RedisCache", "get_cache", "get_db"]

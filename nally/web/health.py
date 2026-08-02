@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from ..config import DATA_DIR, DATABASE_URL, PROVIDER, ACTIVE_MODEL
+from ..config import ACTIVE_MODEL, DATA_DIR, DATABASE_URL, PROVIDER
 
 router = APIRouter()
 
@@ -44,6 +44,7 @@ def _check_database() -> dict:
     if DATABASE_URL and DATABASE_URL.startswith(("postgresql://", "postgres://")):
         try:
             import asyncio
+
             import asyncpg
 
             async def _test():
@@ -85,6 +86,7 @@ def _check_redis() -> dict:
     if "layerbase" in redis_url or "upstash" in redis_url:
         try:
             import asyncio
+
             import httpx
 
             async def _test():
@@ -109,6 +111,7 @@ def _check_redis() -> dict:
     # Self-hosted Redis
     try:
         import asyncio
+
         import redis.asyncio as aioredis
 
         async def _test():
