@@ -27,7 +27,7 @@ CONTENT_ROUTER = {
         "negative": "realistic, 3d, texture, photo, shadows, complex, busy, blurry",
     },
     "photo": {
-        "model": "flux",
+        "model": "gpt-image-2",
         "add": ["photorealistic", "DSLR photo", "85mm lens", "natural lighting", "bokeh", "sharp focus"],
         "remove": ["cartoon", "anime", "painting", "illustration", "flat"],
         "negative": "cartoon, anime, painting, illustration, flat, drawing, sketch, blurry",
@@ -45,7 +45,7 @@ CONTENT_ROUTER = {
         "negative": "realistic, photo, 3d, texture, blurry, low quality, bad anatomy",
     },
     "3d": {
-        "model": "flux",
+        "model": "gptimage-large",
         "add": ["octane render", "cinema 4d", "volumetric lighting", "ray tracing", "high detail", "8k"],
         "remove": ["photo", "2d", "flat", "sketch"],
         "negative": "2d, flat, sketch, drawing, low poly, blurry, low quality",
@@ -57,19 +57,19 @@ CONTENT_ROUTER = {
         "negative": "photo, digital, 3d, render, camera, realistic, blurry",
     },
     "product": {
-        "model": "flux",
+        "model": "gptimage",
         "add": ["product photography", "studio lighting", "white background", "commercial", "high-end", "sharp focus"],
         "remove": ["outdoor", "natural", "messy", "busy"],
         "negative": "outdoor, natural, messy, busy, blurry, text, watermark, low quality",
     },
     "text": {
-        "model": "flux",
+        "model": "gptimage-large",
         "add": ["clear text", "readable typography", "professional layout", "high resolution"],
         "remove": ["blurry", "distorted", "abstract"],
         "negative": "blurry, distorted, unreadable text, misspelled, low quality",
     },
     "default": {
-        "model": "flux",
+        "model": "zimage",
         "add": ["high quality", "detailed", "sharp focus", "professional"],
         "remove": [],
         "negative": "blurry, low quality, watermark, text",
@@ -495,7 +495,7 @@ class ImageGen(Tool):
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model: auto (default, picks best for content), flux, zimage, seedream5, gptimage, ideogram-v4-quality, kontext, wan-image, recraft-v4.1-vector",
+                    "description": "Model: auto (default, picks best for content), flux, zimage, dreamshaper, klein, gptimage, gptimage-large, gpt-image-2, kontext, nova-canvas",
                     "default": "auto",
                 },
                 "quality": {

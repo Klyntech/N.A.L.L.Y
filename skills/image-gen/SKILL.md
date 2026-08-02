@@ -17,21 +17,35 @@ Generate high-quality images from text descriptions using AI.
 5. Regenerates with improved prompts until quality is good
 6. Optionally refines with img2img and upscales
 
-## Smart Model Selection
+## Smart Model Selection (All Free)
 
 | Content Type | Auto-Selected Model | Why |
 |---|---|---|
-| Logo/Vector | `recraft-v4.1-vector` | Best clean vector output |
-| Photo/Realistic | `seedream5` | Top photorealistic quality |
-| Art/Concept | `wan-image` | Strong artistic style |
+| Logo/Vector | `flux` | Clean lines, fast, reliable |
+| Photo/Realistic | `gpt-image-2` | Best photorealism among free models |
+| Art/Concept | `flux` | Strong general-purpose quality |
 | Anime/Cartoon | `flux` | Good stylized output |
-| 3D Render | `seedream5` | Volumetric lighting |
-| Painting | `wan-image` | Brush stroke quality |
+| 3D Render | `gptimage-large` | High fidelity, fine detail |
+| Painting | `flux` | Reliable, consistent style |
 | Product | `gptimage` | Clean commercial look |
-| Text-in-image | `ideogram-v4-quality` | Best text rendering |
-| Default | `zimage` | Balanced general |
+| Text-in-image | `gptimage-large` | Best text rendering free |
+| Default | `zimage` | Balanced, fast |
 
-You can override with `model` parameter, or use `model=auto` (default).
+### All Free Models
+
+| Model | Best For | Speed |
+|---|---|---|
+| `flux` | General purpose, art, anime | Fast |
+| `zimage` | Default, balanced | Fast |
+| `dreamshaper` | Simplest, fastest | Instant |
+| `klein` | High quality, up to 2.4MP | Medium |
+| `gptimage` | Text in images, transparency | Medium |
+| `gptimage-large` | Highest fidelity free | Medium |
+| `gpt-image-2` | Premium photorealism free | Medium |
+| `kontext` | Image editing (img2img) | Slow |
+| `nova-canvas` | Editing + inpainting | Slow |
+
+Override with `model` parameter, or use `model=auto` (default).
 
 ## Quality Levels
 
