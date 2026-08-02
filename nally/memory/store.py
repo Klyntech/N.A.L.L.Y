@@ -423,7 +423,7 @@ class MemoryRepository:
         """Get formatted user facts for system prompt injection."""
         with self._connection() as conn:
             rows = conn.execute(
-                "SELECT key, value, confidence FROM memories WHERE deleted = 0 AND confidence >= 0.5 ORDER BY confidence DESC LIMIT 30"
+                "SELECT key, value, confidence FROM memories WHERE deleted = 0 AND confidence >= 0.2 ORDER BY confidence DESC LIMIT 30"
             ).fetchall()
             if not rows:
                 return "No user facts stored yet."
@@ -432,6 +432,14 @@ class MemoryRepository:
                 marker = "*" if row["confidence"] >= 0.8 else ""
                 lines.append(f"- {row['key']}: {row['value']}{marker}")
             return "\n".join(lines)
+
+    def reset_stale_facts(self, min_confidence: float = 0.35, target: float = 0.5):
+        """Boost decayed profile facts back to visible threshold."""
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE memories SET confidence = ? WHERE confidence < ? AND deleted = 0",
+                (target, min_confidence),
+            )
 
     # ── Conversation History Persistence ──────────────────────
 
@@ -639,3 +647,31 @@ MEMORY_TOOL_SCHEMAS = [
         },
     },
 ]
+
+
+# ── Backend Factory ────────────────────────────────────────
+
+
+def create_memory_store():
+    """Create the appropriate memory store based on config.
+
+    Returns PostgreSQLDatabase if DATABASE_URL starts with postgresql://,
+    otherwise returns SQLite-backed MemoryRepository.
+    """
+    import os
+
+    database_url = os.getenv("DATABASE_URL", "")
+
+    if database_url and database_url.startswith(("postgresql://", "postgres://")):
+        try:
+            from ..db.postgres import PostgreSQLDatabase
+
+            return PostgreSQLDatabase(database_url)
+        except Exception as e:
+            import logging
+
+            logging.getLogger("nally.memory").warning(
+                f"PostgreSQL backend failed ({e}), falling back to SQLite"
+            )
+
+    return MemoryRepository()

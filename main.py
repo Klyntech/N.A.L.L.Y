@@ -61,6 +61,15 @@ def main():
 
     print_banner()
 
+    # Validate configuration
+    try:
+        from nally.core.validator import validate_config, print_validation_report
+
+        errors = validate_config(strict=False)
+        print_validation_report(errors)
+    except Exception as e:
+        print(f"Config validation skipped: {e}")
+
     # Start system monitor (optional)
     try:
         from nally.system import system_monitor

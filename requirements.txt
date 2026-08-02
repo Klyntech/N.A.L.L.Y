@@ -40,5 +40,11 @@ httpx>=0.27.0
 # Telegram bot
 python-telegram-bot>=20.0
 
+# Database (optional, for PostgreSQL backend)
+asyncpg>=0.29.0
+
+# Redis (optional, for caching layer)
+redis>=5.0.0
+
 # Dev dependencies (install with: pip install -r requirements.txt -e ".[dev]")
 # Or directly: pip install pytest pytest-cov ruff pre-commit

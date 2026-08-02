@@ -100,8 +100,9 @@ class NallyAgent:
         threading.Thread(target=self._bg_memory_decay, daemon=True).start()
 
     def _bg_memory_decay(self):
-        """Run memory decay in background on startup."""
+        """Run memory decay and reset stale facts on startup."""
         try:
+            memory_store.reset_stale_facts()
             memory_store.decay_old_memories()
         except Exception as e:
             logger.debug(f"Memory decay failed: {e}")
@@ -148,9 +149,10 @@ class NallyAgent:
     def _save_history(self):
         """Save conversation history to database on shutdown."""
         try:
-            if len(self.messages) > 1:
-                memory_store.save_messages(self.messages, self._session_id)
-                logger.debug(f"Saved {len(self.messages)} messages to session {self._session_id}")
+            saveable = [m for m in self.messages if m.get("role") != "system"]
+            if len(saveable) > 1:
+                memory_store.save_messages(saveable, self._session_id)
+                logger.debug(f"Saved {len(saveable)} messages to session {self._session_id}")
         except Exception as e:
             logger.debug(f"Failed to save history: {e}")
 
@@ -295,6 +297,7 @@ class NallyAgent:
         # Smart context management
         self.messages = context_manager.compact(self.messages)
         self.messages = context_manager.inject_memories(user_input, self.messages)
+        self.messages = context_manager.inject_conversation_history(self.messages)
 
         # Build tool set
         try:
@@ -348,6 +351,10 @@ class NallyAgent:
             self._save_history()
             self._maybe_create_episode(user_input, final_response)
 
+            # Periodic auto-save summary every 20 messages
+            if len(self.messages) % 20 == 0 and len(self.messages) > 10:
+                self._auto_save_summary()
+
             return final_response
 
         except LLMError as e:
@@ -386,15 +393,28 @@ class NallyAgent:
                     name = m.get("name", "unknown")
                     if name not in tools_used:
                         tools_used.append(name)
+            recent_context = " | ".join([m[:60] for m in user_msgs[-3:]])
+            topics = _extract_topics(user_msgs)
             memory_store.add_episode(
                 topic=last_user[:50],
-                what_happened=f"User asked: {last_user[:100]}",
-                outcome=response[:200] if response else "completed",
-                solution=",".join(tools_used[:5]) if tools_used else "direct response",
-                tags=tools_used[:3],
+                what_happened=f"Context: {recent_context}",
+                outcome=response[:300] if response else "completed",
+                solution=f"Tools: {','.join(tools_used[:5])}" if tools_used else "direct response",
+                tags=tools_used[:5] + topics,
             )
         except Exception as e:
             logger.debug(f"Episode creation failed: {e}")
+
+    def _auto_save_summary(self):
+        """Periodically save conversation summary without clearing."""
+        try:
+            user_msgs = [m["content"] for m in self.messages if m["role"] == "user"]
+            if len(user_msgs) >= 3:
+                summary = " | ".join(user_msgs[-5:])
+                topics = _extract_topics(user_msgs)
+                memory_store.save_conversation(summary=summary, topics=topics, message_count=len(user_msgs))
+        except Exception:
+            pass
 
     def clear_history(self):
         """Clear conversation history and save summary."""

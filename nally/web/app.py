@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -154,6 +154,17 @@ class ApprovalRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_data_dir()
+
+    # Validate config on startup
+    try:
+        from nally.core.validator import validate_config, print_validation_report
+
+        errors = validate_config(strict=True)
+        print_validation_report(errors)
+    except Exception as e:
+        logger.error(f"Configuration validation failed: {e}")
+        raise
+
     load_all_tools()
     logger.info("Tools loaded.")
 
@@ -169,12 +180,16 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_prewarm, daemon=True).start()
 
-    if not NALLY_ACCESS_TOKEN:
-        logger.error("NALLY_ACCESS_TOKEN not set — refusing to start without auth")
-        raise RuntimeError("NALLY_ACCESS_TOKEN not set")
-
     logger.info("Lifespan startup complete.")
     yield
+    # Shutdown: save all active sessions before exit
+    try:
+        for sid, agent in session_manager._sessions.items():
+            if len(agent.messages) > 2:
+                agent.clear_history()
+        logger.info("Saved all session summaries on shutdown.")
+    except Exception as e:
+        logger.warning(f"Shutdown save failed: {e}")
     logger.info("Lifespan shutdown.")
 
 
@@ -195,6 +210,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Health check (no auth required) ───────────────────────
+
+from .health import router as health_router
+
+app.include_router(health_router)
 
 
 # ── Middleware: rate limit + request ID ───────────────────
@@ -288,7 +310,7 @@ async def status():
         "tools": len(registry.tools),
         "uptime": time.time(),
         "framework": "fastapi",
-        "streaming": "sse",
+        "streaming": "websocket+sse",
     }
 
 
@@ -415,7 +437,7 @@ async def history(_auth=Depends(verify_auth)):
         {"role": msg.get("role", "unknown"), "content": msg.get("content", "")}
         for msg in session_manager.get_history("web:default")
     ]
-    return {"messages": messages[1:] if messages and messages[0].get("role") == "system" else messages}
+    return {"messages": [m for m in messages if m.get("role") not in ("system", "tool")]}
 
 
 # ── API: Clear ────────────────────────────────────────────
@@ -729,6 +751,20 @@ async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
     if removed:
         broadcast_manager.broadcast("mcp_status", {"service": service, "connected": False})
     return {"status": "disconnected" if removed else "not_connected"}
+
+
+# ── WebSocket: Real-time chat ──────────────────────────────
+
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for real-time bidirectional chat.
+
+    Connect with: ws://localhost:5000/ws/web:default?token=<access_token>
+    """
+    from .ws_handler import websocket_chat
+
+    await websocket_chat(websocket, session_id)
 
 
 # ── Run server ────────────────────────────────────────────

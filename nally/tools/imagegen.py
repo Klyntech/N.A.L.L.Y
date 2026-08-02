@@ -29,7 +29,7 @@ CONTENT_ROUTER = {
         "negative": "realistic, 3d, texture, photo, shadows, complex, busy, blurry",
     },
     "photo": {
-        "model": "gpt-image-2",
+        "model": "flux",
         "add": ["photorealistic", "DSLR photo", "85mm lens", "natural lighting", "bokeh", "sharp focus"],
         "remove": ["cartoon", "anime", "painting", "illustration", "flat"],
         "negative": "cartoon, anime, painting, illustration, flat, drawing, sketch, blurry",
@@ -47,7 +47,7 @@ CONTENT_ROUTER = {
         "negative": "realistic, photo, 3d, texture, blurry, low quality, bad anatomy",
     },
     "3d": {
-        "model": "gptimage-large",
+        "model": "flux",
         "add": ["octane render", "cinema 4d", "volumetric lighting", "ray tracing", "high detail", "8k"],
         "remove": ["photo", "2d", "flat", "sketch"],
         "negative": "2d, flat, sketch, drawing, low poly, blurry, low quality",
@@ -59,19 +59,19 @@ CONTENT_ROUTER = {
         "negative": "photo, digital, 3d, render, camera, realistic, blurry",
     },
     "product": {
-        "model": "gptimage",
+        "model": "flux",
         "add": ["product photography", "studio lighting", "white background", "commercial", "high-end", "sharp focus"],
         "remove": ["outdoor", "natural", "messy", "busy"],
         "negative": "outdoor, natural, messy, busy, blurry, text, watermark, low quality",
     },
     "text": {
-        "model": "gptimage-large",
+        "model": "flux",
         "add": ["clear text", "readable typography", "professional layout", "high resolution"],
         "remove": ["blurry", "distorted", "abstract"],
         "negative": "blurry, distorted, unreadable text, misspelled, low quality",
     },
     "default": {
-        "model": "zimage",
+        "model": "flux",
         "add": ["high quality", "detailed", "sharp focus", "professional"],
         "remove": [],
         "negative": "blurry, low quality, watermark, text",
@@ -123,20 +123,28 @@ def get_model_for_content(content_type: str) -> str:
 
 
 def enhance_prompt(prompt: str, content_type: str = None) -> str:
-    """Keyword-based prompt enhancement (fast, no LLM call)."""
+    """Natural-language prompt enhancement for Flux (not tag lists)."""
     if content_type is None:
         content_type = detect_content_type(prompt)
     route = CONTENT_ROUTER.get(content_type, CONTENT_ROUTER["default"])
-    lower = prompt.lower()
 
-    enhancements = [kw for kw in route["add"] if kw.lower() not in lower]
+    # Flux uses a T5 encoder — write natural sentences, not tag soup
+    style_map = {
+        "logo": "A clean minimalist logo design with flat vector style and simple color palette on a white background",
+        "photo": "A photorealistic image shot on a DSLR with an 85mm lens, natural lighting with soft bokeh, sharp focus",
+        "art": "A detailed digital painting in concept art style, rich colors and intricate details, artstation quality",
+        "anime": "An anime illustration with vibrant colors and clean cel-shaded lines, studio ghibli inspired",
+        "3d": "A 3D render with volumetric lighting and ray tracing, cinema 4d style, high detail",
+        "painting": "An oil painting on canvas with visible brush strokes, classical museum quality masterpiece",
+        "product": "Product photography with studio lighting on a clean white background, commercial high-end look",
+        "text": "A design with clear readable text and professional typography layout",
+        "default": "A highly detailed, sharp, professional image with excellent composition",
+    }
 
-    if enhancements:
-        enhanced = f"{prompt}, {', '.join(enhancements)}"
-    else:
-        enhanced = prompt
+    style = style_map.get(content_type, style_map["default"])
 
-    enhanced += f" (avoid: {route['negative']})"
+    # Build a natural sentence prompt
+    enhanced = f"{prompt}. {style}, beautiful lighting, detailed, sharp focus, 8k resolution"
     return enhanced
 
 
@@ -144,47 +152,42 @@ def enhance_prompt(prompt: str, content_type: str = None) -> str:
 
 
 def enhance_prompt_llm(prompt: str, content_type: str = None) -> str:
-    """Use MIMO to enhance a short prompt. Falls back to keyword enhancement."""
+    """Use Pollinations free text model to expand short prompts into detailed natural-language descriptions."""
     if content_type is None:
         content_type = detect_content_type(prompt)
 
-    # Only use LLM for very short prompts — long ones are already detailed enough
+    # Only expand short prompts — long ones are already detailed enough
     if len(prompt) > 40:
         return enhance_prompt(prompt, content_type)
 
     try:
-        from ..agent.llm import NallyLLM
-
-        llm = NallyLLM()
-        llm._ensure_client()
-
-        system_prompt = """You are an expert prompt engineer for AI image generation.
-The user will give you a short image idea. Expand it into a detailed prompt.
-
-Rules:
-1. Keep the core subject unchanged
-2. Add: specific lighting, environment, mood, color palette, camera angle
-3. Add quality modifiers at the end: "highly detailed, sharp focus, 8k"
-4. Keep it under 30 words total
-5. Do NOT add negative prompts or "avoid:" phrases
-6. Return ONLY the enhanced prompt, nothing else"""
-
-        response = llm.client.chat.completions.create(
-            model=llm.model,
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Enhance: {prompt}"}],
-            temperature=0.7,
-            max_tokens=100,
+        system = (
+            "You are an expert prompt engineer for AI image generation using Flux. "
+            "Rewrite this short idea into a detailed, natural-language image prompt. "
+            "Structure: subject detail, composition, camera/lens, lighting, color palette, mood, art style. "
+            "One flowing paragraph. No bullet points, no tags, no preamble."
         )
+        full_prompt = f"{system}\n\nEnhance: {prompt}"
+        encoded = urllib.parse.quote(full_prompt)
+        url = f"https://text.pollinations.ai/{encoded}"
 
-        enhanced = response.choices[0].message.content.strip()
-        # Strip quotes if LLM wrapped it
+        logger.info(f"Expanding prompt via Pollinations text: '{prompt}'")
+        req = urllib.request.Request(url, headers={"User-Agent": "NALLY/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            enhanced = resp.read().decode("utf-8").strip()
+
+        # Clean up the response
         enhanced = enhanced.strip('"').strip("'")
-        if enhanced and len(enhanced) > 10 and len(enhanced) < 200:
-            logger.info(f"LLM prompt: '{prompt}' -> '{enhanced}'")
+        # Remove any markdown formatting
+        if enhanced.startswith("```"):
+            enhanced = enhanced.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+        if enhanced and len(enhanced) > 15 and len(enhanced) < 300:
+            logger.info(f"LLM prompt: '{prompt}' -> '{enhanced[:100]}...'")
             return enhanced
 
     except Exception as e:
-        logger.warning(f"LLM prompt enhancement failed: {e}")
+        logger.warning(f"Pollinations text expansion failed: {e}")
 
     return enhance_prompt(prompt, content_type)
 
@@ -404,27 +407,20 @@ def parse_critique(critique_text: str) -> dict:
 
 # ── Pollinations API ──────────────────────────────────────
 
-# Models that support the quality parameter
-QUALITY_SUPPORTED_MODELS = {"gptimage", "gptimage-large", "gpt-image-2"}
-
 
 def generate_pollinations(
     prompt: str,
-    width: int = 1024,
-    height: int = 1024,
+    width: int = 1344,
+    height: int = 1344,
     seed: int = None,
     model: str = "flux",
-    quality: str = "high",
 ) -> bytes:
     """Generate image via Pollinations API."""
     enhanced = enhance_prompt(prompt)
     encoded = urllib.parse.quote(enhanced)
-    params = {"width": width, "height": height, "model": model}
+    params = {"width": width, "height": height, "model": model, "nologo": "true"}
     if seed is not None and seed >= 0:
         params["seed"] = seed
-    # quality param only works on gptimage models
-    if quality and model in QUALITY_SUPPORTED_MODELS:
-        params["quality"] = quality
 
     query = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"https://image.pollinations.ai/prompt/{encoded}?{query}"
@@ -476,11 +472,11 @@ def upscale_image(image_bytes: bytes, target_size: int = 2048) -> bytes:
 
 
 def pick_seeds(best_seed: int = None, attempt: int = 1) -> list:
-    """Return a list of seeds to try, ordered by likelihood of good results."""
+    """Return a list of seeds to try. Uses fixed seed for consistency, random on retry."""
     if attempt == 1:
-        return [0]  # Model default first
+        return [42]  # Fixed seed for consistent, reproducible results
     elif attempt == 2:
-        return [random.randint(1, 999999)]
+        return [random.randint(1, 999999)]  # Random on second try
     elif best_seed is not None:
         # Explore nearby variations of the best seed
         offset = random.randint(-50, 50)
@@ -508,23 +504,18 @@ class ImageGen(Tool):
                 },
                 "width": {
                     "type": "integer",
-                    "description": "Image width (default 1024)",
-                    "default": 1024,
+                    "description": "Image width (default 1344)",
+                    "default": 1344,
                 },
                 "height": {
                     "type": "integer",
-                    "description": "Image height (default 1024)",
-                    "default": 1024,
+                    "description": "Image height (default 1344)",
+                    "default": 1344,
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model: auto (default, picks best for content), flux, zimage, dreamshaper, klein, gptimage, gptimage-large, gpt-image-2, kontext, nova-canvas",
+                    "description": "Model: auto (default, picks best for content), flux, zimage, dreamshaper, klein, kontext, nova-canvas",
                     "default": "auto",
-                },
-                "quality": {
-                    "type": "string",
-                    "description": "Quality level: low, medium, high (default), hd",
-                    "default": "high",
                 },
                 "upscale": {
                     "type": "integer",
@@ -547,10 +538,9 @@ class ImageGen(Tool):
     def execute(
         self,
         prompt: str,
-        width: int = 1024,
-        height: int = 1024,
+        width: int = 1344,
+        height: int = 1344,
         model: str = "auto",
-        quality: str = "high",
         upscale: int = 0,
         max_attempts: int = 3,
         enhance: bool = True,
@@ -581,7 +571,7 @@ class ImageGen(Tool):
         best_seed = None
         logs = []
 
-        logs.append(f"Content type: {content_type} | Model: {model} | Quality: {quality}")
+        logs.append(f"Content type: {content_type} | Model: {model}")
         logs.append(f"Enhanced prompt: {current_prompt[:120]}...")
 
         for attempt in range(1, max_attempts + 1):
@@ -597,7 +587,6 @@ class ImageGen(Tool):
                     height=height,
                     model=model,
                     seed=seed,
-                    quality=quality,
                 )
             except Exception as e:
                 logger.error(f"Attempt {attempt} generation failed: {e}")
@@ -676,7 +665,7 @@ class ImageGen(Tool):
         best_size_kb = len(best_image) / 1024
 
         result = f"Image generated (score {best_score}/100)\n"
-        result += f"Model: {model} | Quality: {quality}\n"
+        result += f"Model: {model}\n"
         result += f"Saved to: {best_file}\n"
         result += f"Size: {best_size_kb:.1f} KB\n"
         result += f"Attempts: {len([l for l in logs if l.startswith('Attempt')])}\n\n"

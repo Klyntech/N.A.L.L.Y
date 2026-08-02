@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="/static/marked.min.js"></script>
   <script src="/static/purify.min.js"></script>
+  <script src="/static/nally-ws.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark-dimmed.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
   <style>
@@ -2535,7 +2536,9 @@
       }).then(function(r) { return r.json(); }).then(function(data) {
         if (data.messages && data.messages.length) {
           data.messages.forEach(function(m) {
-            addChatMsg(m.content, m.role === 'assistant');
+            if (m.role !== 'system' && m.role !== 'tool') {
+              addChatMsg(m.content, m.role === 'assistant');
+            }
           });
         }
       }).catch(function(){});
@@ -2948,6 +2951,120 @@
     // ─── SSE Chat Client ──────────────────────────
     var chatAbort = null;
 
+    // ─── WebSocket Client ─────────────────────────
+    var nallyWs = null;
+    var useWebSocket = false;
+
+    function initWebSocket() {
+      if (!NALLY_TOKEN || nallyWs) return;
+      
+      var wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = wsProtocol + '//' + location.host + '/ws/web:default';
+      
+      nallyWs = new NallyWebSocket(wsUrl, NALLY_TOKEN);
+      
+      nallyWs.on('connected', function() {
+        console.log('[chat] WebSocket connected');
+        useWebSocket = true;
+      });
+      
+      nallyWs.on('disconnected', function() {
+        console.log('[chat] WebSocket disconnected, falling back to SSE');
+        useWebSocket = false;
+      });
+      
+      nallyWs.on('thought', function(data) {
+        think(data.text || 'Thinking...');
+      });
+      
+      nallyWs.on('stream_chunk', function(data) {
+        removeTyping();
+        if (!window._streamMsgEl) {
+          window._streamMsgEl = addChatMsgStream();
+        }
+        if (typeof data.text === 'string') {
+          window._streamMsgEl.textContent += data.text;
+        }
+      });
+      
+      nallyWs.on('tool_call', function(data) {
+        removeTyping();
+        addToolCard(data.name, data.args, data.id);
+        think('Running ' + data.name + '...');
+      });
+      
+      nallyWs.on('tool_result', function(data) {
+        updateToolCard(data.tool_call_id, data.result, false);
+        think('Processing result...');
+        if (data.diff && data.file_path) {
+          showDiff(data.diff, data.file_path);
+        }
+      });
+      
+      nallyWs.on('response', function(data) {
+        removeTyping();
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        
+        if (window._streamMsgEl) {
+          if (!window._streamMsgEl.querySelector('p, h1, h2, h3, h4, ul, ol, pre, blockquote, table')) {
+            window._streamMsgEl.innerHTML = renderMd(window._streamMsgEl.textContent);
+            lucide.createIcons();
+          }
+          window._streamMsgEl = null;
+        } else {
+          addChatMsg(data.text || '', true);
+        }
+      });
+      
+      nallyWs.on('error', function(data) {
+        removeTyping();
+        thoughtContent.textContent = '';
+        thoughtWrap.classList.remove('visible');
+        if (data.text) {
+          addChatMsg(data.text, true);
+        }
+      });
+      
+      nallyWs.on('done', function() {
+        window._streamMsgEl = null;
+      });
+      
+      nallyWs.on('user_message', function(data) {
+        if (data.tab_id === _tabId) return;
+        addChatMsg(data.text || '', false);
+      });
+      
+      nallyWs.on('assistant_message', function(data) {
+        if (data.tab_id === _tabId) return;
+        addChatMsg(data.text || '', true);
+      });
+      
+      nallyWs.on('thinking', function(data) {
+        if (data.tab_id === _tabId) return;
+        showTyping();
+      });
+      
+      nallyWs.on('history_cleared', function() {
+        chatMessages.innerHTML = '';
+      });
+      
+      nallyWs.on('approval_resolved', function() {
+        // Handled by tool card updates
+      });
+      
+      nallyWs.on('mcp_status', function() {
+        renderServices();
+      });
+      
+      nallyWs.connect();
+    }
+
+    // Initialize WebSocket after auth
+    if (NALLY_TOKEN) {
+      setTimeout(initWebSocket, 500);
+    }
+
     function sendChat() {
       var text = chatInput.value.trim();
       if (!text) return;
@@ -2959,7 +3076,13 @@
       showTyping();
       think('Thinking...');
 
-      // Abort any in-flight request
+      // Use WebSocket if available
+      if (useWebSocket && nallyWs && nallyWs.connected) {
+        nallyWs.send(text, _tabId);
+        return;
+      }
+
+      // Fallback to SSE
       if (chatAbort) chatAbort.abort();
       chatAbort = new AbortController();
 
@@ -2985,7 +3108,7 @@
               removeTyping();
               thoughtContent.textContent = '';
               thoughtWrap.classList.remove('visible');
-              if (streamMsgEl) {
+              if (streamMsgEl && !streamMsgEl.querySelector('p, h1, h2, h3, h4, ul, ol, pre, blockquote, table')) {
                 streamMsgEl.innerHTML = renderMd(streamMsgEl.textContent);
                 lucide.createIcons();
               }
@@ -3067,9 +3190,12 @@
           }
           var respText = typeof evt.text === 'string' ? evt.text : String(evt.text || '');
           if (window._streamMsgEl) {
-            // Update existing streaming message instead of creating a duplicate
-            window._streamMsgEl.innerHTML = renderMd(respText);
-            lucide.createIcons();
+            // Only re-render if stream_done hasn't already rendered it
+            var alreadyRendered = window._streamMsgEl.querySelector('p, h1, h2, h3, h4, ul, ol, pre, blockquote, table, strong, em, code');
+            if (!alreadyRendered) {
+              window._streamMsgEl.innerHTML = renderMd(respText);
+              lucide.createIcons();
+            }
           } else {
             addChatMsg(respText, true);
           }

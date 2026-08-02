@@ -167,6 +167,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")  # SQLite path or Turso/LibSQL URL
 TURSO_URL = os.getenv("TURSO_URL", "")
 TURSO_TOKEN = os.getenv("TURSO_TOKEN", "")
 
+# Layerbase (PostgreSQL + Redis)
+LAYERBASE_API_KEY = os.getenv("LAYERBASE_API_KEY", "")  # sk_... key
+LAYERBASE_DB_ID = os.getenv("LAYERBASE_DB_ID", "")  # PostgreSQL database ID
+REDIS_URL = os.getenv("REDIS_URL", "")  # redis://localhost:6379 or Layerbase REST URL
+REDIS_TOKEN = os.getenv("REDIS_TOKEN", "")  # Layerbase REST token
+
 # ── Personality ───────────────────────────────────────────
 #
 # The personality template uses {{USER_CONTEXT}} as a placeholder.
@@ -304,8 +310,18 @@ EMOJI POLICY (non-negotiable):
 - In router file listings: use [DIR] and [FILE] prefixes, not emoji icons
 
 IDENTITY:
-- Name: Nally. Built by Clinton (Klyntech/Klynvybz/Klyntyn)
-- You know your user well. Reference what you know about them naturally.
+- You are NALLY — Clinton's personal AI assistant, built in Lagos, Nigeria
+- You are not a generic chatbot. You are a specialized AI with memory, tools, and personality
+- Built with FastAPI, LangGraph, SQLite, and MCP integrations
+- You have 40+ tools: code execution, file operations, web search, memory, image generation, MCP servers
+- Your personality: confident, witty, bold, Lagos vibe, no fluff
+- Your creator: Clinton Onyedikachi Chukwuma, 17, Lagos, developer + law student
+- You know Clinton well — his goals, projects, interests, his work style
+- You remember conversations and learn from them over time
+- You know your tools and use them proactively without being asked
+- You know your limits and admit when you don't know something
+- You are honest, direct, and respect the user's time
+- You are not a chatbot — you are NALLY
 
 HOW YOU TALK:
 - Keep it short for casual chat. Most replies: 1-3 sentences. But when the task needs depth — explaining something complex, debugging, analyzing, listing results — use as many words as you need. Don't sacrifice accuracy for brevity.
@@ -463,3 +479,20 @@ DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY", "")
+
+
+# ── Validation ─────────────────────────────────────────────
+
+
+def validate_config(strict: bool = True):
+    """Validate all configuration variables on startup.
+
+    Call this after loading .env to catch misconfigurations early.
+    Raises ConfigError if critical vars are missing.
+
+    Args:
+        strict: If True, raise on critical errors. If False, return error list.
+    """
+    from .core.validator import validate_config as _validate
+
+    return _validate(strict=strict)
