@@ -855,7 +855,7 @@
     .img-skel {
       position: relative;
       width: 100%;
-      max-width: 512px;
+      max-width: 205px;
       aspect-ratio: 1 / 1;
       border-radius: 12px;
       overflow: hidden;
@@ -2663,6 +2663,28 @@
     }
 
     function addToolCard(name, args, id) {
+      // Skip tool card for generate_image — skeleton is the UI
+      if (name === 'generate_image') {
+        var skelEl = document.createElement('div');
+        skelEl.className = 'img-skel';
+        var skelIcon = document.createElement('div');
+        skelIcon.className = 'img-skel-icon';
+        skelIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+        skelEl.appendChild(skelIcon);
+        var skelLabel = document.createElement('div');
+        skelLabel.className = 'img-skel-label';
+        skelLabel.textContent = 'Generating';
+        skelEl.appendChild(skelLabel);
+        chatMessages.appendChild(skelEl);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        toolCards[id] = {
+          card: null, statusEl: null, name: name,
+          resultSection: null, resultCode: null,
+          skelEl: skelEl
+        };
+        return toolCards[id];
+      }
+
       var card = document.createElement('div');
       card.className = 'tool-card running';
 
@@ -2742,30 +2764,13 @@
       card.appendChild(body);
 
       chatMessages.appendChild(card);
-
-      // Image skeleton for generate_image
-      var skelEl = null;
-      if (name === 'generate_image') {
-        skelEl = document.createElement('div');
-        skelEl.className = 'img-skel';
-        var skelIcon = document.createElement('div');
-        skelIcon.className = 'img-skel-icon';
-        skelIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
-        skelEl.appendChild(skelIcon);
-        var skelLabel = document.createElement('div');
-        skelLabel.className = 'img-skel-label';
-        skelLabel.textContent = 'Generating';
-        skelEl.appendChild(skelLabel);
-        chatMessages.appendChild(skelEl);
-      }
-
       chatMessages.scrollTop = chatMessages.scrollHeight;
       lucide.createIcons();
 
       toolCards[id] = {
         card: card, statusEl: statusEl, name: name,
         resultSection: resultSection, resultCode: resultCode,
-        skelEl: skelEl
+        skelEl: null
       };
       return toolCards[id];
     }
@@ -2773,6 +2778,40 @@
     function updateToolCard(id, resultText, isError) {
       var tc = toolCards[id];
       if (!tc) return;
+
+      // Image generation: only skeleton, no tool card
+      if (tc.name === 'generate_image' && tc.skelEl) {
+        if (isError) {
+          tc.skelEl.classList.remove('loaded');
+          tc.skelEl.querySelector('.img-skel-label').textContent = 'Failed';
+          delete toolCards[id];
+          return;
+        }
+        if (resultText) {
+          var imgMatch = resultText.match(/IMAGE_FILE:(.+)/);
+          if (imgMatch) {
+            var imgPath = imgMatch[1].trim();
+            var imgFilename = imgPath.split(/[/\\]/).pop();
+            var imgUrl = '/generated/' + imgFilename;
+            var img = document.createElement('img');
+            img.src = imgUrl;
+            img.style.cssText = 'cursor:pointer;';
+            img.addEventListener('click', function() { window.open(imgUrl, '_blank'); });
+            tc.skelEl.appendChild(img);
+            img.onload = function() {
+              tc.skelEl.classList.add('loaded');
+              chatMessages.scrollTop = chatMessages.scrollHeight;
+            };
+            img.onerror = function() {
+              tc.skelEl.querySelector('.img-skel-label').textContent = 'Failed to load';
+            };
+          } else {
+            tc.skelEl.querySelector('.img-skel-label').textContent = 'No image';
+          }
+        }
+        delete toolCards[id];
+        return;
+      }
 
       tc.card.classList.remove('running');
       tc.card.classList.add(isError ? 'error' : 'success');
