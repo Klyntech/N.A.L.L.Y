@@ -263,6 +263,21 @@ Decorative icons MUST have `aria-hidden="true"`. Meaningful SVGs need `role="img
 - [ ] `innerHTML` uses escaped values (or use `textContent`/DOM APIs)
 - [ ] User content rendered via `createElement` + `textContent`
 
+## Project Structure (when creating multi-file projects)
+- Use directories: `css/`, `js/`, `images/` — never flat files in root
+- Every project needs a config file (config.js, .env) as single source of truth
+- HTML files under 300 lines — extract CSS to external files, JS to external files
+- Shared components (nav, footer) must NOT be copy-paste — use JS templating or includes
+- Include: README.md, config file, semantic HTML (header/main/footer/nav), skip-to-content link
+- Use data-* attributes for JS wiring, not inline event handlers
+- Progressive enhancement: core content works without JS, JS enhances the experience
+
+## Emoji Policy
+- NEVER use emojis in generated code files (HTML, CSS, JS, etc.)
+- NEVER use emojis in source code comments
+- NEVER use emojis in file names
+- Use text labels, SVG icons, or CSS content instead
+
 ## Guidelines
 - Design for the user's goal, not your feature list
 - Consistency beats novelty — reuse patterns

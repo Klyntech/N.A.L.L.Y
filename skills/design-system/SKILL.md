@@ -354,6 +354,19 @@ form.addEventListener('submit', (e) => {
 });
 ```
 
+## Project Structure (when creating design systems)
+- Use directories: `css/`, `js/`, `images/` — never flat files in root
+- CSS architecture: tokens.css, base.css, components.css, themes.css
+- JS architecture: config.js, IIFE or module pattern, data-attribute wiring
+- Every project needs a config file as single source of truth
+- Include: README.md, config file, semantic HTML
+
+## Emoji Policy
+- NEVER use emojis in generated code files (HTML, CSS, JS, etc.)
+- NEVER use emojis in source code comments
+- NEVER use emojis in file names
+- Use text labels, SVG icons, or CSS content instead
+
 ## Guidelines
 - Tokens over hardcoded values — always
 - Components should be composable, not monolithic

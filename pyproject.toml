@@ -1,0 +1,82 @@
+[project]
+name = "nally"
+version = "1.0.0"
+description = "Personal AI assistant inspired by Jarvis"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.6.0",
+    "pre-commit>=3.5.0",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+src = ["nally", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # function call in default argument (FastAPI Depends)
+    "B905",   # zip without strict= (needs Python 3.10+)
+    "SIM108", # ternary operator (readability tradeoff)
+    "SIM115", # context manager for open() (not always applicable)
+    "E741",   # ambiguous variable name (math contexts)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nally"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "windows: marks tests that only run on Windows",
+    "integration: marks tests requiring external services",
+]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "-q",
+]
+
+[tool.coverage.run]
+source = ["nally"]
+omit = [
+    "nally/web/*",
+    "tests/*",
+    "*/migrations/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 50
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.",
+    "raise NotImplementedError",
+    "pass",
+    "except ImportError",
+]

@@ -6,6 +6,7 @@
   <title>N.A.L.L.Y</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="/static/marked.min.js"></script>
   <script src="/static/purify.min.js"></script>
@@ -427,7 +428,7 @@
       color: rgba(167,139,250,0.9);
       padding: 2px 6px;
       border-radius: 4px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
       font-size: 13px;
       border: 1px solid rgba(124,106,239,0.15);
     }
@@ -566,7 +567,7 @@
     body.compact .tool-card-header { padding: 6px 10px; }
     body.compact .tool-card-summary { font-size: 12px; }
     body.compact .tool-card-code { font-size: 11px; padding: 6px 8px; }
-    body.compact .drawer-input { padding: 8px 12px; font-size: 13px; }
+    body.compact .drawer-input { padding: 8px 12px; font-size: 13px; min-height: 36px; }
 
     /* Lock mode — disable interactive elements */
     body.lock-mode .drawer-input { pointer-events: none; opacity: 0.4; }
@@ -644,7 +645,15 @@
       font-size: 14px;
       outline: none;
       transition: border-color 0.2s ease;
+      resize: none;
+      max-height: 100px;
+      min-height: 42px;
+      line-height: 1.4;
+      overflow-y: scroll;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
     }
+    .drawer-input::-webkit-scrollbar { display: none; }
     .drawer-input:focus { border-color: var(--iris-glow); }
     .drawer-input::placeholder { color: rgba(228,226,220,0.2); }
     .drawer-send {
@@ -786,10 +795,10 @@
     }
 
     .tool-card-code {
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
       font-size: 12px;
-      line-height: 1.5;
-      background: rgba(0,0,0,0.25);
+      line-height: 1.6;
+      background: rgba(0,0,0,0.35);
       border: 1px solid rgba(255,255,255,0.04);
       border-radius: 6px;
       padding: 8px 10px;
@@ -798,6 +807,7 @@
       white-space: pre-wrap;
       word-break: break-all;
       color: rgba(228,226,220,0.65);
+      font-variant-ligatures: contextual;
     }
     .tool-card-code::-webkit-scrollbar { width: 4px; }
     .tool-card-code::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
@@ -990,7 +1000,7 @@
     .settings-dropdown-value {
       font-size: 11px;
       color: rgba(228,226,220,0.4);
-      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     /* Color dots */
@@ -1209,7 +1219,7 @@
       border-radius: 6px;
       color: rgba(228,226,220,0.85);
       font-size: 12px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-family: 'JetBrains Mono', monospace;
       outline: none;
       box-sizing: border-box;
       margin-bottom: 10px;
@@ -1246,29 +1256,63 @@
       opacity: 1; transition: opacity 0.3s ease;
     }
     #login-overlay.hidden { opacity: 0; pointer-events: none; }
+    .login-glow {
+      position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
+      width: 300px; height: 300px; border-radius: 50%;
+      background: var(--iris-glow); filter: blur(80px); opacity: 0.15;
+      pointer-events: none; animation: loginPulse 4s ease-in-out infinite;
+    }
+    @keyframes loginPulse {
+      0%, 100% { opacity: 0.1; transform: translate(-50%, -50%) scale(0.9); }
+      50% { opacity: 0.2; transform: translate(-50%, -50%) scale(1.1); }
+    }
     .login-box {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px; padding: 32px;
-      width: 340px; max-width: 90vw;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px; padding: 36px 32px 28px;
+      width: 360px; max-width: 90vw;
       text-align: center;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 16px 64px rgba(0,0,0,0.3);
     }
-    .login-box h2 { font-size: 18px; color: rgba(228,226,220,0.9); margin-bottom: 6px; font-weight: 600; }
-    .login-box p { font-size: 12px; color: rgba(228,226,220,0.4); margin-bottom: 20px; }
+    .login-box h2 {
+      font-size: 20px; color: rgba(228,226,220,0.95); margin-bottom: 4px;
+      font-weight: 700; letter-spacing: 3px; text-transform: uppercase;
+    }
+    .login-version {
+      font-size: 11px; color: rgba(228,226,220,0.2); margin-bottom: 24px;
+      font-family: 'JetBrains Mono', monospace;
+    }
     .login-box input {
-      width: 100%; padding: 10px 12px; border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
-      color: rgba(228,226,220,0.9); font-size: 13px; font-family: monospace;
+      width: 100%; padding: 11px 14px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
+      color: rgba(228,226,220,0.9); font-size: 13px; font-family: 'JetBrains Mono', monospace;
       outline: none; margin-bottom: 12px;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .login-box input:focus { border-color: var(--iris); }
+    .login-box input:focus {
+      border-color: var(--iris);
+      box-shadow: 0 0 0 3px rgba(124,106,239,0.1);
+    }
     .login-box button {
-      width: 100%; padding: 10px; border-radius: 8px; border: none;
-      background: var(--iris); color: #fff; font-size: 13px; font-weight: 600;
-      cursor: pointer; transition: filter 0.2s;
+      width: 100%; padding: 11px; border-radius: 10px; border: none;
+      background: var(--iris); color: white; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s; font-family: 'Space Grotesk', sans-serif;
+      letter-spacing: 0.5px;
     }
-    .login-box button:hover { filter: brightness(1.15); }
-    .login-box .login-err { color: #EF4444; font-size: 11px; margin-top: 8px; display: none; }
+    .login-box button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .login-box button:active { transform: translateY(0); }
+    .login-err {
+      display: none; color: #EF4444; font-size: 12px; margin-top: 10px;
+    }
+    .login-hint {
+      margin-top: 16px; font-size: 11px; color: rgba(228,226,220,0.2);
+    }
+    .login-hint kbd {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      background: rgba(255,255,255,0.06); padding: 2px 5px;
+      border-radius: 3px; border: 1px solid rgba(255,255,255,0.08);
+    }
 
 
     /* ─── Diff Viewer Panel (Desktop only) ──────── */
@@ -1350,11 +1394,12 @@
       flex: 1;
       overflow-y: auto;
       padding: 10px 14px;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
       font-size: 11px;
-      line-height: 1.55;
+      line-height: 1.6;
       white-space: pre;
       overflow-x: auto;
+      font-variant-ligatures: contextual;
     }
     .diff-body::-webkit-scrollbar { width: 4px; height: 4px; }
     .diff-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
@@ -1470,17 +1515,90 @@
         padding-bottom: max(14px, env(safe-area-inset-bottom));
       }
     }
+
+    /* ─── Command Palette ─────────────────────────── */
+    .cmd-overlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,0.6);
+      display: none; align-items: flex-start; justify-content: center;
+      padding-top: 20vh;
+      backdrop-filter: blur(4px);
+    }
+    .cmd-overlay.open { display: flex; }
+    .cmd-palette {
+      width: 520px; max-width: 92vw;
+      background: #1a1a1a;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 14px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .cmd-input-wrap {
+      display: flex; align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      gap: 10px;
+    }
+    .cmd-input-wrap svg { width: 18px; height: 18px; color: rgba(255,255,255,0.3); flex-shrink: 0; }
+    .cmd-input {
+      flex: 1; background: none; border: none; outline: none;
+      color: rgba(228,226,220,0.9); font-family: 'Space Grotesk', sans-serif;
+      font-size: 15px;
+    }
+    .cmd-input::placeholder { color: rgba(228,226,220,0.25); }
+    .cmd-results { max-height: 320px; overflow-y: auto; padding: 6px; }
+    .cmd-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 8px; cursor: pointer;
+      transition: background 0.12s;
+    }
+    .cmd-item:hover, .cmd-item.active { background: rgba(255,255,255,0.06); }
+    .cmd-item-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.04); flex-shrink: 0;
+    }
+    .cmd-item-icon svg { width: 16px; height: 16px; color: var(--iris); }
+    .cmd-item-label { flex: 1; }
+    .cmd-item-name { font-size: 14px; color: rgba(228,226,220,0.9); }
+    .cmd-item-desc { font-size: 12px; color: rgba(228,226,220,0.35); margin-top: 1px; }
+    .cmd-item-shortcut {
+      font-size: 11px; color: rgba(228,226,220,0.25);
+      background: rgba(255,255,255,0.04); padding: 2px 6px;
+      border-radius: 4px; font-family: monospace;
+    }
+    .cmd-empty { padding: 24px; text-align: center; color: rgba(228,226,220,0.25); font-size: 13px; }
+    .cmd-hint { padding: 8px 14px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; gap: 16px; }
+    .cmd-hint span { font-size: 11px; color: rgba(228,226,220,0.25); }
+    .cmd-hint kbd { font-family: monospace; background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 3px; }
   </style>
 </head>
 <body>
+  <div class="cmd-overlay" id="command-palette">
+    <div class="cmd-palette">
+      <div class="cmd-input-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="cmd-input" id="cmd-input" placeholder="Search or type a command..." autofocus>
+      </div>
+      <div class="cmd-results" id="cmd-results"></div>
+      <div class="cmd-hint">
+        <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> navigate</span>
+        <span><kbd>Enter</kbd> select</span>
+        <span><kbd>Esc</kbd> close</span>
+      </div>
+    </div>
+  </div>
+
   <div id="login-overlay">
+    <div class="login-glow"></div>
     <div class="login-box">
       <h2>N.A.L.L.Y</h2>
-      <p>Enter your access token to continue</p>
+      <div class="login-version">v1.0</div>
       <input type="password" id="login-token-input" placeholder="Access token" autofocus>
       <button onclick="doLogin()">Connect</button>
       <div class="login-err" id="login-err">Invalid token</div>
     </div>
+    <div class="login-hint">Press <kbd>Enter</kbd> to connect</div>
   </div>
   <div id="root">
     <div id="orb-mount"></div>
@@ -1510,7 +1628,7 @@
     </div>
     <div class="drawer-messages" id="chat-messages"></div>
     <div class="drawer-input-wrap">
-      <input class="drawer-input" id="chat-input" type="text" placeholder="Ask Nally anything..." onkeydown="if(event.key==='Enter')sendChat()">
+      <textarea class="drawer-input" id="chat-input" rows="1" placeholder="Ask Nally anything..."></textarea>
       <button class="drawer-send" onclick="sendChat()"><i data-lucide="send"></i></button>
     </div>
     <!-- Resize handles -->
@@ -2125,6 +2243,27 @@
     var savedBounds = null;
     var typingEl = null;
 
+    // ─── Textarea auto-resize + keyboard ──────────
+    chatInput.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+    });
+
+    chatInput.addEventListener('keydown', function(e) {
+      // Enter: send (unless Shift is held)
+      if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+        e.preventDefault();
+        sendChat();
+        return;
+      }
+      // Ctrl+Enter: also send
+      if (e.key === 'Enter' && e.ctrlKey) {
+        e.preventDefault();
+        sendChat();
+        return;
+      }
+    });
+
     function toggleDrawer() {
       drawerOpen = !drawerOpen;
       if (drawerOpen) {
@@ -2658,6 +2797,7 @@
       if (!text) return;
       addChatMsg(text, false);
       chatInput.value = '';
+      chatInput.style.height = 'auto';
       window._streamMsgEl = null;
 
       showTyping();
@@ -2920,11 +3060,6 @@
       toggleDrawer();
     });
 
-    // Escape to close
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && drawerOpen) closeDrawer();
-    });
-
     // ─── Uptime Counter ──────────────────────────
     var startTime = Date.now();
     setInterval(function() {
@@ -2973,11 +3108,6 @@
       var section = head.parentElement;
       section.classList.toggle('open');
     }
-
-    // Escape closes settings
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && settingsOpen) closeSettings();
-    });
 
     // Theme switcher
     function setTheme(name) {
@@ -3266,7 +3396,7 @@
       } else {
         authSub.textContent = 'Paste your ' + (svc.tokenLabel || 'token') + ' below';
         authSpinner.style.display = 'none';
-        authBody.innerHTML = '<input class="auth-token-input" id="auth-token-val" placeholder="' + (svc.tokenLabel || 'Token') + '" type="password" autofocus>'
+        authBody.innerHTML = '<input class="auth-token-input" id="auth-token-val" placeholder="' + (svc.tokenLabel || 'Token') + '" type="password" autofocus onkeydown="if(event.key===\'Enter\')submitToken(\'' + svc.id + '\')">'
           + '<button class="auth-modal-btn" onclick="submitToken(\'' + svc.id + '\')">Connect</button>'
           + '<button class="auth-modal-btn secondary" onclick="closeAuthModal()">Cancel</button>';
         authOverlay.classList.add('open');
@@ -3417,18 +3547,174 @@
         window.history.replaceState({}, '', window.location.pathname);
       }
     })();
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && authOverlay.classList.contains('open')) closeAuthModal();
-      if (e.key === 'Escape' && diffPanel.classList.contains('open')) closeDiff();
+
+    // ─── Command Palette ─────────────────────────
+    var _cmdActiveIdx = 0;
+    var _cmdItems = [];
+
+    var CMD_COMMANDS = [
+      { name: 'Send Message', desc: 'Type in chat input', icon: 'send', action: function(){ chatInput.focus(); closeCommandPalette(); }, shortcut: 'Enter' },
+      { name: 'Clear Chat', desc: 'Clear conversation history', icon: 'trash-2', action: function(){ clearChat(); closeCommandPalette(); } },
+      { name: 'Toggle Drawer', desc: 'Open/close chat panel', icon: 'panel-right', action: function(){ toggleDrawer(); closeCommandPalette(); }, shortcut: 'Ctrl+/' },
+      { name: 'Emergency Stop', desc: 'Abort all operations', icon: 'octagon', action: function(){ emergencyStop(); closeCommandPalette(); } },
+      { name: 'Settings', desc: 'Open settings panel', icon: 'settings', action: function(){ openSettings(); closeCommandPalette(); } },
+      { name: 'Lock Mode', desc: 'Toggle input lock', icon: 'lock', action: function(){ var t = document.getElementById('lock-toggle'); t.checked = !t.checked; setLockMode(t.checked); closeCommandPalette(); }, shortcut: 'Ctrl+Shift+L' },
+      { name: 'Theme: Midnight', desc: 'Dark purple theme', icon: 'palette', action: function(){ setTheme('midnight'); closeCommandPalette(); } },
+      { name: 'Theme: Emerald', desc: 'Green theme', icon: 'palette', action: function(){ setTheme('emerald'); closeCommandPalette(); } },
+      { name: 'Theme: Crimson', desc: 'Red theme', icon: 'palette', action: function(){ setTheme('crimson'); closeCommandPalette(); } },
+      { name: 'Theme: Ocean', desc: 'Blue theme', icon: 'palette', action: function(){ setTheme('ocean'); closeCommandPalette(); } },
+    ];
+
+    function openCommandPalette() {
+      var overlay = document.getElementById('command-palette');
+      var input = document.getElementById('cmd-input');
+      overlay.classList.add('open');
+      input.value = '';
+      input.focus();
+      _cmdActiveIdx = 0;
+      renderCmdResults('');
+    }
+
+    function closeCommandPalette() {
+      var overlay = document.getElementById('command-palette');
+      overlay.classList.remove('open');
+    }
+
+    function renderCmdResults(query) {
+      var container = document.getElementById('cmd-results');
+      var q = query.toLowerCase().trim();
+
+      // Merge built-in commands with MCP services
+      var allItems = CMD_COMMANDS.slice();
+      SERVICES.forEach(function(s) {
+        if (s.mcp) {
+          var connected = getConnected();
+          allItems.push({
+            name: s.name,
+            desc: connected[s.id] ? 'Connected' : 'Connect',
+            icon: 'plug',
+            action: function() {
+              if (connected[s.id]) return;
+              connectService(s.id);
+              closeCommandPalette();
+            }
+          });
+        }
+      });
+
+      // Filter
+      _cmdItems = q
+        ? allItems.filter(function(item) {
+            return item.name.toLowerCase().indexOf(q) !== -1 || item.desc.toLowerCase().indexOf(q) !== -1;
+          })
+        : allItems;
+
+      if (_cmdItems.length === 0) {
+        container.innerHTML = '<div class="cmd-empty">No results found</div>';
+        return;
+      }
+
+      _cmdActiveIdx = 0;
+      container.innerHTML = _cmdItems.map(function(item, i) {
+        return '<div class="cmd-item' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '">'
+          + '<div class="cmd-item-icon"><i data-lucide="' + (item.icon || 'zap') + '"></i></div>'
+          + '<div class="cmd-item-label"><div class="cmd-item-name">' + item.name + '</div>'
+          + '<div class="cmd-item-desc">' + item.desc + '</div></div>'
+          + (item.shortcut ? '<span class="cmd-item-shortcut">' + item.shortcut + '</span>' : '')
+          + '</div>';
+      }).join('');
+
+      lucide.createIcons();
+
+      // Click handlers
+      container.querySelectorAll('.cmd-item').forEach(function(el) {
+        el.addEventListener('click', function() {
+          var idx = parseInt(el.dataset.idx);
+          if (_cmdItems[idx] && _cmdItems[idx].action) _cmdItems[idx].action();
+        });
+        el.addEventListener('mouseenter', function() {
+          container.querySelectorAll('.cmd-item').forEach(function(x) { x.classList.remove('active'); });
+          el.classList.add('active');
+          _cmdActiveIdx = parseInt(el.dataset.idx);
+        });
+      });
+    }
+
+    // Command palette input handler
+    document.getElementById('cmd-input').addEventListener('input', function() {
+      renderCmdResults(this.value);
     });
 
-    // ─── Lock shortcut ─────────────────────────────
+    document.getElementById('cmd-input').addEventListener('keydown', function(e) {
+      var container = document.getElementById('cmd-results');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _cmdActiveIdx = Math.min(_cmdActiveIdx + 1, _cmdItems.length - 1);
+        updateCmdActive();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _cmdActiveIdx = Math.max(_cmdActiveIdx - 1, 0);
+        updateCmdActive();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (_cmdItems[_cmdActiveIdx] && _cmdItems[_cmdActiveIdx].action) {
+          _cmdItems[_cmdActiveIdx].action();
+        }
+      }
+    });
+
+    function updateCmdActive() {
+      var items = document.querySelectorAll('#cmd-results .cmd-item');
+      items.forEach(function(el, i) { el.classList.toggle('active', i === _cmdActiveIdx); });
+      if (items[_cmdActiveIdx]) items[_cmdActiveIdx].scrollIntoView({ block: 'nearest' });
+    }
+
+    // Click overlay to close
+    document.getElementById('command-palette').addEventListener('click', function(e) {
+      if (e.target === this) closeCommandPalette();
+    });
+
+    // ─── Global Hotkey Dispatcher ─────────────────
     document.addEventListener('keydown', function(e) {
+      // Escape: clear input first, then close panels in priority order
+      if (e.key === 'Escape') {
+        if (chatInput.value.trim()) {
+          chatInput.value = '';
+          chatInput.style.height = 'auto';
+          return;
+        }
+        if (document.getElementById('command-palette') && document.getElementById('command-palette').classList.contains('open')) {
+          closeCommandPalette();
+          return;
+        }
+        if (authOverlay.classList.contains('open')) { closeAuthModal(); return; }
+        if (diffPanel.classList.contains('open')) { closeDiff(); return; }
+        if (settingsOpen) { closeSettings(); return; }
+        if (drawerOpen) { closeDrawer(); return; }
+        return;
+      }
+
+      // Ctrl+Shift+L: toggle lock mode
       if (e.ctrlKey && e.shiftKey && e.key === 'L') {
         e.preventDefault();
         var lockToggle = document.getElementById('lock-toggle');
         lockToggle.checked = !lockToggle.checked;
         setLockMode(lockToggle.checked);
+        return;
+      }
+
+      // Ctrl+/: toggle chat drawer
+      if (e.ctrlKey && e.key === '/') {
+        e.preventDefault();
+        toggleDrawer();
+        return;
+      }
+
+      // Ctrl+K: command palette
+      if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault();
+        openCommandPalette();
+        return;
       }
     });
 

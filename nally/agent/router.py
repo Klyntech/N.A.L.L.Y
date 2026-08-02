@@ -300,7 +300,7 @@ def handle_list_files(match):
             return f"Directory not found: {path}"
         items = []
         for item in sorted(p.iterdir()):
-            prefix = "📁" if item.is_dir() else "📄"
+            prefix = "[DIR]" if item.is_dir() else "[FILE]"
             items.append(f"{prefix} {item.name}")
         if not items:
             return "Directory is empty."

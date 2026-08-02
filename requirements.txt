@@ -1,4 +1,4 @@
-# Nally Requirements (trimmed for migration)
+# Nally Requirements
 
 # Web framework
 fastapi>=0.115.0
@@ -22,9 +22,9 @@ psutil>=5.9.0
 requests>=2.31.0
 Pillow>=10.0.0
 
-# Windows audio control
-pycaw>=20230407
-comtypes>=1.4.0
+# Windows audio control (optional, Windows-only)
+# pycaw>=20230407; sys_platform == 'win32'
+# comtypes>=1.4.0; sys_platform == 'win32'
 
 # MCP (Model Context Protocol)
 mcp>=1.27,<2
@@ -38,3 +38,6 @@ httpx>=0.27.0
 
 # Telegram bot
 python-telegram-bot>=20.0
+
+# Dev dependencies (install with: pip install -r requirements.txt -e ".[dev]")
+# Or directly: pip install pytest pytest-cov ruff pre-commit
