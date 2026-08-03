@@ -203,6 +203,21 @@ _approval_events: Dict[str, threading.Event] = {}
 _approval_results: Dict[str, bool] = {}
 
 
+# ── Abort checkpoint ──────────────────────────────────────
+def _check_abort(thread_id: str) -> bool:
+    """Check if user requested abort for this session."""
+    from nally.web.app import _abort_flags
+
+    return _abort_flags.get(thread_id, False)
+
+
+def _clear_abort(thread_id: str):
+    """Clear abort flag for this session."""
+    from nally.web.app import _abort_flags
+
+    _abort_flags.pop(thread_id, None)
+
+
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     tools: List[Dict[str, Any]]
@@ -355,7 +370,13 @@ def llm_call(state: AgentState) -> AgentState:
     iteration = state.get("iteration", 0)
     error_count = state.get("error_count", 0)
     tool_calls_total = state.get("tool_calls_total", 0)
-    cache_key = state.get("thread_id", "default")
+    thread_id = state.get("thread_id", "default")
+    cache_key = thread_id
+
+    # Abort checkpoint — stop immediately if user requested abort
+    if _check_abort(thread_id):
+        _clear_abort(thread_id)
+        return {"messages": [AIMessage(content="Operation aborted by user.")], "iteration": iteration + 1}
 
     if error_count >= MAX_CONSECUTIVE_ERRORS:
         logger.warning(f"Circuit breaker: {error_count} consecutive errors, stopping agent")
@@ -475,6 +496,12 @@ def tool_executor(state: AgentState) -> AgentState:
     messages = state["messages"]
     emit = _get_emit()
     tool_calls_total = state.get("tool_calls_total", 0)
+    thread_id = state.get("thread_id", "default")
+
+    # Abort checkpoint — stop immediately if user requested abort
+    if _check_abort(thread_id):
+        _clear_abort(thread_id)
+        return {"messages": [AIMessage(content="Operation aborted by user.")], "tool_calls_total": tool_calls_total}
 
     last_ai_msg = None
     for msg in reversed(messages):
@@ -523,6 +550,12 @@ def tool_executor(state: AgentState) -> AgentState:
 
             logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}'")
             approved = approval_event.wait(timeout=120)
+
+            # Abort check during approval gate
+            if _check_abort(thread_id):
+                _approval_events.pop(tool_id, None)
+                _approval_results.pop(tool_id, None)
+                return ToolMessage(content="Aborted by user.", tool_call_id=tool_id)
 
             _approval_events.pop(tool_id, None)
             result_approved = _approval_results.pop(tool_id, False)
@@ -612,6 +645,12 @@ def should_continue(state: AgentState) -> str:
     messages = state["messages"]
     iteration = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 10)
+    thread_id = state.get("thread_id", "default")
+
+    # Abort checkpoint — stop at next decision point
+    if _check_abort(thread_id):
+        _clear_abort(thread_id)
+        return "end"
 
     if iteration >= max_iterations:
         logger.debug(f"Agent reached max iterations ({max_iterations})")
