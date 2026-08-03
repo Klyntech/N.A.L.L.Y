@@ -513,7 +513,7 @@ class ImageGen(Tool):
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model: auto (default, picks best for content), flux, zimage, dreamshaper, klein, kontext, nova-canvas",
+                    "description": "Model: auto (default, picks best for content), flux, zimage, dreamshaper, klein, gptimage, gptimage-large, gpt-image-2, kontext, nova-canvas",
                     "default": "auto",
                 },
                 "upscale": {
