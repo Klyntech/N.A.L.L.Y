@@ -42,7 +42,6 @@ def print_banner():
 def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
     parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
-    parser.add_argument("--voice", action="store_true", help="Run in voice-only mode")
     parser.add_argument("--telegram", action="store_true", help="Run web server + Telegram bot")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     parser.add_argument("--port", type=int, default=5000, help="Web server port (default: 5000)")
@@ -70,53 +69,6 @@ def main():
     except Exception as e:
         print(f"Config validation skipped: {e}")
 
-    # Start system monitor (optional)
-    try:
-        from nally.system import system_monitor
-
-        print("Starting system monitor...")
-        system_monitor.start_monitoring(interval=10)
-    except ImportError:
-        pass
-    except Exception as e:
-        print(f"System monitor failed: {e}")
-
-    # Start automation engine (optional)
-    automation_engine = None
-    try:
-        from nally.automation.engine import automation_engine
-
-        print("Starting automation engine...")
-        automation_engine.start()
-    except ImportError:
-        pass
-    except Exception as e:
-        print(f"Automation engine failed: {e}")
-
-    # Connect to cloud database in background (non-blocking)
-    def _connect_cloud():
-        try:
-            from nally.memory.cloud import cloud_db
-
-            cloud_db.connect_cloud()
-        except ImportError:
-            pass
-        except Exception as e:
-            from nally.utils.logger import logger
-
-            logger.debug(f"Cloud DB connection failed: {e}")
-
-    import threading
-
-    threading.Thread(target=_connect_cloud, daemon=True).start()
-
-    if automation_engine:
-        import atexit
-
-        atexit.register(automation_engine.stop)
-
-    print()
-
     # Load tools for non-web modes (web mode loads via app.py lifespan)
     if args.cli or args.telegram_only:
         from nally.tools import load_all_tools
@@ -125,8 +77,6 @@ def main():
 
     if args.cli:
         run_cli()
-    elif args.voice:
-        run_voice()
     elif args.telegram_only:
         run_telegram(polling=True)
     elif args.telegram:
@@ -174,12 +124,6 @@ def run_cli():
             break
         except Exception as e:
             print(f"\nError: {e}")
-
-
-def run_voice():
-    """Run Nally in voice-only mode (requires nally/voice/ module)"""
-    print("Voice mode requires nally/voice/ module which was not copied during migration.")
-    print("Use --cli or default web mode instead.")
 
 
 def run_web(port=5000):
