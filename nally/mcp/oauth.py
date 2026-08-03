@@ -643,3 +643,118 @@ async def exchange_google_code(code: str, db_path: str) -> bool:
 
     logger.info("Google OAuth successful — token stored for all Workspace services")
     return True
+
+
+# ── Higgsfield OAuth ──────────────────────────────────────
+
+HIGGSFIELD_AUTH_ENDPOINT = "https://mcp.higgsfield.ai/oauth2/authorize"
+HIGGSFIELD_TOKEN_ENDPOINT = "https://mcp.higgsfield.ai/oauth2/token"
+HIGGSFIELD_REGISTER_ENDPOINT = "https://mcp.higgsfield.ai/oauth2/register"
+HIGGSFIELD_REDIRECT_URI = "http://localhost:5000/api/oauth/higgsfield/callback"
+
+
+async def start_higgsfield_oauth(db_path: str) -> str:
+    """Start Higgsfield OAuth: discover endpoints → DCR → build auth URL → return it."""
+
+    code_verifier, code_challenge = generate_pkce()
+    state = secrets.token_urlsafe(16)
+
+    # Dynamic Client Registration
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            HIGGSFIELD_REGISTER_ENDPOINT,
+            json={
+                "client_name": "Nally",
+                "client_uri": "http://localhost:5000",
+                "redirect_uris": [HIGGSFIELD_REDIRECT_URI],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+            },
+            timeout=15.0,
+        )
+        if resp.status_code not in (200, 201):
+            logger.error(f"Higgsfield DCR failed: {resp.status_code} {resp.text[:500]}")
+            raise ValueError(f"Higgsfield client registration failed ({resp.status_code}): {resp.text[:200]}")
+        dcr_data = resp.json()
+        logger.info(f"Higgsfield DCR succeeded: client_id={dcr_data.get('client_id', '?')[:8]}...")
+
+    client_id = dcr_data["client_id"]
+
+    # Store state
+    state_entry = {
+        "code_verifier": code_verifier,
+        "client_id": client_id,
+        "state": state,
+        "token_endpoint": HIGGSFIELD_TOKEN_ENDPOINT,
+        "auth_endpoint": HIGGSFIELD_AUTH_ENDPOINT,
+    }
+    _pending_pkce["higgsfield"] = state_entry
+    save_oauth_state(
+        db_path, "higgsfield", code_verifier, client_id, state, HIGGSFIELD_TOKEN_ENDPOINT, HIGGSFIELD_AUTH_ENDPOINT
+    )
+
+    # Build authorization URL
+    from urllib.parse import urlencode
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": HIGGSFIELD_REDIRECT_URI,
+        "scope": "openid email offline_access",
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "prompt": "consent",
+    }
+    return f"{HIGGSFIELD_AUTH_ENDPOINT}?{urlencode(params)}"
+
+
+async def exchange_higgsfield_code(code: str, db_path: str) -> bool:
+    """Exchange Higgsfield authorization code for tokens. Returns True on success."""
+
+    state_data = _pending_pkce.pop("higgsfield", None)
+    if not state_data:
+        state_data = load_oauth_state(db_path, "higgsfield")
+        if state_data:
+            logger.debug("Loaded Higgsfield OAuth state from SQLite")
+        else:
+            logger.warning("No pending Higgsfield OAuth state (memory or SQLite)")
+            return False
+
+    token_endpoint = state_data.get("token_endpoint", HIGGSFIELD_TOKEN_ENDPOINT)
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            token_endpoint,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": state_data["client_id"],
+                "redirect_uri": HIGGSFIELD_REDIRECT_URI,
+                "code_verifier": state_data["code_verifier"],
+            },
+            timeout=15.0,
+        )
+
+        if resp.status_code != 200:
+            logger.error(f"Higgsfield token exchange failed: {resp.status_code} {resp.text[:500]}")
+            return False
+
+        token_data = resp.json()
+
+    token = OAuthToken(
+        access_token=token_data["access_token"],
+        token_type=token_data.get("token_type", "bearer"),
+        expires_in=token_data.get("expires_in"),
+        refresh_token=token_data.get("refresh_token"),
+    )
+
+    storage = SQLiteTokenStorage(db_path, "higgsfield")
+    await storage.set_tokens(token)
+
+    # Clean up persisted state
+    clear_oauth_state(db_path, "higgsfield")
+
+    logger.info("Higgsfield OAuth successful — token stored")
+    return True
