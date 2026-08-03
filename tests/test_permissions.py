@@ -8,7 +8,6 @@ import pytest
 
 from nally.tools.permissions import PermissionDecision, PermissionGate, _wildcard_match
 
-
 # ── Wildcard Matching ──────────────────────────────────────
 
 
@@ -55,7 +54,7 @@ def gate_from_tmp():
     """Create a PermissionGate with a temporary permissions.json."""
 
     def _make(config: dict) -> PermissionGate:
-        fd, path = tempfile.mkstemp(suffix=".json")
+        _fd, path = tempfile.mkstemp(suffix=".json")
         with open(path, "w") as f:
             json.dump(config, f)
         g = PermissionGate(config_path=Path(path))

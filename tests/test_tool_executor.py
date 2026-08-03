@@ -5,18 +5,15 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from nally.tools.permissions import PermissionDecision, PermissionGate
-
 
 # ── Helper: build a PermissionGate from a dict ──────────────
 
 
 def _make_gate(config: dict) -> PermissionGate:
-    fd, path = tempfile.mkstemp(suffix=".json")
+    _fd, path = tempfile.mkstemp(suffix=".json")
     with open(path, "w") as f:
         json.dump(config, f)
     g = PermissionGate(config_path=Path(path))
@@ -54,9 +51,9 @@ def test_deny_prevents_file_ops():
 
     mock_tool = MagicMock()
     if decision == PermissionDecision.DENY:
-        result = "Blocked"
+        pass
     else:
-        result = mock_tool.execute()
+        mock_tool.execute()
 
     mock_tool.execute.assert_not_called()
 
