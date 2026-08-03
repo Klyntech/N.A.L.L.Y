@@ -9,6 +9,30 @@ from typing import Dict, List, Set
 
 from .registry import Tool
 
+# Core built-in tools — always included (small schema footprint)
+CORE_TOOLS = {
+    "run_command",
+    "system_health",
+    "mcp_status",
+    "read_file",
+    "file_ops",
+    "run_code",
+    "code_analysis",
+    "web_search",
+    "image_gen",
+    "remember",
+    "recall",
+    "forget",
+    "memory_stats",
+    # Gmail direct tools
+    "gmail_search",
+    "gmail_read",
+    "gmail_send",
+    "gmail_labels",
+    # Subagent
+    "agent",
+}
+
 
 def _tokenize(text: str) -> Set[str]:
     """Lowercase, split on non-alphanumeric, drop short tokens."""
@@ -23,17 +47,22 @@ class ToolFilter:
         self._tool_names: Dict[str, Tool] = {}
         self._tool_keywords: Dict[str, Set[str]] = {}
         self._all_schemas: List[dict] = []
+        self._core_schemas: List[dict] = []
 
     def build_index(self, tools: Dict[str, Tool]):
         """Index tool names and descriptions for keyword matching."""
         self._tool_names = dict(tools)
         self._tool_keywords = {}
         self._all_schemas = []
+        self._core_schemas = []
 
         for name, tool in tools.items():
             tokens = _tokenize(name) | _tokenize(tool.description)
             self._tool_keywords[name] = tokens
-            self._all_schemas.append(tool.to_openai_schema())
+            schema = tool.to_openai_schema()
+            self._all_schemas.append(schema)
+            if name in CORE_TOOLS:
+                self._core_schemas.append(schema)
 
         self._ready = True
 
@@ -41,15 +70,16 @@ class ToolFilter:
         """Return OpenAI tool schemas relevant to the query.
 
         Strategy: keyword overlap between query and tool index.
-        If no strong match (overlap < 2 tokens), return all tools
-        to preserve prompt-cache prefix stability.
+        - Strong match (>=2 tokens): return matched tools + core
+        - Weak/no match: return core tools only (avoids bloating context
+          with 200+ MCP tool schemas when they're not relevant)
         """
         if not self._ready or not self._tool_keywords:
             return self._all_schemas
 
         query_tokens = _tokenize(query)
         if not query_tokens:
-            return self._all_schemas
+            return self._core_schemas
 
         scored: List[tuple] = []
         for name, tool_tokens in self._tool_keywords.items():
@@ -57,21 +87,21 @@ class ToolFilter:
             if overlap:
                 scored.append((name, len(overlap)))
 
-        # No matches → return all (cache-safe fallback)
+        # No matches → return core only (not all 300+ tools)
         if not scored:
-            return self._all_schemas
+            return self._core_schemas
 
         # Sort by overlap count, take top matches
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        # If best match is weak (1 token), still return all — not worth
-        # breaking cache prefix for a single-word hit
+        # Weak match (1 token) → return core + top 10 matched (not all)
         if scored[0][1] < 2:
-            return self._all_schemas
+            always_on = {"system_health", "web_search", "mcp_status"}
+            selected_names = always_on | {name for name, _ in scored[:10]}
+            return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
 
-        # Build result: matched tools + always-on tools (system_health is
-        # always useful for diagnostics)
-        always_on = {"system_health", "web_search"}
+        # Strong match → return matched tools + core
+        always_on = {"system_health", "web_search", "mcp_status"}
         selected_names = always_on | {name for name, _ in scored}
 
         return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]

@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Callable, List, Optional
 
+from ..config import CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS
 from ..config import MAX_ITERATIONS_PER_TURN, SESSION_ID, get_system_prompt
 from ..core.errors import LLMError, NallyError
 from ..memory.store_v2 import memory_v2 as memory_store
@@ -295,7 +296,16 @@ class NallyAgent:
                 pass
 
         # Smart context management
+        self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
         self.messages = context_manager.compact(self.messages)
+
+        # Hard ceiling: if still too large after prune+compact, force-truncate
+        estimated = context_manager.estimate_tokens(self.messages)
+        if estimated > 800_000:
+            logger.warning(f"Context too large ({estimated} tokens), force-truncating")
+            self.messages = context_manager.prune(self.messages, max_tokens=500_000)
+            self.messages = context_manager.compact(self.messages)
+
         self.messages = context_manager.inject_memories(user_input, self.messages)
         self.messages = context_manager.inject_conversation_history(self.messages)
 

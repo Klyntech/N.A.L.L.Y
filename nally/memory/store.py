@@ -470,15 +470,18 @@ class MemoryRepository:
         return f"Saved {len(messages)} messages"
 
     def load_messages(self, session_id: str = "default") -> List[Dict[str, Any]]:
-        """Load conversation messages from database."""
+        """Load conversation messages from database (limited to recent messages)."""
+        from ..config import MAX_CONVERSATION_HISTORY
+
         with self._connection() as conn:
             rows = conn.execute(
-                "SELECT role, content, tool_calls, tool_call_id FROM conversation_messages WHERE session_id = ? ORDER BY id",
-                (session_id,),
+                "SELECT role, content, tool_calls, tool_call_id FROM conversation_messages "
+                "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (session_id, MAX_CONVERSATION_HISTORY),
             ).fetchall()
 
             messages = []
-            for row in rows:
+            for row in reversed(rows):
                 msg = {"role": row["role"], "content": row["content"]}
                 tc = row["tool_calls"]
                 if tc and tc not in ("None", "null", ""):

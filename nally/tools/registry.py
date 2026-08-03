@@ -28,6 +28,11 @@ class Tool:
 
     def to_openai_schema(self) -> dict:
         """Convert tool to OpenAI function calling schema"""
+        # Truncate MCP tool descriptions to save tokens (200+ tools = massive context)
+        desc = self.description
+        if self.name.startswith("mcp_") and len(desc) > 150:
+            desc = desc[:150].rsplit(" ", 1)[0] + "..."
+
         clean_props = {}
         for k, v in self.parameters.items():
             clean_props[k] = {pk: pv for pk, pv in v.items() if pk != "required"}
@@ -36,7 +41,7 @@ class Tool:
             "type": "function",
             "function": {
                 "name": self.name,
-                "description": self.description,
+                "description": desc,
                 "parameters": {
                     "type": "object",
                     "properties": clean_props,

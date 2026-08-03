@@ -81,6 +81,15 @@ MCP_SERVERS: list[dict] = [
         "scope": "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly",
         "permission": "write",
     },
+    {
+        "name": "higgsfield",
+        "url": "https://mcp.higgsfield.ai/mcp",
+        "transport": "http",
+        "auth_mode": "oauth",
+        "description": "Higgsfield — AI video generation & editing (Kling, Sora, Veo, Seedance, Cinema Studio)",
+        "scope": "openid email offline_access",
+        "permission": "write",
+    },
     # ── API key servers (manual token paste) ──
     {
         "name": "telegram",
@@ -91,6 +100,35 @@ MCP_SERVERS: list[dict] = [
         "description": "Telegram — messages, groups, channels",
         "env_key": "TELEGRAM_BOT_TOKEN",
         "env_name": "TELEGRAM_BOT_API_TOKEN",
+        "permission": "write",
+    },
+    # ── Browser automation ──
+    {
+        "name": "playwright",
+        "command": "npx",
+        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium"],
+        "transport": "stdio",
+        "description": "Playwright — browser automation, web scraping, form filling, screenshots, PDF export",
+        "permission": "safe",
+    },
+    # ── Documentation lookup ──
+    {
+        "name": "context7",
+        "command": "npx",
+        "args": ["-y", "@upstash/context7-mcp"],
+        "transport": "stdio",
+        "description": "Context7 — up-to-date docs & code examples for 1000+ libraries",
+        "permission": "safe",
+    },
+    # ── Social / Business ──
+    {
+        "name": "meta",
+        "command": "npx",
+        "args": ["-y", "@oliverames/meta-mcp-server"],
+        "transport": "stdio",
+        "auth_mode": "api_key",
+        "description": "Meta Business Suite — Facebook Pages, Instagram, Threads, Ads Manager, Commerce",
+        "env_key": "META_ACCESS_TOKEN",
         "permission": "write",
     },
 ]
@@ -140,9 +178,9 @@ ACTIVE_MODEL = MODELS["frontier"]
 
 SESSION_ID = os.getenv("NALLY_SESSION", "default")
 MAX_CONVERSATION_HISTORY = 50
-CONTEXT_MAX_TOKENS = 200_000
-CONTEXT_RECENT_MESSAGES = 15
-CONTEXT_COMPRESSION_THRESHOLD = 30
+CONTEXT_MAX_TOKENS = 150_000
+CONTEXT_RECENT_MESSAGES = 10
+CONTEXT_COMPRESSION_THRESHOLD = 20
 CONTEXT_MAX_OUTPUT_TOKENS = 4096
 MAX_MEMORIES_TO_INJECT = 5
 MAX_TOOL_CALLS = 100
