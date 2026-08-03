@@ -341,6 +341,7 @@ def _try_reconnect_stdio_token(server_config: dict, reg) -> bool:
 def _connect_stdio_server(reg, server_config: dict, default_permission: str):
     """Connect to a stdio MCP server, fetch tools, register them."""
     import concurrent.futures
+    import os
 
     name = server_config.get("name", "unknown")
 
@@ -349,10 +350,17 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
 
         from mcp import ClientSession, StdioServerParameters
 
+        env = dict(server_config.get("env") or {})
+        auth_mode = server_config.get("auth_mode", "")
+        if auth_mode == "api_key":
+            env_key = server_config.get("env_key", "")
+            if env_key and os.getenv(env_key):
+                env[env_key] = os.getenv(env_key)
+
         server = StdioServerParameters(
             command=server_config["command"],
             args=server_config["args"],
-            env=server_config.get("env"),
+            env=env if env else None,
         )
 
         async with stdio_client(server) as (read, write):
