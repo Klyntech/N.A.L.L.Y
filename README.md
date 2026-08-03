@@ -20,11 +20,12 @@ Then open http://localhost:5000 in your browser.
 
 ## What It Does
 
-- **Chat** — Talk to Nally via web UI or CLI
-- **Tools** — Run commands, read/write files, analyze code, control system
+- **Chat** — Talk to Nally via web UI, CLI, or Telegram bot
+- **Tools** — Run commands, read/write files, analyze code, control system, generate images
 - **Memory** — Remembers facts, episodes, and conversation history across sessions
+- **MCP Integrations** — Connect to GitHub, Notion, Gmail, Google Drive, Calendar, Higgsfield, Playwright, and more via Model Context Protocol
 - **Sub-agents** — Spawn parallel sub-agents for complex tasks
-- **Streaming** — Real-time SSE streaming for responsive feel
+- **Streaming** — Real-time SSE and WebSocket streaming for responsive feel
 
 ## Configuration
 
@@ -50,20 +51,38 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, patterns, and data flo
 | Backend | Python, FastAPI, LangGraph |
 | Frontend | Vanilla JS, HTML, CSS |
 | LLM | OpenCode Zen or Groq |
-| Database | SQLite |
-| Streaming | Server-Sent Events (SSE) |
+| Database | SQLite (default), PostgreSQL, Redis |
+| Streaming | SSE + WebSocket |
+| MCP | GitHub, Notion, Gmail, Drive, Calendar, Higgsfield, Telegram, Playwright, Context7, Meta |
 
 ## Project Structure
 
 ```
 nally/
 ├── config.py           # All settings (single source of truth)
-├── core/errors.py      # Typed error hierarchy
+├── core/
+│   ├── errors.py       # Typed error hierarchy
+│   └── validator.py    # Startup config validation
 ├── agent/              # Agent orchestrator + LangGraph
 ├── tools/              # Tool registry + implementations
+│   ├── system.py       # RunCommand, SystemHealth
+│   ├── files.py        # ReadFile, FileOps
+│   ├── code.py         # RunCode, CodeAnalysis
+│   ├── imagegen.py     # Image generation (Pollinations)
+│   ├── gmail.py        # Gmail direct API tools
+│   ├── websearch.py    # Web search (Parallel.ai + DuckDuckGo)
+│   └── mcp.py          # MCP server status
 ├── memory/             # Memory repository + models
 ├── subagent/           # Sub-agent spawning
-├── web/app.py          # FastAPI server
+├── mcp/                # MCP client + OAuth flows
+├── db/                 # PostgreSQL + Redis adapters
+├── skills/             # Skill loading system
+├── telegram/           # Telegram bot
+├── voice/              # Voice interaction (STT/TTS)
+├── web/
+│   ├── app.py          # FastAPI server
+│   ├── health.py       # Health endpoints (no auth)
+│   └── ws_handler.py   # WebSocket streaming
 └── utils/logger.py     # Structured logging
 ```
 
