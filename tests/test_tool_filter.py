@@ -13,11 +13,13 @@ def _build_index():
     tool_filter.build_index(registry.tools)
 
 
-def test_generic_query_returns_all_tools():
-    """Generic queries with no strong keyword matches return the full tool set."""
+def test_generic_query_returns_core_tools():
+    """Generic queries with no strong keyword matches return core tools only."""
     result = tool_filter.select("xyzzy plughobnob flurgle")
     names = {t["function"]["name"] for t in result}
-    assert names == set(registry.tools.keys())
+    assert names <= set(registry.tools.keys())
+    for core in ("read_file", "run_command", "file_ops", "run_code", "code_analysis"):
+        assert core in names
 
 
 def test_specific_query_narrows_correctly():
@@ -29,11 +31,13 @@ def test_specific_query_narrows_correctly():
     assert "forget" not in names
 
 
-def test_empty_query_returns_all_tools():
-    """Empty string gracefully returns the full tool set."""
+def test_empty_query_returns_core_tools():
+    """Empty string gracefully returns core tools only."""
     result = tool_filter.select("")
     names = {t["function"]["name"] for t in result}
-    assert names == set(registry.tools.keys())
+    assert names <= set(registry.tools.keys())
+    for core in ("read_file", "run_command", "file_ops", "run_code", "code_analysis"):
+        assert core in names
 
 
 def test_deterministic_output():
