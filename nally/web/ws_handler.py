@@ -168,6 +168,17 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
     """Process a user message and stream events back."""
     from ..web.app import _abort_flags
 
+    # Check if session is busy — queue the message
+    if session_manager.is_busy(session_id):
+        pos = session_manager.queue_message(session_id, text)
+        if pos < 0:
+            await ws_manager.send_json(cid, {"type": "error", "text": "Queue full — try again shortly."})
+        else:
+            await ws_manager.send_json(
+                cid, {"type": "busy", "text": f"Queued (position {pos}). Processing after current task."}
+            )
+        return
+
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
 

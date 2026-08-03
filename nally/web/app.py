@@ -338,6 +338,16 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
     async def event_generator():
 
+        # Check if session is busy — queue the message
+        if session_manager.is_busy(session_id):
+            pos = session_manager.queue_message(session_id, message)
+            if pos < 0:
+                yield 'data: {"type": "error", "text": "Queue full — try again shortly."}\n\n'
+            else:
+                yield f'data: {{"type": "busy", "text": "Queued (position {pos}). Processing after current task."}}\n\n'
+            yield 'data: {"event": "done"}\n\n'
+            return
+
         def run_agent():
             try:
                 response = session_manager.process(session_id, message, emit=stream_event)
@@ -604,6 +614,14 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
                 return {"status": "auth_required", "auth_url": auth_url, "service": service}
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
+        elif service == "higgsfield":
+            from nally.mcp.oauth import start_higgsfield_oauth
+
+            try:
+                auth_url = await start_higgsfield_oauth(db)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            return {"status": "auth_required", "auth_url": auth_url, "service": service}
         else:
             raise HTTPException(status_code=400, detail=f"OAuth not configured for {service}")
 
@@ -733,6 +751,35 @@ async def google_oauth_callback(code: str = "", state: str = "", error: str = ""
     return HTMLResponse(content=html)
 
 
+@app.get("/api/oauth/higgsfield/callback")
+async def higgsfield_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Higgsfield OAuth callback — exchanges code for tokens."""
+    if error:
+        return JSONResponse(status_code=400, content={"error": error})
+    if not code:
+        return JSONResponse(status_code=400, content={"error": "missing_code"})
+
+    from nally.config import DATA_DIR, MCP_SERVERS
+    from nally.mcp.client import connect_http_server
+    from nally.mcp.oauth import exchange_higgsfield_code
+
+    db = str(DATA_DIR / "nally.db")
+    success = await exchange_higgsfield_code(code, db)
+    if not success:
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+
+    # Connect and fetch tools
+    server_cfg = next((s for s in MCP_SERVERS if s["name"] == "higgsfield"), None)
+    if server_cfg:
+        try:
+            await connect_http_server(server_cfg)
+        except Exception:
+            pass
+
+    html = REDIRECT_HTML.replace("SERVICE", "higgsfield")
+    return HTMLResponse(content=html)
+
+
 @app.post("/api/mcp/disconnect/{service}")
 async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
     """Disconnect an MCP service by removing stored tokens."""
@@ -751,6 +798,30 @@ async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
     if removed:
         broadcast_manager.broadcast("mcp_status", {"service": service, "connected": False})
     return {"status": "disconnected" if removed else "not_connected"}
+
+
+@app.post("/api/env/{key}")
+async def set_env_var(key: str, body: TokenSubmit, _auth=Depends(verify_auth)):
+    """Set an environment variable at runtime and persist to .env file."""
+
+    os.environ[key] = body.token
+
+    # Persist to .env file
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    lines = []
+    found = False
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if line.startswith(f"{key}="):
+                lines.append(f"{key}={body.token}")
+                found = True
+            else:
+                lines.append(line)
+    if not found:
+        lines.append(f"{key}={body.token}")
+    env_path.write_text("\n".join(lines) + "\n")
+
+    return {"ok": True, "key": key}
 
 
 # ── WebSocket: Real-time chat ──────────────────────────────

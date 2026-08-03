@@ -6,10 +6,12 @@ stays global across sessions.
 """
 
 import threading
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 from ..utils.logger import logger
 from .core import NallyAgent
+
+MAX_QUEUE_SIZE = 5
 
 
 class AgentSessionManager:
@@ -18,6 +20,8 @@ class AgentSessionManager:
     def __init__(self):
         self._sessions: Dict[str, NallyAgent] = {}
         self._locks: Dict[str, threading.Lock] = {}
+        self._busy: Dict[str, bool] = {}
+        self._queue: Dict[str, List[str]] = {}
         self._pool_lock = threading.Lock()
 
     def _get_lock(self, session_id: str) -> threading.Lock:
@@ -37,12 +41,45 @@ class AgentSessionManager:
                     self._sessions[session_id] = NallyAgent(session_id=session_id)
         return self._sessions[session_id]
 
+    def is_busy(self, session_id: str) -> bool:
+        """Check if session is currently processing a message."""
+        return self._busy.get(session_id, False)
+
+    def queue_message(self, session_id: str, message: str) -> int:
+        """Queue a message for later processing. Returns queue position (1-based), or 0 if rejected."""
+        q = self._queue.setdefault(session_id, [])
+        if len(q) >= MAX_QUEUE_SIZE:
+            return -1  # Queue full
+        q.append(message)
+        return len(q)
+
     def process(self, session_id: str, message: str, emit: Optional[Callable] = None) -> str:
-        """Process a message for a specific session (thread-safe)."""
+        """Process a message for a specific session (thread-safe).
+
+        Sets busy flag while processing, then drains queued messages.
+        """
         lock = self._get_lock(session_id)
         with lock:
-            agent = self.get(session_id)
-            return agent.process(message, emit=emit)
+            self._busy[session_id] = True
+            try:
+                agent = self.get(session_id)
+                result = agent.process(message, emit=emit)
+                return result
+            finally:
+                self._busy[session_id] = False
+                self._drain_queue(session_id)
+
+    def _drain_queue(self, session_id: str):
+        """Process any queued messages after current op finishes."""
+        q = self._queue.get(session_id, [])
+        agent = self.get(session_id)
+        while q:
+            msg = q.pop(0)
+            logger.info(f"Processing queued message for {session_id}")
+            try:
+                agent.process(msg)
+            except Exception as e:
+                logger.error(f"Queued message failed: {type(e).__name__}: {e}")
 
     def get_history(self, session_id: str) -> list:
         """Get conversation history for a session."""
