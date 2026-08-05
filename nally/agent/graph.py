@@ -512,8 +512,8 @@ def llm_call(state: AgentState) -> AgentState:
     # Post-response verification — check claims against receipts
     if ai_message.content and not ai_message.tool_calls:
         try:
-            from .verifier import claim_verifier
             from ..tools.receipts import receipt_store
+            from .verifier import claim_verifier
 
             recent = receipt_store.get_recent(limit=20)
             if recent:

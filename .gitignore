@@ -39,6 +39,10 @@ data/
 logs/
 *.log
 test_chat.json
+test_file.txt
+test_write.txt
+design_content.txt
+temp_*.py
 
 # Node (Dashboard)
 node_modules/

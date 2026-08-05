@@ -1,10 +1,7 @@
 """Tests for nally.tools.receipts — HMAC-signed tool execution receipts."""
 
-import json
 import tempfile
 from pathlib import Path
-
-import pytest
 
 from nally.tools.receipts import Receipt, ReceiptStore
 
