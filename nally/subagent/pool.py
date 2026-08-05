@@ -15,9 +15,9 @@ class SubAgentPool:
         self._lock = threading.Lock()
         self._total_spawned = 0
 
-    def spawn(self, goal: str, context: str = "", emit: Optional[Callable] = None) -> str:
+    def spawn(self, goal: str, context: str = "", emit: Optional[Callable] = None, model: Optional[str] = None) -> str:
         """Spawn a single sub-agent."""
-        agent = SubAgent(goal=goal, context=context)
+        agent = SubAgent(goal=goal, context=context, model=model)
         agent.set_callback(emit)
         agent.start(emit)
 
@@ -27,13 +27,14 @@ class SubAgentPool:
 
         return agent.id
 
-    def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None) -> List[str]:
+    def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None, model: Optional[str] = None) -> List[str]:
         """Spawn multiple sub-agents in parallel. Each task: {goal, context}"""
         return [
             self.spawn(
                 t.get("goal", "") if isinstance(t, dict) else str(t),
                 t.get("context", "") if isinstance(t, dict) else "",
                 emit,
+                model=model,
             )
             for t in tasks
         ]

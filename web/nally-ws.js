@@ -95,6 +95,18 @@ class NallyWebSocket {
   }
 
   /**
+   * Send voice audio (base64 encoded)
+   */
+  sendAudio(base64Audio, tabId, format) {
+    this._send({
+      type: 'voice_audio',
+      audio: base64Audio,
+      format: format || 'pcm_s16le',
+      tab_id: tabId || ''
+    });
+  }
+
+  /**
    * Send abort signal
    */
   abort() {

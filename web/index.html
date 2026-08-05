@@ -672,6 +672,34 @@
     .drawer-send svg { width: 18px; height: 18px; }
     .drawer-send:hover { filter: brightness(1.15); transform: scale(1.08); box-shadow: 0 6px 20px var(--iris-glow), 0 3px 6px rgba(0,0,0,0.4); }
 
+    .drawer-mic {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      width: 42px; height: 42px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: rgba(228,226,220,0.5);
+      transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease, color 0.2s ease;
+      flex-shrink: 0;
+    }
+    .drawer-mic svg { width: 18px; height: 18px; }
+    .drawer-mic:hover { background: rgba(255,255,255,0.12); color: rgba(228,226,220,0.8); }
+    .drawer-mic.recording {
+      background: rgba(239,68,68,0.2);
+      border-color: rgba(239,68,68,0.5);
+      color: #ef4444;
+      animation: mic-pulse 1.5s ease-in-out infinite;
+    }
+    .drawer-mic.recording:hover {
+      background: rgba(239,68,68,0.3);
+    }
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+    }
+    body.lock-mode .drawer-mic { pointer-events: none; opacity: 0.4; }
+
     /* Resize handles */
     .resize-handle {
       position: absolute;
@@ -1714,6 +1742,7 @@
     <div class="drawer-messages" id="chat-messages"></div>
     <div class="drawer-input-wrap">
       <textarea class="drawer-input" id="chat-input" rows="1" placeholder="Ask Nally anything..."></textarea>
+      <button class="drawer-mic" id="mic-btn" onclick="toggleRecording()" title="Toggle voice input"><i data-lucide="mic"></i></button>
       <button class="drawer-send" onclick="sendChat()"><i data-lucide="send"></i></button>
     </div>
     <!-- Resize handles -->
@@ -3060,6 +3089,114 @@
       nallyWs.on('mcp_status', function() {
         renderServices();
       });
+
+      nallyWs.on('voice_transcript', function(data) {
+        addChatMsg(data.text, false);
+        showTyping();
+        think('Thinking...');
+      });
+
+      nallyWs.on('tts_audio', function(data) {
+        removeTyping();
+        try {
+          var raw = atob(data.audio);
+          var arr = new Uint8Array(raw.length);
+          for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+          var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          audioCtx.decodeAudioData(arr.buffer, function(buffer) {
+            var source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+            source.onended = function() { audioCtx.close(); };
+            source.start(0);
+          }, function(e) {
+            console.warn('[tts] decode failed:', e);
+          });
+        } catch (e) {
+          console.warn('[tts] playback error:', e);
+        }
+      });
+
+      nallyWs.on('confirmation_required', function(data) {
+        removeTyping();
+        var evt = data;
+
+        var approveCard = document.createElement('div');
+        approveCard.className = 'tool-card pending expanded';
+
+        var header = document.createElement('div');
+        header.className = 'tool-card-header';
+        header.style.cursor = 'default';
+
+        var label = document.createElement('div');
+        label.className = 'tool-card-label';
+
+        var summary = document.createElement('div');
+        summary.className = 'tool-card-summary';
+        summary.textContent = autoSummary(evt.name, evt.args);
+
+        var nameEl = document.createElement('div');
+        nameEl.className = 'tool-card-name';
+        nameEl.textContent = evt.name || 'tool';
+
+        label.appendChild(summary);
+        label.appendChild(nameEl);
+
+        var statusEl = document.createElement('div');
+        statusEl.className = 'tool-card-status';
+        statusEl.innerHTML = '<span style="color:#FBBF24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></span>';
+
+        header.appendChild(label);
+        header.appendChild(statusEl);
+        approveCard.appendChild(header);
+
+        var body = document.createElement('div');
+        body.className = 'tool-card-body';
+        var inner = document.createElement('div');
+        inner.className = 'tool-card-body-inner';
+
+        var detail = document.createElement('div');
+        detail.className = 'tool-card-detail';
+
+        var inputLabel = document.createElement('div');
+        inputLabel.className = 'tool-card-zone-label';
+        inputLabel.textContent = 'Input';
+        var inputCode = document.createElement('div');
+        inputCode.className = 'tool-card-code';
+        inputCode.textContent = evt.args ? JSON.stringify(evt.args, null, 2) : 'No input';
+        detail.appendChild(inputLabel);
+        detail.appendChild(inputCode);
+
+        if (evt.diff && evt.file_path) showDiff(evt.diff, evt.file_path);
+
+        var btnWrap = document.createElement('div');
+        btnWrap.className = 'tool-card-approve-btns';
+        btnWrap.style.borderTop = '1px solid rgba(255,255,255,0.05)';
+
+        var approveBtn = document.createElement('button');
+        approveBtn.className = 'tool-approve-yes';
+        approveBtn.textContent = 'Approve';
+
+        var denyBtn = document.createElement('button');
+        denyBtn.className = 'tool-approve-no';
+        denyBtn.textContent = 'Deny';
+
+        var tcId = evt.tool_call_id;
+        approveBtn.addEventListener('click', function() { approveTool(tcId, true); approveCard.remove(); });
+        denyBtn.addEventListener('click', function() { approveTool(tcId, false); approveCard.remove(); });
+
+        btnWrap.appendChild(approveBtn);
+        btnWrap.appendChild(denyBtn);
+        detail.appendChild(btnWrap);
+
+        inner.appendChild(detail);
+        body.appendChild(inner);
+        approveCard.appendChild(body);
+
+        chatMessages.appendChild(approveCard);
+        lucide.createIcons();
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      });
       
       nallyWs.connect();
     }
@@ -3147,6 +3284,133 @@
         thoughtWrap.classList.remove('visible');
         addChatMsg('Backend offline — make sure NALLY server is running on port 5000.', true);
       });
+    }
+
+    // ─── Voice Recording ──────────────────────────────
+    var _mediaRecorder = null;
+    var _audioChunks = [];
+    var _isRecording = false;
+    var _micStream = null;
+
+    function toggleRecording() {
+      if (_isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+    }
+
+    function startRecording() {
+      console.log('[mic] mediaDevices:', !!navigator.mediaDevices, 'getUserMedia:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error('[mic] getUserMedia not available — check HTTPS/localhost and browser support');
+        addChatMsg('Voice not supported. Check browser permissions and ensure you are on localhost or HTTPS.', true);
+        return;
+      }
+
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+        _micStream = stream;
+        _audioChunks = [];
+        var mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/ogg;codecs=opus';
+
+        _mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+        _mediaRecorder.ondataavailable = function(e) {
+          if (e.data.size > 0) _audioChunks.push(e.data);
+        };
+        _mediaRecorder.onstop = function() {
+          var blob = new Blob(_audioChunks, { type: mimeType });
+          sendAudioBlob(blob);
+          _cleanup();
+        };
+
+        _mediaRecorder.start();
+        _isRecording = true;
+        var micBtn = document.getElementById('mic-btn');
+        micBtn.classList.add('recording');
+        micBtn.title = 'Click to stop recording';
+      }).catch(function(err) {
+        console.error('[mic] access denied:', err.name, err.message, err);
+        if (err.name === 'NotAllowedError') {
+          addChatMsg('Microphone blocked by browser. Click the lock/tune icon in the address bar and allow microphone, or check chrome://settings/content/microphone', true);
+        } else if (err.name === 'NotFoundError') {
+          addChatMsg('No microphone found. Plug in a mic and try again.', true);
+        } else {
+          addChatMsg('Mic error: ' + err.name + ' — ' + err.message, true);
+        }
+      });
+    }
+
+    function stopRecording() {
+      if (_mediaRecorder && _mediaRecorder.state !== 'inactive') {
+        _mediaRecorder.stop();
+      }
+      _isRecording = false;
+      var micBtn = document.getElementById('mic-btn');
+      micBtn.classList.remove('recording');
+      micBtn.title = 'Toggle voice input';
+    }
+
+    function _cleanup() {
+      if (_micStream) {
+        _micStream.getTracks().forEach(function(t) { t.stop(); });
+        _micStream = null;
+      }
+      _mediaRecorder = null;
+      _audioChunks = [];
+    }
+
+    function sendAudioBlob(blob) {
+      if (!blob || blob.size < 100) return;
+
+      // Decode audio in browser to raw 16kHz mono PCM, send directly
+      // This avoids needing ffmpeg on the server
+      var reader = new FileReader();
+      reader.onloadend = function() {
+        var arrayBuffer = reader.result;
+        var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtx.decodeAudioData(arrayBuffer, function(decoded) {
+          // Resample to 16kHz mono
+          var src = decoded;
+          var targetRate = 16000;
+          var offCtx = new OfflineAudioContext(1, Math.ceil(src.duration * targetRate), targetRate);
+          var srcNode = offCtx.createBufferSource();
+          srcNode.buffer = src;
+          srcNode.connect(offCtx.destination);
+          srcNode.start(0);
+          offCtx.startRendering().then(function(resampled) {
+            var channelData = resampled.getChannelData(0);
+            // Convert float32 to int16
+            var int16 = new Int16Array(channelData.length);
+            for (var i = 0; i < channelData.length; i++) {
+              var s = Math.max(-1, Math.min(1, channelData[i]));
+              int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            // Send raw PCM as base64
+            var bytes = new Uint8Array(int16.buffer);
+            var binary = '';
+            for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+            var b64 = btoa(binary);
+            if (useWebSocket && nallyWs && nallyWs.connected) {
+              nallyWs.sendAudio(b64, _tabId, 'pcm_s16le');
+            }
+            audioCtx.close();
+          });
+        }, function(e) {
+          console.warn('[mic] decode failed, sending raw:', e);
+          // Fallback: send raw webm blob
+          var rawReader = new FileReader();
+          rawReader.onloadend = function() {
+            var base64 = rawReader.result.split(',')[1];
+            if (useWebSocket && nallyWs && nallyWs.connected) {
+              nallyWs.sendAudio(base64, _tabId);
+            }
+          };
+          rawReader.readAsDataURL(blob);
+        });
+      };
+      reader.readAsArrayBuffer(blob);
     }
 
     function handleSSE(evt, setStreamEl) {
@@ -3316,6 +3580,10 @@
     }
 
     function approveTool(toolCallId, approved) {
+      if (useWebSocket && nallyWs && nallyWs.connected) {
+        nallyWs.approve(toolCallId, approved);
+        return;
+      }
       fetch(NALLY_API + '/api/approve', {
         method: 'POST',
         headers: {

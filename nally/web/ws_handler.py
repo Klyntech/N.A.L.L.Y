@@ -6,7 +6,9 @@ better for multi-tab sync.
 Protocol:
   Client -> Server:
     {"type": "user_message", "text": "hello", "tab_id": "tab_1"}
+    {"type": "voice_audio", "audio": "<base64>", "tab_id": "tab_1"}
     {"type": "abort", "session_id": "web:default"}
+    {"type": "approval", "tool_call_id": "...", "approved": true/false}
 
   Server -> Client:
     {"type": "thought", "text": "..."}
@@ -15,15 +17,20 @@ Protocol:
     {"type": "tool_result", "name": "...", "result": "..."}
     {"type": "confirmation_required", "tool_call_id": "...", "name": "..."}
     {"type": "response", "text": "final answer"}
+    {"type": "voice_transcript", "text": "transcribed speech"}
+    {"type": "tts_audio", "audio": "<base64 WAV>"}
     {"type": "error", "text": "..."}
     {"type": "done"}
 """
 
 import asyncio
+import base64
 import hmac
 import json
 import logging
 import os
+import tempfile
+import threading
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -110,6 +117,25 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
     cid = await ws_manager.connect(websocket, session_id)
 
+    # Subscribe to event bus for plan events
+    from ..events.bus import event_bus
+
+    def _on_plan_event(event_type, data):
+        """Broadcast plan events to this session's WebSocket clients."""
+        try:
+            asyncio.ensure_future(
+                ws_manager.broadcast(session_id, {"type": event_type, **data})
+            )
+        except Exception:
+            pass
+
+    unsubscribers = [
+        event_bus.subscribe("plan_created", lambda e: _on_plan_event("plan_created", e.data)),
+        event_bus.subscribe("plan_step_started", lambda e: _on_plan_event("plan_step_started", e.data)),
+        event_bus.subscribe("plan_step_completed", lambda e: _on_plan_event("plan_step_completed", e.data)),
+        event_bus.subscribe("plan_complete", lambda e: _on_plan_event("plan_complete", e.data)),
+    ]
+
     try:
         while True:
             # Receive message from client
@@ -153,6 +179,16 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     {"type": "approval_resolved", "tool_call_id": tool_call_id, "approved": approved},
                 )
 
+            # ── Voice audio (from browser mic) ──────────
+            elif msg_type == "voice_audio":
+                audio_b64 = msg.get("audio", "")
+                tab_id = msg.get("tab_id", "")
+                audio_format = msg.get("format", "")
+                if not audio_b64:
+                    await ws_manager.send_json(cid, {"type": "error", "text": "No audio data"})
+                    continue
+                asyncio.create_task(_process_voice(cid, session_id, audio_b64, tab_id, audio_format))
+
             else:
                 await ws_manager.send_json(cid, {"type": "error", "text": f"Unknown message type: {msg_type}"})
 
@@ -161,6 +197,12 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
+        # Unsubscribe from event bus
+        for unsub in unsubscribers:
+            try:
+                unsub()
+            except Exception:
+                pass
         ws_manager.disconnect(cid, session_id)
 
 
@@ -202,6 +244,18 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)
+            # Trigger background reflection on session end
+            try:
+                from ..memory.reflector import reflector
+                agent = session_manager._sessions.get(session_id)
+                if agent and len(agent.messages) > 4:
+                    threading.Thread(
+                        target=reflector.reflect_on_conversation,
+                        args=(agent.messages, session_id),
+                        daemon=True,
+                    ).start()
+            except Exception:
+                pass
 
     # Clear abort flag
     _abort_flags.pop(session_id, None)
@@ -247,3 +301,146 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
             )
 
     await ws_manager.send_json(cid, {"type": "done"})
+
+
+async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str, audio_format: str = ""):
+    """Process voice audio from browser: STT -> agent -> TTS -> stream audio back."""
+    from ..web.app import _abort_flags
+
+    loop = asyncio.get_event_loop()
+
+    try:
+        # Decode base64 audio to bytes
+        audio_bytes = base64.b64decode(audio_b64)
+
+        if audio_format == "pcm_s16le":
+            # Client decoded to raw 16kHz mono int16 PCM — use directly
+            pcm_bytes = audio_bytes
+        else:
+            # Browser sent raw webm — decode with ffmpeg
+            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_in:
+                tmp_in.write(audio_bytes)
+                tmp_in_path = tmp_in.name
+
+            tmp_out_path = tmp_in_path.replace(".webm", ".pcm")
+
+            try:
+                import shutil
+                if not shutil.which("ffmpeg"):
+                    await ws_manager.send_json(cid, {"type": "error", "text": "ffmpeg not installed — required for voice. Install: choco install ffmpeg"})
+                    return
+
+                proc = await asyncio.create_subprocess_exec(
+                    "ffmpeg", "-y", "-i", tmp_in_path,
+                    "-f", "s16le", "-acodec", "pcm_s16le",
+                    "-ar", "16000", "-ac", "1",
+                    tmp_out_path,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.wait()
+
+                if proc.returncode != 0:
+                    await ws_manager.send_json(cid, {"type": "error", "text": "Audio decode failed"})
+                    return
+
+                pcm_bytes = open(tmp_out_path, "rb").read()
+            finally:
+                for p in [tmp_in_path, tmp_out_path]:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+
+        if len(pcm_bytes) < 3200:  # < 0.1s at 16kHz
+            await ws_manager.send_json(cid, {"type": "error", "text": "Audio too short"})
+            return
+
+        # STT
+        import numpy as np
+
+        audio_f32 = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+        from ..voice.stt import transcribe
+
+        text = await loop.run_in_executor(None, transcribe, audio_f32.tobytes())
+
+        if not text.strip():
+            await ws_manager.send_json(cid, {"type": "error", "text": "Could not understand audio"})
+            return
+
+        # Send transcript back
+        await ws_manager.send_json(cid, {"type": "voice_transcript", "text": text})
+
+        # Process through agent
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def stream_event(event, payload):
+            try:
+                flat = {"type": event}
+                flat.update(payload)
+                loop.call_soon_threadsafe(queue.put_nowait, flat)
+            except Exception:
+                pass
+
+        def run_agent():
+            try:
+                response = session_manager.process(session_id, text, emit=stream_event)
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
+            except NallyError as e:
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
+            except Exception as e:
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        _abort_flags.pop(session_id, None)
+        asyncio.ensure_future(loop.run_in_executor(None, run_agent))
+
+        # Stream events back, capture final response
+        final_response = ""
+        while True:
+            if _abort_flags.get(session_id):
+                _abort_flags.pop(session_id, None)
+                await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
+                await ws_manager.send_json(cid, {"type": "done"})
+                return
+
+            item = await queue.get()
+            if item is None:
+                break
+
+            await ws_manager.send_json(cid, item)
+
+            if item.get("type") == "response":
+                final_response = item.get("text", "")
+
+            # Broadcast to other tabs
+            evt_type = item.get("type", "")
+            if evt_type == "thought":
+                await ws_manager.broadcast(
+                    session_id,
+                    {"type": "thinking", "text": item.get("text", ""), "tab_id": tab_id},
+                    exclude=cid,
+                )
+            elif evt_type == "response":
+                await ws_manager.broadcast(
+                    session_id,
+                    {"type": "assistant_message", "text": item.get("text", ""), "tab_id": tab_id},
+                    exclude=cid,
+                )
+
+        # TTS the response and stream audio back
+        if final_response:
+            from ..voice.tts import synthesize_to_wav
+
+            wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, final_response)
+            if wav_bytes:
+                wav_b64 = base64.b64encode(wav_bytes).decode("ascii")
+                await ws_manager.send_json(cid, {"type": "tts_audio", "audio": wav_b64})
+
+        await ws_manager.send_json(cid, {"type": "done"})
+
+    except Exception as e:
+        logger.error(f"Voice processing failed: {e}", exc_info=True)
+        await ws_manager.send_json(cid, {"type": "error", "text": f"Voice processing failed: {e}"})

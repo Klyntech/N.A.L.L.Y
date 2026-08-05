@@ -44,15 +44,19 @@ class Agent(Tool):
                     "items": {"type": "string"},
                     "description": "Task IDs to collect results or check status for",
                 },
+                "model": {
+                    "type": "string",
+                    "description": "Optional model override for the sub-agent (e.g. deepseek-v4-flash-free)",
+                },
             },
         )
 
-    def execute(self, action: str, goal: str = "", context: str = "", tasks=None, task_ids=None, **kwargs) -> str:
+    def execute(self, action: str, goal: str = "", context: str = "", tasks=None, task_ids=None, model: str = None, **kwargs) -> str:
         try:
             if action == "delegate":
                 if not goal:
                     return "Error: goal is required for delegate"
-                agent_id = pool.spawn(goal, context)
+                agent_id = pool.spawn(goal, context, model=model)
                 agent = pool._agents.get(agent_id)
                 if not agent:
                     return "Error: failed to spawn sub-agent"
@@ -66,7 +70,7 @@ class Agent(Tool):
             elif action == "spawn":
                 if not tasks:
                     return "Error: tasks list is required for spawn"
-                ids = pool.spawn_many(tasks)
+                ids = pool.spawn_many(tasks, model=model)
                 return f"Spawned {len(ids)} sub-agents:\n" + "\n".join(f"  {i + 1}. {tid}" for i, tid in enumerate(ids))
 
             elif action == "collect":

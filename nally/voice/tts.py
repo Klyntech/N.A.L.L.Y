@@ -4,7 +4,9 @@ Voice model is downloaded on first run and cached in data/voice/.
 To swap to ElevenLabs / Groq TTS later, only this file changes.
 """
 
+import io
 import logging
+import struct
 import urllib.request
 from pathlib import Path
 
@@ -89,3 +91,55 @@ def speak(text: str) -> None:
         logger.error(f"TTS failed: {e}")
         # Fallback: just print so the user still gets the response
         print(f"[TTS unavailable] {text}")
+
+
+def synthesize_to_wav(text: str) -> bytes | None:
+    """Synthesize text to WAV bytes (16-bit PCM, mono).
+
+    Returns raw WAV file bytes suitable for browser AudioContext.decodeAudioData(),
+    or None on failure.
+    """
+    if not text or not text.strip():
+        return None
+
+    try:
+        voice = _get_voice()
+
+        # Synthesize to raw 16-bit PCM
+        audio_chunks = []
+        for chunk in voice.synthesize(text):
+            audio_chunks.append(chunk.audio_int16_bytes)
+
+        raw = b"".join(audio_chunks)
+        sample_rate = voice.config.sample_rate
+
+        # Build WAV file in memory
+        buf = io.BytesIO()
+        num_samples = len(raw) // 2  # int16 = 2 bytes each
+        data_size = num_samples * 2
+
+        # RIFF header
+        buf.write(b"RIFF")
+        buf.write(struct.pack("<I", 36 + data_size))
+        buf.write(b"WAVE")
+        # fmt chunk
+        buf.write(b"fmt ")
+        buf.write(struct.pack("<I", 16))          # chunk size
+        buf.write(struct.pack("<H", 1))           # PCM format
+        buf.write(struct.pack("<H", 1))           # mono
+        buf.write(struct.pack("<I", sample_rate))  # sample rate
+        buf.write(struct.pack("<I", sample_rate * 2))  # byte rate
+        buf.write(struct.pack("<H", 2))           # block align
+        buf.write(struct.pack("<H", 16))          # bits per sample
+        # data chunk
+        buf.write(b"data")
+        buf.write(struct.pack("<I", data_size))
+        buf.write(raw)
+
+        wav_bytes = buf.getvalue()
+        logger.debug(f"Synthesized WAV: {len(wav_bytes)} bytes, {num_samples / sample_rate:.1f}s")
+        return wav_bytes
+
+    except Exception as e:
+        logger.error(f"TTS synthesis failed: {e}")
+        return None

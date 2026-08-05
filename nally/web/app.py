@@ -182,9 +182,22 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_prewarm, daemon=True).start()
 
+    # Start background reflector
+    try:
+        from ..memory.reflector import reflector
+        reflector.start(interval=3600)
+        logger.info("Background reflector started.")
+    except Exception as e:
+        logger.warning(f"Reflector startup failed: {e}")
+
     logger.info("Lifespan startup complete.")
     yield
-    # Shutdown: save all active sessions before exit
+    # Shutdown: stop reflector and save all active sessions before exit
+    try:
+        from ..memory.reflector import reflector
+        reflector.stop()
+    except Exception:
+        pass
     try:
         for _sid, agent in session_manager._sessions.items():
             if len(agent.messages) > 2:

@@ -24,10 +24,11 @@ def _get_filtered_tools(query: str) -> List[Dict]:
 class SubAgent:
     """An autonomous sub-agent that can think, use tools, and return results"""
 
-    def __init__(self, goal: str, context: str = "", agent_id: str = None):
+    def __init__(self, goal: str, context: str = "", agent_id: str = None, model: str = None):
         self.id = agent_id or f"sub_{uuid.uuid4().hex[:8]}"
         self.goal = goal
         self.context = context
+        self.model = model
         self.status = "pending"
         self.result: Optional[str] = None
         self.error: Optional[str] = None
@@ -148,6 +149,7 @@ class SubAgent:
             emit=self._emit,
             max_iterations=15,
             thread_id=self.id,
+            model=self.model,
         )
 
     def get_status(self) -> dict:
