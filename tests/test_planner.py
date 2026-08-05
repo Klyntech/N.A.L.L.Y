@@ -2,20 +2,16 @@
 
 import json
 
-import pytest
-
 from nally.agent.planner import (
     Plan,
     PlanStep,
-    PlanStatus,
     StepStatus,
     classify_by_patterns,
     parse_plan_response,
-    validate_plan,
     route_after_classify,
     route_after_replan,
+    validate_plan,
 )
-
 
 # ── Classification ────────────────────────────────────────
 

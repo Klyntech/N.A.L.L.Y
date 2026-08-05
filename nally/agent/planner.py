@@ -10,7 +10,6 @@ Flat step list, no dependency DAG. Single execution path via mini ReAct loop.
 
 import concurrent.futures
 import json
-import logging
 import re
 import time
 from enum import StrEnum
@@ -20,8 +19,6 @@ from ..config import (
     PLAN_ENABLED,
     PLAN_MAX_REVISIONS,
     PLAN_MAX_STEPS,
-    PLAN_STEP_TIMEOUT,
-    SUBAGENT_MODELS,
 )
 from ..utils.logger import logger
 
@@ -53,7 +50,7 @@ class PlanStatus(StrEnum):
 
 
 class PlanStep:
-    __slots__ = ("id", "goal", "status", "result", "error")
+    __slots__ = ("error", "goal", "id", "result", "status")
 
     def __init__(self, id: str, goal: str):
         self.id = id
@@ -73,7 +70,7 @@ class PlanStep:
 
 
 class Plan:
-    __slots__ = ("goal", "steps", "status", "revision_count", "created_at", "summary")
+    __slots__ = ("created_at", "goal", "revision_count", "status", "steps", "summary")
 
     def __init__(self, goal: str, steps: Optional[List[PlanStep]] = None):
         self.goal = goal
@@ -297,8 +294,8 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
             f"The previous plan for '{user_text}' had failures:\n{failure_context}\n\n"
             f"Previous plan steps:\n"
             + "\n".join(f"  {s.id}: {s.goal} [{s.status.value}]" for s in existing_plan.steps)
-            + f"\n\nRevise the plan to work around these failures. "
-            f"Keep successful steps, replace or modify failed ones."
+            + "\n\nRevise the plan to work around these failures. "
+            "Keep successful steps, replace or modify failed ones."
         )
     else:
         prompt = f"Create a plan for: {user_text}"
@@ -477,8 +474,8 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         f"Here are the results from each execution step:\n\n"
         + "\n".join(step_summaries)
         + "\n\nSynthesize these results into a clear, complete response for the user. "
-        f"Be specific about what was accomplished and what failed (if any). "
-        f"Use Nally's casual, direct tone. Start with a capital letter."
+        "Be specific about what was accomplished and what failed (if any). "
+        "Use Nally's casual, direct tone. Start with a capital letter."
     )
 
     try:
@@ -531,9 +528,9 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def _execute_step(step: PlanStep, state: Dict[str, Any]) -> str:
     """Execute a single plan step via a mini ReAct sub-loop."""
-    from .graph import run_agent
     from ..tools.filter import tool_filter
     from ..tools.registry import registry
+    from .graph import run_agent
 
     try:
         tools = tool_filter.select(step.goal)

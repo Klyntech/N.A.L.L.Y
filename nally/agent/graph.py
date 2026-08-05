@@ -23,7 +23,15 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
-from ..config import DATABASE_URL, MAX_TOOL_CALLS, MAX_AGENT_WALL_TIME, RECURSION_LIMIT, DUPLICATE_TOOL_THRESHOLD, PLAN_ENABLED, ensure_data_dir
+from ..config import (
+    DATABASE_URL,
+    DUPLICATE_TOOL_THRESHOLD,
+    MAX_AGENT_WALL_TIME,
+    MAX_TOOL_CALLS,
+    PLAN_ENABLED,
+    RECURSION_LIMIT,
+    ensure_data_dir,
+)
 from ..core.errors import LLMError
 from ..tools.permissions import gate as permission_gate
 from ..tools.registry import registry
@@ -441,6 +449,16 @@ def llm_call(state: AgentState) -> AgentState:
 
     openai_messages = _convert_to_openai(messages)
 
+    # Inject recent tool execution receipts (trust grounding)
+    try:
+        from ..tools.receipts import receipt_store
+        recent_receipts = receipt_store.get_recent(limit=20)
+        if recent_receipts:
+            receipt_summary = receipt_store.format_for_context(recent_receipts)
+            openai_messages.append({"role": "system", "content": receipt_summary})
+    except Exception:
+        pass
+
     model_override = state.get("model_override")
     try:
         if model_override:
@@ -614,6 +632,20 @@ def tool_executor(state: AgentState) -> AgentState:
         duration = (time.time() - start) * 1000
         logger.tool_call(tool_name, tool_args, result)
 
+        # Generate execution receipt (trust system)
+        try:
+            from ..tools.receipts import receipt_store
+            receipt_store.record(
+                tool_call_id=tool_id,
+                tool=tool_name,
+                args=tool_args,
+                result=str(result)[:2000],
+                success=not str(result).startswith("Error"),
+                duration_ms=duration,
+            )
+        except Exception:
+            pass
+
         # For run_command, detect changed files via snapshot diff
         if snapshot_before is not None and not str(result).startswith("Error"):
             changes = _diff_snapshots(snapshot_before)
@@ -753,12 +785,12 @@ def create_agent_graph():
     if PLAN_ENABLED:
         from .planner import (
             classify_node,
-            planner_node,
             execute_step_node,
+            planner_node,
             replan_node,
-            synthesize_node,
             route_after_classify,
             route_after_replan,
+            synthesize_node,
         )
 
         graph.add_node("classify", classify_node)

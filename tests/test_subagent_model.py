@@ -1,6 +1,5 @@
 """Tests for SubAgent model override — model flows from planner to LLM call."""
 
-import pytest
 
 from nally.config import SUBAGENT_MODELS
 from nally.subagent.agent import SubAgent

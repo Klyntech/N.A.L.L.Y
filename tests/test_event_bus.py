@@ -1,9 +1,8 @@
 """Tests for nally.events.bus — event bus pub/sub."""
 
 import threading
-import time
 
-from nally.events.bus import Event, EventBus
+from nally.events.bus import EventBus
 
 
 def test_publish_subscribe():

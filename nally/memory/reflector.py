@@ -9,10 +9,8 @@ Runs as a background thread, triggered periodically or on session end.
 """
 
 import json
-import logging
 import threading
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ..utils.logger import logger
