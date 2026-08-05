@@ -1,6 +1,5 @@
 """Tests for nally.agent.verifier — claim verification against tool receipts."""
 
-
 from nally.agent.verifier import ClaimVerifier, Verdict
 from nally.tools.receipts import Receipt
 
