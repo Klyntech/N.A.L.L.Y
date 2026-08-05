@@ -1,21 +1,42 @@
 """System Control Tools"""
 
 import os
+import platform
 import subprocess
 
 from .registry import Tool
 
+# Command timeout (seconds) — configurable via env
+CMD_TIMEOUT = int(os.environ.get("NALLY_CMD_TIMEOUT", "60"))
+
+
+def _get_shell():
+    """Return (shell_executable, shell_args_prefix) for the current platform."""
+    if platform.system() == "Windows":
+        powershell = os.environ.get(
+            "POWERSHELL_PATH",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        )
+        if os.path.exists(powershell):
+            return powershell, ["-NoProfile", "-NonInteractive", "-Command"]
+        return "cmd.exe", ["/c"]
+    return "/bin/bash", ["-c"]
+
 
 class RunCommand(Tool):
     def __init__(self):
+        os_name = platform.system()
+        shell_name = "PowerShell" if os_name == "Windows" else "bash"
         super().__init__(
             name="run_command",
-            description="Execute a shell command on the system",
+            description=(
+                f"Execute a {shell_name} command on this {os_name} system. Use {shell_name}-compatible syntax."
+            ),
             permission="destructive",
             parameters={
                 "command": {
                     "type": "string",
-                    "description": "The command to execute",
+                    "description": f"The {shell_name} command to execute",
                     "required": True,
                 }
             },
@@ -25,20 +46,20 @@ class RunCommand(Tool):
         if not command:
             return "Error: No command provided"
         try:
+            executable, args = _get_shell()
             result = subprocess.run(
-                command,
-                shell=True,
+                [executable] + args + [command],
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=30,
+                timeout=CMD_TIMEOUT,
             )
             output = result.stdout
             if result.stderr:
                 output += f"\nStderr: {result.stderr}"
             return output if output else "Command executed successfully"
         except subprocess.TimeoutExpired:
-            return "Command timed out after 30 seconds"
+            return f"Command timed out after {CMD_TIMEOUT} seconds"
         except Exception as e:
             return f"Error: {e!s}"
 
