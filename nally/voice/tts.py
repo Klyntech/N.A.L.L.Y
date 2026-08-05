@@ -20,9 +20,7 @@ DEFAULT_VOICE = "en_US-lessac-medium"
 # Loaded once at module level
 _voice = None
 
-_VOICE_BASE_URL = (
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
-)
+_VOICE_BASE_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
 
 
 def _ensure_voice():
@@ -124,13 +122,13 @@ def synthesize_to_wav(text: str) -> bytes | None:
         buf.write(b"WAVE")
         # fmt chunk
         buf.write(b"fmt ")
-        buf.write(struct.pack("<I", 16))          # chunk size
-        buf.write(struct.pack("<H", 1))           # PCM format
-        buf.write(struct.pack("<H", 1))           # mono
+        buf.write(struct.pack("<I", 16))  # chunk size
+        buf.write(struct.pack("<H", 1))  # PCM format
+        buf.write(struct.pack("<H", 1))  # mono
         buf.write(struct.pack("<I", sample_rate))  # sample rate
         buf.write(struct.pack("<I", sample_rate * 2))  # byte rate
-        buf.write(struct.pack("<H", 2))           # block align
-        buf.write(struct.pack("<H", 16))          # bits per sample
+        buf.write(struct.pack("<H", 2))  # block align
+        buf.write(struct.pack("<H", 16))  # bits per sample
         # data chunk
         buf.write(b"data")
         buf.write(struct.pack("<I", data_size))

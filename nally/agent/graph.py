@@ -452,6 +452,7 @@ def llm_call(state: AgentState) -> AgentState:
     # Inject recent tool execution receipts (trust grounding)
     try:
         from ..tools.receipts import receipt_store
+
         recent_receipts = receipt_store.get_recent(limit=20)
         if recent_receipts:
             receipt_summary = receipt_store.format_for_context(recent_receipts)
@@ -507,6 +508,28 @@ def llm_call(state: AgentState) -> AgentState:
         if assistant_msg.tool_calls
         else [],
     )
+
+    # Post-response verification — check claims against receipts
+    if ai_message.content and not ai_message.tool_calls:
+        try:
+            from .verifier import claim_verifier
+            from ..tools.receipts import receipt_store
+
+            recent = receipt_store.get_recent(limit=20)
+            if recent:
+                vresult = claim_verifier.verify(ai_message.content, recent)
+                if not vresult.is_honest:
+                    logger.warning(
+                        f"Claim verification: {vresult.unsupported_count} unsupported, "
+                        f"{vresult.contradicted_count} contradicted"
+                    )
+                    if emit:
+                        try:
+                            emit("verification", vresult.to_dict())
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     if emit and assistant_msg.tool_calls:
         for tc in assistant_msg.tool_calls:
@@ -635,6 +658,7 @@ def tool_executor(state: AgentState) -> AgentState:
         # Generate execution receipt (trust system)
         try:
             from ..tools.receipts import receipt_store
+
             receipt_store.record(
                 tool_call_id=tool_id,
                 tool=tool_name,
@@ -884,6 +908,7 @@ def run_agent(
     # accumulation. The NallyAgent manages its own history — the checkpointer
     # must NOT merge old state with new, or messages double every call.
     import uuid
+
     fresh_thread = f"{thread_id}-{uuid.uuid4().hex[:8]}"
     config = {"configurable": {"thread_id": fresh_thread}, "recursion_limit": RECURSION_LIMIT}
 

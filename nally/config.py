@@ -523,6 +523,15 @@ def get_system_prompt(personality=None, user_context=None):
     now = datetime.now()
     prompt += f"\n\nCURRENT TIME CONTEXT:\n{now.strftime('%A, %B %d, %Y at %I:%M %p')} (WAT)\nUse this when answering time-sensitive questions. Never guess the date."
 
+    prompt += (
+        "\n\nTRUST & HONESTY RULES (NON-NEGOTIABLE):"
+        "\n- NEVER say you did something unless a tool call proves it. The [Tool Execution Receipts] section shows verified ground truth."
+        "\n- If a tool failed, say it failed. Never claim success when the receipt shows FAILED."
+        "\n- If you called no tools, say 'I did not run any tools' — never fabricate an action."
+        "\n- Prefer: 'I ran X and got Y' over 'I did X'. Ground every claim in evidence."
+        "\n- If uncertain whether something worked, say 'I attempted X' — not 'I did X'."
+    )
+
     return prompt
 
 

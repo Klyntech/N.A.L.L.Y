@@ -47,13 +47,15 @@ class TestClassifyByPatterns:
 
 class TestParsePlanResponse:
     def test_valid_json(self):
-        response = json.dumps({
-            "goal": "build an API",
-            "steps": [
-                {"id": "step_1", "goal": "Create endpoints"},
-                {"id": "step_2", "goal": "Add auth"},
-            ],
-        })
+        response = json.dumps(
+            {
+                "goal": "build an API",
+                "steps": [
+                    {"id": "step_1", "goal": "Create endpoints"},
+                    {"id": "step_2", "goal": "Add auth"},
+                ],
+            }
+        )
         plan = parse_plan_response(response, "build an API")
         assert plan is not None
         assert plan.goal == "build an API"
@@ -87,10 +89,13 @@ class TestParsePlanResponse:
 
 class TestValidatePlan:
     def test_valid_plan_passes(self):
-        plan = Plan(goal="test", steps=[
-            PlanStep(id="s1", goal="step 1"),
-            PlanStep(id="s2", goal="step 2"),
-        ])
+        plan = Plan(
+            goal="test",
+            steps=[
+                PlanStep(id="s1", goal="step 1"),
+                PlanStep(id="s2", goal="step 2"),
+            ],
+        )
         result = validate_plan(plan)
         assert len(result.steps) == 2
 
@@ -124,10 +129,13 @@ class TestRouting:
         assert route_after_replan(state) == "planner"
 
     def test_replan_executing_routes_to_execute_step(self):
-        plan = Plan(goal="test", steps=[
-            PlanStep(id="s1", goal="step 1"),
-            PlanStep(id="s2", goal="step 2"),
-        ])
+        plan = Plan(
+            goal="test",
+            steps=[
+                PlanStep(id="s1", goal="step 1"),
+                PlanStep(id="s2", goal="step 2"),
+            ],
+        )
         plan.steps[0].status = StepStatus.COMPLETED
         state = {"plan_status": "executing", "plan": plan, "iteration": 0, "max_iterations": 100}
         assert route_after_replan(state) == "execute_step"

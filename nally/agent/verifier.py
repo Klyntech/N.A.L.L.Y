@@ -18,15 +18,16 @@ from ..tools.receipts import Receipt, ReceiptStore
 
 
 class Verdict(StrEnum):
-    BACKED = "backed"           # Receipt supports the claim
-    UNSUPPORTED = "unsupported" # No receipt found (possible hallucination)
+    BACKED = "backed"  # Receipt supports the claim
+    UNSUPPORTED = "unsupported"  # No receipt found (possible hallucination)
     CONTRADICTED = "contradicted"  # Receipt contradicts the claim
-    PARTIAL = "partial"         # Some evidence, but incomplete
+    PARTIAL = "partial"  # Some evidence, but incomplete
 
 
 @dataclass
 class ClaimFinding:
     """A single claim verification result."""
+
     claim: str
     verdict: Verdict
     evidence: str = ""
@@ -86,6 +87,7 @@ _FAILURE_PATTERNS = [
 @dataclass
 class VerificationResult:
     """Result of verifying all claims in an LLM response."""
+
     findings: List[ClaimFinding] = field(default_factory=list)
     backed_count: int = 0
     unsupported_count: int = 0
@@ -216,19 +218,23 @@ class ClaimVerifier:
         # Agent claims success but tool failed
         if has_success_claim and failed_receipts:
             failed_tools = [r.tool for r in failed_receipts]
-            findings.append(ClaimFinding(
-                claim="Agent claims success",
-                verdict=Verdict.CONTRADICTED,
-                evidence=f"Agent claims success but these tools failed: {', '.join(failed_tools)}",
-            ))
+            findings.append(
+                ClaimFinding(
+                    claim="Agent claims success",
+                    verdict=Verdict.CONTRADICTED,
+                    evidence=f"Agent claims success but these tools failed: {', '.join(failed_tools)}",
+                )
+            )
 
         # Agent claims failure but tool succeeded (less common, still check)
         if has_failure_claim and not failed_receipts and success_receipts:
-            findings.append(ClaimFinding(
-                claim="Agent claims failure",
-                verdict=Verdict.CONTRADICTED,
-                evidence="Agent claims failure but all tools succeeded",
-            ))
+            findings.append(
+                ClaimFinding(
+                    claim="Agent claims failure",
+                    verdict=Verdict.CONTRADICTED,
+                    evidence="Agent claims failure but all tools succeeded",
+                )
+            )
 
         return findings
 

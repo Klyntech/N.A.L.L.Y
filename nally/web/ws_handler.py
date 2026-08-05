@@ -123,9 +123,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     def _on_plan_event(event_type, data):
         """Broadcast plan events to this session's WebSocket clients."""
         try:
-            asyncio.ensure_future(
-                ws_manager.broadcast(session_id, {"type": event_type, **data})
-            )
+            asyncio.ensure_future(ws_manager.broadcast(session_id, {"type": event_type, **data}))
         except Exception:
             pass
 
@@ -247,6 +245,7 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
             # Trigger background reflection on session end
             try:
                 from ..memory.reflector import reflector
+
                 agent = session_manager._sessions.get(session_id)
                 if agent and len(agent.messages) > 4:
                     threading.Thread(
@@ -326,14 +325,30 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
 
             try:
                 import shutil
+
                 if not shutil.which("ffmpeg"):
-                    await ws_manager.send_json(cid, {"type": "error", "text": "ffmpeg not installed — required for voice. Install: choco install ffmpeg"})
+                    await ws_manager.send_json(
+                        cid,
+                        {
+                            "type": "error",
+                            "text": "ffmpeg not installed — required for voice. Install: choco install ffmpeg",
+                        },
+                    )
                     return
 
                 proc = await asyncio.create_subprocess_exec(
-                    "ffmpeg", "-y", "-i", tmp_in_path,
-                    "-f", "s16le", "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1",
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    tmp_in_path,
+                    "-f",
+                    "s16le",
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
                     tmp_out_path,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,

@@ -185,6 +185,7 @@ async def lifespan(app: FastAPI):
     # Start background reflector
     try:
         from ..memory.reflector import reflector
+
         reflector.start(interval=3600)
         logger.info("Background reflector started.")
     except Exception as e:
@@ -195,6 +196,7 @@ async def lifespan(app: FastAPI):
     # Shutdown: stop reflector and save all active sessions before exit
     try:
         from ..memory.reflector import reflector
+
         reflector.stop()
     except Exception:
         pass

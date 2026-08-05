@@ -146,6 +146,7 @@ class NallyAgent:
 
                 # Prune loaded history immediately to avoid context overflow
                 from .context import context_manager
+
                 self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
                 logger.debug(f"Loaded {len(saved)} messages from session {self._session_id}")

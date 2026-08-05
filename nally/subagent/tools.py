@@ -51,7 +51,9 @@ class Agent(Tool):
             },
         )
 
-    def execute(self, action: str, goal: str = "", context: str = "", tasks=None, task_ids=None, model: str = None, **kwargs) -> str:
+    def execute(
+        self, action: str, goal: str = "", context: str = "", tasks=None, task_ids=None, model: str = None, **kwargs
+    ) -> str:
         try:
             if action == "delegate":
                 if not goal:

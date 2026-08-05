@@ -118,10 +118,7 @@ class Reflector:
             return None
 
         # Build context from recent conversations
-        convo_text = "\n\n".join(
-            f"[{c['end_date'][:10]}] {c['summary'][:500]}"
-            for c in recent if c.get("summary")
-        )
+        convo_text = "\n\n".join(f"[{c['end_date'][:10]}] {c['summary'][:500]}" for c in recent if c.get("summary"))
         if not convo_text.strip():
             return None
 
@@ -146,11 +143,13 @@ class Reflector:
                 topic="daily_reflection",
                 what_happened=data.get("summary", ""),
                 outcome="reflection",
-                solution=json.dumps({
-                    "achievements": data.get("key_achievements", []),
-                    "issues": data.get("issues_encountered", []),
-                    "lessons": data.get("lessons_learned", []),
-                }),
+                solution=json.dumps(
+                    {
+                        "achievements": data.get("key_achievements", []),
+                        "issues": data.get("issues_encountered", []),
+                        "lessons": data.get("lessons_learned", []),
+                    }
+                ),
                 tags=["reflection", "daily"],
             )
 
@@ -186,10 +185,7 @@ class Reflector:
 
         # Build conversation text (last 20 messages max)
         recent = messages[-20:]
-        convo_text = "\n".join(
-            f"{m.get('role', 'user')}: {str(m.get('content', ''))[:300]}"
-            for m in recent
-        )
+        convo_text = "\n".join(f"{m.get('role', 'user')}: {str(m.get('content', ''))[:300]}" for m in recent)
 
         results = {}
 
@@ -221,8 +217,7 @@ class Reflector:
                     memory_store.add_semantic(pattern)
 
         logger.info(
-            f"Conversation reflection: summary={bool(summary)}, "
-            f"episode={bool(episode)}, patterns={len(patterns or [])}"
+            f"Conversation reflection: summary={bool(summary)}, episode={bool(episode)}, patterns={len(patterns or [])}"
         )
         return results
 

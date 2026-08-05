@@ -220,6 +220,7 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # Abort check
     try:
         from ..web.app import _abort_flags
+
         if _abort_flags.get(thread_id):
             _abort_flags.pop(thread_id, None)
             return {**state, "plan_status": "none"}
@@ -266,6 +267,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # Abort check
     try:
         from ..web.app import _abort_flags
+
         if _abort_flags.get(thread_id):
             _abort_flags.pop(thread_id, None)
             return {**state, "plan_status": "none", "plan": None}
@@ -287,9 +289,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     if is_revision:
         failed_steps = [s for s in existing_plan.steps if s.status == StepStatus.FAILED]
-        failure_context = "\n".join(
-            f"  Step '{s.id}' ({s.goal}) failed: {s.error}" for s in failed_steps
-        )
+        failure_context = "\n".join(f"  Step '{s.id}' ({s.goal}) failed: {s.error}" for s in failed_steps)
         prompt = (
             f"The previous plan for '{user_text}' had failures:\n{failure_context}\n\n"
             f"Previous plan steps:\n"
@@ -319,11 +319,14 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if is_revision:
             plan.revision_count = existing_plan.revision_count + 1
 
-        event_bus.publish("plan_created", {
-            "goal": plan.goal,
-            "step_count": len(plan.steps),
-            "steps": [{"id": s.id, "goal": s.goal} for s in plan.steps],
-        })
+        event_bus.publish(
+            "plan_created",
+            {
+                "goal": plan.goal,
+                "step_count": len(plan.steps),
+                "steps": [{"id": s.id, "goal": s.goal} for s in plan.steps],
+            },
+        )
 
         return {
             **state,
@@ -357,6 +360,7 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # Abort check
     try:
         from ..web.app import _abort_flags
+
         if _abort_flags.get(thread_id):
             _abort_flags.pop(thread_id, None)
             return {**state, "plan_status": "none"}
@@ -376,10 +380,13 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     step.status = StepStatus.RUNNING
 
-    event_bus.publish("plan_step_started", {
-        "step_id": step.id,
-        "goal": step.goal,
-    })
+    event_bus.publish(
+        "plan_step_started",
+        {
+            "step_id": step.id,
+            "goal": step.goal,
+        },
+    )
 
     try:
         result = _execute_step(step, state)
@@ -389,10 +396,13 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
         step_results = dict(state.get("step_results", {}))
         step_results[step.id] = result
 
-        event_bus.publish("plan_step_completed", {
-            "step_id": step.id,
-            "success": True,
-        })
+        event_bus.publish(
+            "plan_step_completed",
+            {
+                "step_id": step.id,
+                "success": True,
+            },
+        )
 
         return {**state, "step_results": step_results}
 
@@ -401,11 +411,14 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
         step.error = str(e)
         logger.error(f"Step {step.id} failed: {e}")
 
-        event_bus.publish("plan_step_completed", {
-            "step_id": step.id,
-            "success": False,
-            "error": str(e),
-        })
+        event_bus.publish(
+            "plan_step_completed",
+            {
+                "step_id": step.id,
+                "success": False,
+                "error": str(e),
+            },
+        )
 
         return state
 
@@ -490,11 +503,14 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         plan.summary = response
         plan.status = PlanStatus.COMPLETE
 
-        event_bus.publish("plan_complete", {
-            "goal": plan.goal,
-            "steps_completed": sum(1 for s in plan.steps if s.status == StepStatus.COMPLETED),
-            "steps_total": len(plan.steps),
-        })
+        event_bus.publish(
+            "plan_complete",
+            {
+                "goal": plan.goal,
+                "steps_completed": sum(1 for s in plan.steps if s.status == StepStatus.COMPLETED),
+                "steps_total": len(plan.steps),
+            },
+        )
 
         return {
             **state,
@@ -553,8 +569,7 @@ def _execute_step(step: PlanStep, state: Dict[str, Any]) -> str:
         {
             "role": "system",
             "content": (
-                f"You are executing a single plan step. Complete this task and return the result.\n"
-                f"Goal: {step.goal}"
+                f"You are executing a single plan step. Complete this task and return the result.\nGoal: {step.goal}"
             ),
         },
         {"role": "user", "content": full_prompt},

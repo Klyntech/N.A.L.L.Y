@@ -97,16 +97,20 @@ class ReceiptStore:
 
     def _compute_hash(self, receipt: Receipt) -> str:
         """SHA-256 of canonical receipt content (excludes hash and hmac fields)."""
-        content = json.dumps({
-            "id": receipt.id,
-            "timestamp": receipt.timestamp,
-            "tool_call_id": receipt.tool_call_id,
-            "tool": receipt.tool,
-            "args": receipt.args,
-            "result": receipt.result,
-            "success": receipt.success,
-            "duration_ms": receipt.duration_ms,
-        }, sort_keys=True, separators=(",", ":"))
+        content = json.dumps(
+            {
+                "id": receipt.id,
+                "timestamp": receipt.timestamp,
+                "tool_call_id": receipt.tool_call_id,
+                "tool": receipt.tool,
+                "args": receipt.args,
+                "result": receipt.result,
+                "success": receipt.success,
+                "duration_ms": receipt.duration_ms,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         return hashlib.sha256(content.encode()).hexdigest()
 
     def _compute_hmac(self, receipt: Receipt) -> str:
@@ -172,9 +176,7 @@ class ReceiptStore:
         for r in receipts:
             status = "OK" if r.success else "FAILED"
             result_preview = r.result[:120] if r.result else "(no output)"
-            lines.append(
-                f"  [{status}] {r.tool}(id={r.tool_call_id[:12]}): {result_preview}"
-            )
+            lines.append(f"  [{status}] {r.tool}(id={r.tool_call_id[:12]}): {result_preview}")
         return "\n".join(lines)
 
 
