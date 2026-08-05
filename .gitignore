@@ -49,4 +49,5 @@ node_modules/
 npm-debug.log*
 
 # Docker
-.dockerignore
+Dockerfile
+docker-compose.yml

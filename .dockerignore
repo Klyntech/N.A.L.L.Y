@@ -1,0 +1,52 @@
+# Version control
+.git
+.gitignore
+
+# Environment (secrets)
+.env
+.env.*
+!.env.example
+
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+.venv
+venv
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+coverage.xml
+tests/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs & temp
+*.log
+logs/
+data/
+temp_*.py
+test_*.txt
+design_content.txt
+test_chat.json
+
+# Docs (not needed in image)
+*.md
+LICENSE
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Dev tools
+.pre-commit-config.yaml

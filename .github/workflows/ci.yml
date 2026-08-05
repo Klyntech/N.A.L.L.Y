@@ -2,17 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master]
   pull_request:
-    branches: [master, main]
-  workflow_dispatch:
+    branches: [master]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  PYTHON_VERSION: "3.12"
 
 jobs:
   lint:
@@ -20,12 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ruff
-      - run: ruff check .
-      - run: ruff format --check .
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff check
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
 
   test:
     name: Test
@@ -33,46 +36,14 @@ jobs:
     needs: lint
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: "3.12"
           cache: pip
-      - name: Install core deps
-        run: |
-          pip install --upgrade pip
-          pip install pytest openai python-dotenv httpx requests psutil Pillow numpy tiktoken pydantic fastapi uvicorn langgraph langchain-core langgraph-checkpoint-sqlite cryptography duckduckgo-search
-      - name: Install optional deps (allow failure)
-        run: pip install mcp python-telegram-bot || true
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
-
-  build:
-    name: Build Docker image
-    runs-on: ubuntu-latest
-    needs: test
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
