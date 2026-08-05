@@ -211,14 +211,19 @@ class WebSearch(Tool):
     """Search the web for current information using Parallel.ai with DuckDuckGo fallback."""
 
     def __init__(self):
+        now = datetime.now()
         super().__init__(
             name="web_search",
-            description="Search the web for current information. Use for factual questions, news, events, or anything you're unsure about. Returns titles, URLs, and snippets from web results.",
+            description=(
+                f"Search the web for current information. Today is {now.strftime('%A, %B %d, %Y')}. "
+                "Use for factual questions, news, events, or anything you're unsure about. "
+                "Returns titles, URLs, and snippets from web results."
+            ),
             permission="safe",
             parameters={
                 "query": {
                     "type": "string",
-                    "description": "The search query — be specific for better results",
+                    "description": "The search query — be specific for better results. Always use the current year.",
                     "required": True,
                 },
                 "num_results": {
