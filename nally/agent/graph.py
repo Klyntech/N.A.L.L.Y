@@ -23,7 +23,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
-from ..config import DATABASE_URL, MAX_TOOL_CALLS, ensure_data_dir
+from ..config import DATABASE_URL, MAX_TOOL_CALLS, MAX_AGENT_WALL_TIME, RECURSION_LIMIT, DUPLICATE_TOOL_THRESHOLD, PLAN_ENABLED, ensure_data_dir
 from ..core.errors import LLMError
 from ..tools.permissions import gate as permission_gate
 from ..tools.registry import registry
@@ -218,6 +218,20 @@ def _clear_abort(thread_id: str):
     _abort_flags.pop(thread_id, None)
 
 
+def _has_duplicate_tool_calls(messages: list, window: int = 6) -> bool:
+    """Detect doom loops — same tool with same args called repeatedly."""
+    recent = messages[-window:]
+    seen = {}
+    for msg in recent:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tc in msg.tool_calls:
+                key = f"{tc['name']}:{json.dumps(tc['args'], sort_keys=True)}"
+                seen[key] = seen.get(key, 0) + 1
+                if seen[key] >= DUPLICATE_TOOL_THRESHOLD:
+                    return True
+    return False
+
+
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     tools: List[Dict[str, Any]]
@@ -227,6 +241,12 @@ class AgentState(TypedDict):
     last_error: Optional[str]
     tool_calls_total: int
     thread_id: str
+    plan: Optional[Any]
+    plan_status: str
+    step_results: Dict[str, str]
+    current_step_index: int
+    model_override: Optional[str]
+    start_time: float
 
 
 def _convert_to_openai(messages: List[BaseMessage]) -> List[dict]:
@@ -421,8 +441,12 @@ def llm_call(state: AgentState) -> AgentState:
 
     openai_messages = _convert_to_openai(messages)
 
+    model_override = state.get("model_override")
     try:
-        response = _call_llm_with_retry(llm, openai_messages, tools, cache_key, emit)
+        if model_override:
+            response = llm.chat_with_model(model_override, openai_messages, tools, cache_key=cache_key)
+        else:
+            response = _call_llm_with_retry(llm, openai_messages, tools, cache_key, emit)
     except LLMError as e:
         new_error_count = error_count + 1
         logger.error(f"LLM error ({new_error_count}/{MAX_CONSECUTIVE_ERRORS}): {e.message}")
@@ -652,8 +676,19 @@ def should_continue(state: AgentState) -> str:
         _clear_abort(thread_id)
         return "end"
 
+    # Wall-clock budget
+    start_time = state.get("start_time", 0)
+    if start_time and (time.time() - start_time) > MAX_AGENT_WALL_TIME:
+        logger.warning(f"Agent exceeded {MAX_AGENT_WALL_TIME}s wall-clock budget")
+        return "end"
+
     if iteration >= max_iterations:
         logger.debug(f"Agent reached max iterations ({max_iterations})")
+        return "end"
+
+    # Duplicate tool call detection (doom loop)
+    if _has_duplicate_tool_calls(messages):
+        logger.warning("Duplicate tool call detected, forcing stop")
         return "end"
 
     last_ai_msg = None
@@ -701,11 +736,71 @@ def _create_checkpointer():
 
 
 def create_agent_graph():
-    """Create the LangGraph state machine for the agent with checkpointing."""
+    """Create the LangGraph state machine for the agent with checkpointing.
+
+    When PLAN_ENABLED, adds planner topology:
+        classify -> (planner | llm)
+        planner -> execute_step -> replan -> (execute_step | planner | synthesize | llm)
+        synthesize -> END
+    """
     graph = StateGraph(AgentState)
+
+    # ── ReAct nodes (always present) ──
     graph.add_node("llm", llm_call)
     graph.add_node("tools", tool_executor)
-    graph.set_entry_point("llm")
+
+    # ── Planning nodes (optional) ──
+    if PLAN_ENABLED:
+        from .planner import (
+            classify_node,
+            planner_node,
+            execute_step_node,
+            replan_node,
+            synthesize_node,
+            route_after_classify,
+            route_after_replan,
+        )
+
+        graph.add_node("classify", classify_node)
+        graph.add_node("planner", planner_node)
+        graph.add_node("execute_step", execute_step_node)
+        graph.add_node("replan", replan_node)
+        graph.add_node("synthesize", synthesize_node)
+
+        # classify decides: planner or ReAct?
+        graph.add_conditional_edges(
+            "classify",
+            route_after_classify,
+            {"planner": "planner", "llm": "llm"},
+        )
+
+        # planner -> execute_step (always)
+        graph.add_edge("planner", "execute_step")
+
+        # execute_step -> replan (always)
+        graph.add_edge("execute_step", "replan")
+
+        # replan routes based on plan status
+        graph.add_conditional_edges(
+            "replan",
+            route_after_replan,
+            {
+                "execute_step": "execute_step",
+                "planner": "planner",
+                "synthesize": "synthesize",
+            },
+        )
+
+        # synthesize -> END
+        graph.add_edge("synthesize", END)
+
+        # Entry point is classify
+        graph.set_entry_point("classify")
+    else:
+        # Pure ReAct (no planning) — entry point is llm
+        graph.set_entry_point("llm")
+
+    # ReAct loop edges (always present)
     graph.add_conditional_edges("llm", should_continue, {"tools": "tools", "end": END})
     graph.add_edge("tools", "llm")
 
@@ -733,6 +828,7 @@ def run_agent(
     emit=None,
     max_iterations: int = 10,
     thread_id: str = "default",
+    model: Optional[str] = None,
 ) -> str:
     """Run the agent graph and return the final response."""
     lc_messages = []
@@ -751,7 +847,14 @@ def run_agent(
             lc_messages.append(ToolMessage(content=content, tool_call_id=msg.get("tool_call_id", "")))
 
     _set_emit(emit)
-    config = {"configurable": {"thread_id": thread_id}}
+
+    # Use a fresh thread_id per invocation to prevent checkpointer message
+    # accumulation. The NallyAgent manages its own history — the checkpointer
+    # must NOT merge old state with new, or messages double every call.
+    import uuid
+    fresh_thread = f"{thread_id}-{uuid.uuid4().hex[:8]}"
+    config = {"configurable": {"thread_id": fresh_thread}, "recursion_limit": RECURSION_LIMIT}
+
     initial_state = {
         "messages": lc_messages,
         "tools": tools,
@@ -760,7 +863,13 @@ def run_agent(
         "error_count": 0,
         "last_error": None,
         "tool_calls_total": 0,
-        "thread_id": thread_id,
+        "thread_id": fresh_thread,
+        "plan": None,
+        "plan_status": "",
+        "step_results": {},
+        "current_step_index": 0,
+        "model_override": model,
+        "start_time": time.time(),
     }
 
     try:

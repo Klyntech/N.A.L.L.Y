@@ -317,3 +317,45 @@ class ConfigError(NallyError):
             code="config_invalid_value",
             context={"key": key, "reason": reason},
         )
+
+
+# ── Plan Errors ──────────────────────────────────────────
+
+
+class PlanError(NallyError):
+    """Errors from the planning system."""
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "plan_error",
+        severity: Severity = Severity.WARNING,
+        retryable: bool = False,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(code=code, message=message, severity=severity, retryable=retryable, context=context or {})
+
+    @classmethod
+    def generation_failed(cls, reason: str = "") -> "PlanError":
+        return cls(
+            message=f"Plan generation failed: {reason or 'LLM returned invalid plan'}",
+            code="plan_generation_failed",
+            retryable=True,
+            context={"reason": reason},
+        )
+
+    @classmethod
+    def max_revisions_exceeded(cls, count: int) -> "PlanError":
+        return cls(
+            message=f"Plan exceeded maximum revisions ({count})",
+            code="plan_max_revisions",
+            context={"revision_count": count},
+        )
+
+    @classmethod
+    def step_unrecoverable(cls, step_id: str, error: str) -> "PlanError":
+        return cls(
+            message=f"Step '{step_id}' failed unrecoverably: {error}",
+            code="plan_step_unrecoverable",
+            context={"step_id": step_id, "error": error},
+        )

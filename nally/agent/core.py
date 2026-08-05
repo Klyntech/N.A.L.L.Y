@@ -143,6 +143,11 @@ class NallyAgent:
                     self.messages = [system_msg] + saved
                 else:
                     self.messages = saved
+
+                # Prune loaded history immediately to avoid context overflow
+                from .context import context_manager
+                self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
+
                 logger.debug(f"Loaded {len(saved)} messages from session {self._session_id}")
         except Exception as e:
             logger.debug(f"No saved history to load: {e}")
@@ -300,14 +305,21 @@ class NallyAgent:
         self.messages = context_manager.compact(self.messages)
 
         # Hard ceiling: if still too large after prune+compact, force-truncate
+        # Leave 200k headroom for memory/history injections + tool schemas + output
         estimated = context_manager.estimate_tokens(self.messages)
-        if estimated > 800_000:
+        if estimated > 600_000:
             logger.warning(f"Context too large ({estimated} tokens), force-truncating")
-            self.messages = context_manager.prune(self.messages, max_tokens=500_000)
+            self.messages = context_manager.prune(self.messages, max_tokens=400_000)
             self.messages = context_manager.compact(self.messages)
 
         self.messages = context_manager.inject_memories(user_input, self.messages)
         self.messages = context_manager.inject_conversation_history(self.messages)
+
+        # Final safety check: prune again after injections to stay under limit
+        estimated = context_manager.estimate_tokens(self.messages)
+        if estimated > MAX_CONTEXT_TOKENS:
+            logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
+            self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
         # Build tool set
         try:

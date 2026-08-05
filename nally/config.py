@@ -163,6 +163,16 @@ OPENCODE_MODELS = {
     "frontier": "mimo-v2.5-free",
 }
 
+# Free models available for SubAgents (no GPT models)
+SUBAGENT_MODELS = [
+    "mimo-v2.5-free",
+    "deepseek-v4-flash-free",
+    "nemotron-3-ultra-free",
+    "ling-3.0-flash-free",
+    "laguna-s-2.1-free",
+    "north-mini-code-free",
+]
+
 if PROVIDER == "groq":
     API_KEY = GROQ_API_KEY
     BASE_URL = GROQ_BASE_URL
@@ -178,13 +188,26 @@ ACTIVE_MODEL = MODELS["frontier"]
 
 SESSION_ID = os.getenv("NALLY_SESSION", "default")
 MAX_CONVERSATION_HISTORY = 50
-CONTEXT_MAX_TOKENS = 150_000
+CONTEXT_MAX_TOKENS = 500_000
 CONTEXT_RECENT_MESSAGES = 10
 CONTEXT_COMPRESSION_THRESHOLD = 20
 CONTEXT_MAX_OUTPUT_TOKENS = 4096
 MAX_MEMORIES_TO_INJECT = 5
-MAX_TOOL_CALLS = 100
-MAX_ITERATIONS_PER_TURN = 100
+MAX_TOOL_CALLS = int(os.getenv("NALLY_MAX_TOOL_CALLS", "50"))
+MAX_ITERATIONS_PER_TURN = int(os.getenv("NALLY_MAX_ITERATIONS", "25"))
+
+# ── Agent safety ──────────────────────────────────────────
+
+MAX_AGENT_WALL_TIME = int(os.getenv("NALLY_MAX_AGENT_WALL_TIME", "300"))
+RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "50"))
+DUPLICATE_TOOL_THRESHOLD = 3
+
+# ── Planning ─────────────────────────────────────────────
+
+PLAN_ENABLED = os.getenv("NALLY_PLAN_ENABLED", "false").lower() == "true"
+PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
+PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
+PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "300"))
 
 # ── CORS ──────────────────────────────────────────────────
 
