@@ -138,7 +138,7 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
 
     # Store bot username for mention detection
     async def post_init(application: Application):
-        nonlocal BOT_USERNAME
+        global BOT_USERNAME
         me = await application.bot.get_me()
         BOT_USERNAME = me.username
         logger.info(f"Telegram bot started: @{BOT_USERNAME}")
