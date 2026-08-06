@@ -129,7 +129,7 @@ class NallyAgent:
         except Exception as e:
             logger.debug(f"Failed to load conversation summaries: {e}")
 
-        system_content = get_system_prompt(user_context=user_context)
+        system_content = get_system_prompt(user_context=user_context, interface=self._session_id)
 
         self.messages = [{"role": "system", "content": system_content, "cache_control": {"type": "ephemeral"}}]
 

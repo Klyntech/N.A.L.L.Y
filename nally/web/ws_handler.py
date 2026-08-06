@@ -447,9 +447,10 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
 
         # TTS the response and stream audio back
         if final_response:
+            from ..voice.formatter import format_for_voice
             from ..voice.tts import synthesize_to_wav
 
-            wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, final_response)
+            wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, format_for_voice(final_response))
             if wav_bytes:
                 wav_b64 = base64.b64encode(wav_bytes).decode("ascii")
                 await ws_manager.send_json(cid, {"type": "tts_audio", "audio": wav_b64})

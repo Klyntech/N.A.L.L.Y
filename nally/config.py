@@ -426,12 +426,14 @@ You: Np""",
 ACTIVE_PERSONALITY = os.getenv("NALLY_PERSONALITY", "nally")
 
 
-def get_system_prompt(personality=None, user_context=None):
+def get_system_prompt(personality=None, user_context=None, interface=None):
     """Build the system prompt for the active personality.
 
     Args:
         personality: Override personality name. Defaults to ACTIVE_PERSONALITY.
         user_context: Injected user facts (from memory). Replaces {{USER_CONTEXT}}.
+        interface: Chat interface label (e.g. "web:default", "telegram:123").
+            When provided, Nally is told which channel she's on.
 
     Returns:
         The fully resolved system prompt string.
@@ -463,6 +465,15 @@ def get_system_prompt(personality=None, user_context=None):
         prompt += f"\n\n{format_platform_context()}"
     except Exception:
         pass
+
+    # Interface context — which channel Nally is reached through
+    if interface:
+        try:
+            from nally.agent.platform import format_interface_context
+
+            prompt += f"\n\n{format_interface_context(interface)}"
+        except Exception:
+            pass
 
     prompt += (
         "\n\nTRUST & HONESTY RULES (NON-NEGOTIABLE):"

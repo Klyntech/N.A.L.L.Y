@@ -120,6 +120,7 @@ def run_voice_loop(session_id: str = "voice:default"):
     import sounddevice as sd
 
     from . import stt, tts
+    from .formatter import format_for_voice
 
     print()
     print("=" * 50)
@@ -183,7 +184,7 @@ def run_voice_loop(session_id: str = "voice:default"):
             print(f"\nNally: {response}")
 
             # ── Speak reply ──
-            tts.speak(response)
+            tts.speak(format_for_voice(response))
             print()
 
         except KeyboardInterrupt:

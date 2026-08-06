@@ -63,3 +63,19 @@ def format_platform_context() -> str:
         f"On Windows use PowerShell syntax (not bash). "
         f"On macOS/Linux use bash syntax."
     )
+
+
+def detect_interface(session_id: str) -> str:
+    """Derive the chat interface label from the session ID."""
+    if session_id.startswith("web:"):
+        return "Web"
+    if session_id.startswith("telegram:"):
+        return "Telegram"
+    if session_id.startswith("voice:"):
+        return "Voice"
+    return "CLI"
+
+
+def format_interface_context(session_id: str) -> str:
+    """Return a short line identifying the interaction channel."""
+    return f"Interaction channel: {detect_interface(session_id)}"
