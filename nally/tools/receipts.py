@@ -72,9 +72,30 @@ class ReceiptStore:
 
     def __init__(self, store_path: Optional[Path] = None, secret_key: Optional[str] = None):
         self.store_path = store_path or Path("data/receipts.jsonl")
-        self._secret_key = (secret_key or os.environ.get("NALLY_CRED_KEY", secrets.token_hex(32))).encode()
+        self._key_path = self.store_path.parent / ".receipt_key"
+        self._secret_key = self._load_or_create_key(secret_key)
         self._by_tool_call_id: Dict[str, Receipt] = {}
         self._load_existing()
+
+    def _load_or_create_key(self, provided_key: Optional[str]) -> bytes:
+        """Load existing key or create persistent one."""
+        if provided_key:
+            return provided_key.encode()
+        env_key = os.environ.get("NALLY_RECEIPT_KEY")
+        if env_key:
+            return env_key.encode()
+        if self._key_path.exists():
+            try:
+                return self._key_path.read_text().strip().encode()
+            except Exception:
+                pass
+        key = secrets.token_hex(32)
+        try:
+            self._key_path.parent.mkdir(parents=True, exist_ok=True)
+            self._key_path.write_text(key)
+        except Exception:
+            pass
+        return key.encode()
 
     def _load_existing(self):
         """Load receipts from disk on startup."""
@@ -139,8 +160,9 @@ class ReceiptStore:
             self.store_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.store_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(receipt.to_dict(), ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("nally.receipts").error(f"Failed to persist receipt {receipt.id}: {e}")
 
         return receipt
 

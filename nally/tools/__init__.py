@@ -13,7 +13,6 @@ def load_all_tools():
     from ..utils.logger import logger
 
     if not _loaded:
-        _loaded = True
 
         # --- System (2 tools) ---
         from .system import RunCommand, SystemHealth
@@ -251,6 +250,8 @@ def load_all_tools():
     from ..mcp.client import connect_mcp_servers
 
     connect_mcp_servers(registry)
+
+    _loaded = True
 
 
 __all__ = ["Tool", "load_all_tools", "registry"]

@@ -1,12 +1,16 @@
 """Code Execution and Analysis Tools"""
 
 import io
+import os
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
 from .registry import Tool
+
+# Reuse system.py's configurable timeout
+CODE_TIMEOUT = int(os.environ.get("NALLY_CMD_TIMEOUT", "60"))
 
 # Thread lock for stdout/stderr hijacking (not thread-safe otherwise)
 _code_exec_lock = threading.Lock()
@@ -90,7 +94,7 @@ class RunCode(Tool):
                 [sys.executable, str(path.resolve())],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=CODE_TIMEOUT,
                 cwd=str(path.parent),
             )
             output = result.stdout

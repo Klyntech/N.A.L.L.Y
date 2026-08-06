@@ -59,13 +59,30 @@ def _check_status(server: dict, db: str, mcp_registry) -> str:
         if auth_mode == "oauth":
             # Check if tokens exist in DB
             try:
+                import concurrent.futures
                 import asyncio
 
                 from ..mcp.oauth import get_existing_tokens
 
-                tokens = asyncio.run(get_existing_tokens(name, db))
+                async def _check():
+                    return await get_existing_tokens(name, db)
+
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+
+                if loop and loop.is_running():
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        tokens = pool.submit(asyncio.run, _check()).result()
+                else:
+                    tokens = asyncio.run(_check())
+
                 if tokens:
                     return "Token stored (tools not loaded)"
+                return "Disconnected"
+            except Exception as e:
+                logger.debug(f"MCP status check failed for {name}: {e}")
                 return "Disconnected"
             except Exception:
                 return "Disconnected"

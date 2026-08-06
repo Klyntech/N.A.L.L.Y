@@ -329,6 +329,11 @@ async def status():
     }
 
 
+@app.get("/api/me")
+async def me(_auth=Depends(verify_auth)):
+    return {"authenticated": True, "session": "web:default"}
+
+
 # ── API: Chat (SSE streaming) ────────────────────────────
 
 

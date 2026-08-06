@@ -1706,7 +1706,7 @@
     <div class="login-glow"></div>
     <div class="login-box">
       <h2>N.A.L.L.Y</h2>
-      <div class="login-version">v1.0</div>
+      <div class="login-version">v1.1.0</div>
       <input type="password" id="login-token-input" placeholder="Access token" autofocus>
       <button onclick="doLogin()">Connect</button>
       <div class="login-err" id="login-err">Invalid token</div>
@@ -2931,22 +2931,31 @@
       }
     }
 
+    function verifyToken(token) {
+      return fetch(NALLY_API + '/api/me', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      }).then(function(r) { return r.ok; }).catch(function() { return false; });
+    }
+
+    function showLogin() {
+      NALLY_TOKEN = '';
+      localStorage.removeItem('nally-token');
+      if (_evtSource) { _evtSource.close(); _evtSource = null; }
+      loginOverlay.classList.remove('hidden');
+      document.getElementById('login-token-input').value = '';
+      document.getElementById('login-token-input').focus();
+    }
+
     function doLogin() {
       var input = document.getElementById('login-token-input');
       var token = input.value.trim();
       if (!token) return;
       loginErr.style.display = 'none';
-      // Verify token by hitting the status endpoint
-      fetch(NALLY_API + '/api/status', {
-        headers: { 'Authorization': 'Bearer ' + token }
-      }).then(function(r) {
-        if (!r.ok) throw new Error('bad');
-        return r.json();
-      }).then(function() {
+      verifyToken(token).then(function(ok) {
+        if (!ok) throw new Error('bad');
         localStorage.setItem('nally-token', token);
         NALLY_TOKEN = token;
         loginOverlay.classList.add('hidden');
-        setTimeout(function() { loginOverlay.remove(); }, 400);
         waitForMarked(loadHistory);
         setTimeout(subscribeEvents, 500);
       }).catch(function() {
@@ -2963,17 +2972,13 @@
       loginOverlay.classList.remove('hidden');
     } else {
       // Verify stored token is still valid
-      fetch(NALLY_API + '/api/status', {
-        headers: { 'Authorization': 'Bearer ' + NALLY_TOKEN }
-      }).then(function(r) {
-        if (!r.ok) throw new Error('bad');
-        loginOverlay.classList.add('hidden');
-        setTimeout(function() { loginOverlay.remove(); }, 400);
-        waitForMarked(loadHistory);
-      }).catch(function() {
-        // Token invalid — show login
-        NALLY_TOKEN = '';
-        localStorage.removeItem('nally-token');
+      verifyToken(NALLY_TOKEN).then(function(ok) {
+        if (ok) {
+          loginOverlay.classList.add('hidden');
+          waitForMarked(loadHistory);
+        } else {
+          showLogin();
+        }
       });
     }
 
@@ -3414,7 +3419,6 @@
     }
 
     function handleSSE(evt, setStreamEl) {
-      console.log('SSE event:', evt.type, evt);
       switch (evt.type) {
         case 'busy':
           think(evt.text);
@@ -4388,8 +4392,15 @@
           _evtSource.close();
           _evtSource = null;
           if (!NALLY_TOKEN) return;
-          console.warn('[sync] SSE error, will retry in 5s...');
-          setTimeout(subscribeEvents, 5000);
+          verifyToken(NALLY_TOKEN).then(function(ok) {
+            if (!ok) {
+              console.warn('[sync] Token expired, prompting re-login');
+              showLogin();
+            } else {
+              console.warn('[sync] SSE error, will retry in 5s...');
+              setTimeout(subscribeEvents, 5000);
+            }
+          });
         };
       } catch(e) {
         console.warn('[sync] EventSource failed:', e);

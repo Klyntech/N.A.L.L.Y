@@ -28,6 +28,14 @@ def _run_async(coro):
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 
 
+def _gmail_error_msg(data: dict) -> str:
+    """Safely extract error message from Gmail API response."""
+    err = data.get("error", "Unknown error")
+    if isinstance(err, dict):
+        return err.get("message", str(err))
+    return str(err)
+
+
 async def _get_token() -> str | None:
     from ..mcp.oauth import SQLiteTokenStorage
 
@@ -87,7 +95,7 @@ class GmailSearch(Tool):
         params = {"q": query, "maxResults": min(max_results, 50)}
         data = await _gmail_get("/users/me/threads", params)
         if "error" in data:
-            return f"Gmail error: {data['error'].get('message', data['error'])}"
+            return f"Gmail error: {_gmail_error_msg(data)}"
         threads = data.get("threads", [])
         if not threads:
             return "No threads found."
@@ -123,7 +131,7 @@ class GmailReadThread(Tool):
             return "Error: thread_id is required"
         data = await _gmail_get(f"/users/me/threads/{thread_id}", {"format": "full"})
         if "error" in data:
-            return f"Gmail error: {data['error'].get('message', data['error'])}"
+            return f"Gmail error: {_gmail_error_msg(data)}"
         msgs = data.get("messages", [])
         lines = [f"Thread: {thread_id} ({len(msgs)} messages)\n"]
         for i, msg in enumerate(msgs):
@@ -152,12 +160,18 @@ class GmailReadThread(Tool):
                 if body:
                     return body
         else:
-            if payload.get("mimeType") == "text/plain":
-                import base64
-
-                data = payload.get("body", {}).get("data", "")
-                if data:
-                    return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+            mime = payload.get("mimeType", "")
+            data = payload.get("body", {}).get("data", "")
+            if data:
+                decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+                if mime == "text/plain":
+                    return decoded
+                elif mime == "text/html":
+                    # Strip HTML tags for plain text fallback
+                    import re
+                    text = re.sub(r'<[^>]+>', ' ', decoded)
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    return text[:2000] + "..." if len(text) > 2000 else text
         return "(no text body)"
 
 
@@ -175,7 +189,7 @@ class GmailLabels(Tool):
     async def _run(self):
         data = await _gmail_get("/users/me/labels")
         if "error" in data:
-            return f"Gmail error: {data['error'].get('message', data['error'])}"
+            return f"Gmail error: {_gmail_error_msg(data)}"
         labels = data.get("labels", [])
         lines = [f"{len(labels)} labels:\n"]
         for l in labels:
@@ -197,7 +211,7 @@ class GmailProfile(Tool):
     async def _run(self):
         data = await _gmail_get("/users/me/profile")
         if "error" in data:
-            return f"Gmail error: {data['error'].get('message', data['error'])}"
+            return f"Gmail error: {_gmail_error_msg(data)}"
         return f"Email: {data.get('emailAddress')}\nMessages: {data.get('messagesTotal')}\nThreads: {data.get('threadsTotal')}"
 
 

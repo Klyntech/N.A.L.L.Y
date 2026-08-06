@@ -128,6 +128,16 @@ class ReadFile(Tool):
     def execute(self, file_path: str) -> str:
         try:
             path = Path(file_path)
+
+            # Block reading sensitive paths (check path components, not substrings)
+            sensitive_dirs = {".ssh", ".aws", ".gnupg"}
+            sensitive_files = {"id_rsa", "id_ed25519", "passwd", "shadow"}
+            path_parts = set(path.resolve().parts)
+            if path_parts & sensitive_dirs:
+                return f"Error: access denied for sensitive directory: {file_path}"
+            if path.name in sensitive_files:
+                return f"Error: access denied for sensitive file: {file_path}"
+
             if not path.exists():
                 return f"File not found: {file_path}"
 
@@ -150,7 +160,7 @@ class FileOps(Tool):
                 "action": {
                     "type": "string",
                     "enum": ["write", "list", "mkdir"],
-                    "description": "write = create/overwrite file, list = list directory, mkdir = create folder",
+                    "description": "write = create/overwrite file, list = list directory, mkdir = create folder, delete = remove file or directory (recursive)",
                     "required": True,
                 },
                 "file_path": {
@@ -212,6 +222,6 @@ class FileOps(Tool):
                 return "\n".join(items) if items else "Empty directory"
 
             else:
-                return f"Unknown action: {action}. Use write, list, or mkdir."
+                return f"Unknown action: {action}. Use write, list, mkdir, or delete."
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"

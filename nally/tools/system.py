@@ -57,7 +57,9 @@ class RunCommand(Tool):
             output = result.stdout
             if result.stderr:
                 output += f"\nStderr: {result.stderr}"
-            return output if output else "Command executed successfully"
+            if result.returncode != 0:
+                output += f"\nExit code: {result.returncode}"
+            return output if output else f"Command executed successfully (exit code: {result.returncode})"
         except subprocess.TimeoutExpired:
             return f"Command timed out after {CMD_TIMEOUT} seconds"
         except Exception as e:

@@ -94,6 +94,7 @@ class ToolRegistry:
                 result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
             return result
         except Exception as e:
+            logger.error(f"Tool '{name}' execution failed: {type(e).__name__}: {e}")
             return f"Error executing {name}: {type(e).__name__}: {e}"
 
     def load_plugins(self):

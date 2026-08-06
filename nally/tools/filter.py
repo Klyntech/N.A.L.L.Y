@@ -33,6 +33,9 @@ CORE_TOOLS = {
     "agent",
 }
 
+# Tools always included in filtered results regardless of query
+ALWAYS_ON = {"system_health", "web_search", "mcp_status"}
+
 
 def _tokenize(text: str) -> Set[str]:
     """Lowercase, split on non-alphanumeric, drop short tokens."""
@@ -96,7 +99,7 @@ class ToolFilter:
 
         # Weak match (1 token) → return core + top 10 matched (not all)
         if scored[0][1] < 2:
-            always_on = {"system_health", "web_search", "mcp_status"}
+            always_on = ALWAYS_ON
             selected_names = always_on | {name for name, _ in scored[:10]}
             return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
 
