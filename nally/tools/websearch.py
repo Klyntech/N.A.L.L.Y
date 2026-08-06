@@ -142,7 +142,7 @@ def _search_parallel(query: str, num_results: int = 3) -> str | None:
 def _search_duckduckgo(query: str, num_results: int = 3) -> str:
     """Search using DuckDuckGo (free, no API key). Returns formatted results."""
     if DDGS is None:
-        logger.warning("duckduckgo-search not installed, falling back to run_command")
+        logger.warning("duckduckgo-search not installed, falling back to curl search")
         return _search_fallback(query, num_results)
 
     try:
@@ -167,39 +167,31 @@ def _search_duckduckgo(query: str, num_results: int = 3) -> str:
 
 
 def _search_fallback(query: str, num_results: int = 3) -> str:
-    """Last resort: use curl to fetch search results from a public search engine."""
-    import subprocess
+    """Last resort: use httpx to fetch search results from a public search engine."""
+    import urllib.parse
 
     try:
-        # Use DuckDuckGo HTML lite as a last resort
-        import urllib.parse
-
         encoded = urllib.parse.quote_plus(query)
         url = f"https://lite.duckduckgo.com/lite/?q={encoded}"
 
-        result = subprocess.run(
-            ["curl", "-sL", "--max-time", "8", "-A", "Mozilla/5.0", url],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        with httpx.Client(timeout=10, follow_redirects=True) as client:
+            response = client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            response.raise_for_status()
+            text = response.text
 
-        if result.returncode == 0 and result.stdout:
-            # Extract simple text results from the HTML
-            text = result.stdout
-            # Find result links and titles
-            import re
+        # Extract simple text results from the HTML
+        import re
 
-            links = re.findall(r'<a[^>]+class="result-link"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', text)
-            snippets = re.findall(r'<td class="result-snippet">(.*?)</td>', text, re.DOTALL)
+        links = re.findall(r'<a[^>]+class="result-link"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', text)
+        snippets = re.findall(r'<td class="result-snippet">(.*?)</td>', text, re.DOTALL)
 
-            if links:
-                parts = []
-                for i, (href, title) in enumerate(links[:num_results], 1):
-                    snippet = snippets[i - 1].strip()[:300] if i - 1 < len(snippets) else ""
-                    snippet = re.sub(r"<[^>]+>", "", snippet)  # Strip HTML tags
-                    parts.append(f"[{i}] {title.strip()}\n{href}\n{snippet}")
-                return "\n\n".join(parts)
+        if links:
+            parts = []
+            for i, (href, title) in enumerate(links[:num_results], 1):
+                snippet = snippets[i - 1].strip()[:300] if i - 1 < len(snippets) else ""
+                snippet = re.sub(r"<[^>]+>", "", snippet)  # Strip HTML tags
+                parts.append(f"[{i}] {title.strip()}\n{href}\n{snippet}")
+            return "\n\n".join(parts)
 
         return f"Web search unavailable. Try searching manually for: {query}"
 

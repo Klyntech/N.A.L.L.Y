@@ -513,7 +513,7 @@ class ImageGen(Tool):
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model: auto (default, picks best for content), flux, zimage, dreamshaper, klein, gptimage, gptimage-large, gpt-image-2, kontext, nova-canvas",
+                    "description": "Model: auto (default, picks best for content) or flux",
                     "default": "auto",
                 },
                 "upscale": {
@@ -643,12 +643,12 @@ class ImageGen(Tool):
                 current_prompt = improved_prompt
             elif attempt < max_attempts:
                 refinements = ["extremely detailed", "high quality", "sharp focus", "professional"]
-                current_prompt = f"{prompt}, {random.choice(refinements)}"
+                current_prompt = f"{current_prompt}, {random.choice(refinements)}"
 
             time.sleep(1)
 
         # 9. Upscale best if requested
-        if best_image and upscale and upscale > max(width, height):
+        if best_image and upscale and upscale >= max(width, height):
             try:
                 best_image = upscale_image(best_image, target_size=upscale)
                 final_file = DATA_DIR / f"img_{timestamp}_final.png"
@@ -657,7 +657,7 @@ class ImageGen(Tool):
             except Exception as e:
                 logger.warning(f"Upscaling failed: {e}")
 
-        # 11. Build output
+        # 10. Build output
         if not best_image:
             return "Error: All generation attempts failed"
 

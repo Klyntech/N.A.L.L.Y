@@ -1,5 +1,9 @@
 # Nally Requirements
 
+# Terminal UI
+rich>=13.0
+pyfiglet>=1.0
+
 # Web framework
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0

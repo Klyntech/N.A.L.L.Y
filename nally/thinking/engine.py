@@ -1,11 +1,10 @@
 import concurrent.futures
-import time
 from typing import Dict, List, Optional
 
 from ..agent.llm import llm
 from ..utils.logger import logger
 from .config import THINKING_MAX_STRATEGIES, THINKING_TIMEOUT
-from .prompts import STRATEGY_PROMPTS, SYNTHESIS_SYSTEM_PROMPT
+from .prompts import STRATEGY_PROMPTS, SYNTHESIS_SYSTEM_PROMPT, THINKING_SYSTEM_PROMPT
 from .strategies import STRATEGY_REGISTRY, StrategyResult, get_strategy_names
 
 

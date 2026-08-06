@@ -70,8 +70,8 @@ def _handle_approval(data: dict):
     chunks = []
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="float32") as stream:
         for _ in range(int(APPROVAL_LISTEN_SECONDS * SAMPLE_RATE / 1024)):
-            data, _ = stream.read(1024)
-            chunks.append(data.copy())
+            audio_chunk, _ = stream.read(1024)
+            chunks.append(audio_chunk.copy())
 
     audio = np.concatenate(chunks, axis=0).flatten()
     response_text = stt.transcribe(audio.tobytes())
@@ -84,7 +84,7 @@ def _handle_approval(data: dict):
     approved = bool(words & yes_words)
     denied = bool(words & no_words)
 
-    if approved:
+    if approved and not denied:
         print("  -> Approved")
         tts.speak("Approved.")
     elif denied:

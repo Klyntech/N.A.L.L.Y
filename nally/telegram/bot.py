@@ -2,9 +2,7 @@
 
 Supports:
 - Text messages: process through agent, reply as text
-- Voice messages: STT -> agent -> text reply
-- /voice command: toggle voice responses (TTS -> OGG/Opus)
-- /text command: switch back to text-only mode
+- Voice messages: STT -> agent -> voice reply (LLM summary spoken, full text on screen)
 
 Requires TELEGRAM_BOT_TOKEN in .env.
 ffmpeg required for voice support.
@@ -18,6 +16,7 @@ from typing import Optional
 
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -28,13 +27,12 @@ from telegram import Update
 
 from ..agent.sessions import session_manager
 from ..utils.logger import logger
+from .format import md_to_telegram_html
 
 # Telegram max message length
 MAX_MSG_LEN = 4096
 BOT_USERNAME: Optional[str] = None
-
-# Per-user voice preferences: {chat_id: bool}
-_voice_enabled: dict[int, bool] = {}
+BOT = None  # set in post_init, used by _make_emit for approval messages
 
 
 def _split_message(text: str, limit: int = MAX_MSG_LEN) -> list:
@@ -75,34 +73,70 @@ def _clean_message_text(text: str) -> str:
     return text.strip()
 
 
+def _make_emit(chat_id: int):
+    """Create an emit callback that sends approval requests as inline buttons."""
+    loop = asyncio.get_event_loop()
+
+    def emit(event: str, data: dict):
+        if event != "confirmation_required":
+            return
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        tc_id = data["tool_call_id"]
+        tool = data["name"]
+        args = data.get("args", {})
+        args_str = " ".join(f"{k}={v}" for k, v in args.items()) if args else ""
+
+        text = f"<b>Permission required</b>\n\n<b>Tool:</b> <code>{tool}</code>"
+        if args_str:
+            text += f"\n<b>Args:</b> <code>{args_str}</code>"
+        if data.get("diff"):
+            diff = data["diff"][:800]
+            text += f"\n\n<pre>{diff}</pre>"
+
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Approve", callback_data=f"approve:{tc_id}"),
+            InlineKeyboardButton("Deny", callback_data=f"deny:{tc_id}"),
+        ]])
+
+        try:
+            if BOT:
+                coro = BOT.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard)
+                asyncio.run_coroutine_threadsafe(coro, loop)
+        except Exception:
+            pass
+
+    return emit
+
+
+async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Approve/Deny button presses for permission gates."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    await query.answer()
+
+    data = query.data
+    if data.startswith("approve:") or data.startswith("deny:"):
+        tc_id = data.split(":", 1)[1]
+        approved = data.startswith("approve:")
+        from nally.agent.graph import resolve_approval
+        resolve_approval(tc_id, approved)
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
     await update.message.reply_text(
         "Hey! I'm Nally.\n\n"
         "Send me text or voice messages and I'll respond.\n"
-        "In groups, mention me with @NallyFirstbot.\n\n"
-        "Commands:\n"
-        "/voice - Toggle voice responses\n"
-        "/text - Switch to text-only mode"
+        "In groups, mention me with @NallyFirstbot."
     )
-
-
-async def voice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Toggle voice responses for this user."""
-    chat_id = update.effective_chat.id
-    _voice_enabled[chat_id] = not _voice_enabled.get(chat_id, False)
-
-    if _voice_enabled[chat_id]:
-        await update.message.reply_text("Voice responses ON. I'll reply with audio.")
-    else:
-        await update.message.reply_text("Voice responses OFF. Text only.")
-
-
-async def text_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Switch to text-only mode."""
-    chat_id = update.effective_chat.id
-    _voice_enabled[chat_id] = False
-    await update.message.reply_text("Switched to text mode.")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -131,8 +165,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await chat.send_chat_action("typing")
 
     # Process in a thread (agent.process is blocking)
+    emit = _make_emit(chat.id)
     try:
-        response = await asyncio.to_thread(session_manager.process, session_id, text)
+        response = await asyncio.to_thread(session_manager.process, session_id, text, emit=emit)
     except Exception as e:
         logger.error(f"Telegram agent error: {e}")
         response = f"Something went wrong: {e}"
@@ -146,19 +181,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text_response = response
 
-    # Voice response if enabled
-    chat_id = chat.id
-    if _voice_enabled.get(chat_id, False):
-        await _send_voice_response(message, text_response)
-    else:
-        # Split and send as text (Telegram has a 4096 char limit)
-        chunks = _split_message(text_response)
-        for chunk in chunks:
-            try:
-                await message.reply_text(chunk, parse_mode="Markdown")
-            except Exception:
-                # Fallback: send without markdown if parsing fails
-                await message.reply_text(chunk)
+    # Convert markdown to Telegram HTML, then send
+    chunks = _split_message(md_to_telegram_html(text_response))
+    for chunk in chunks:
+        try:
+            await message.reply_text(chunk, parse_mode="HTML")
+        except Exception:
+            await message.reply_text(chunk)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -200,7 +229,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Process through agent
-        response = await asyncio.to_thread(session_manager.process, session_id, text)
+        emit = _make_emit(chat.id)
+        response = await asyncio.to_thread(session_manager.process, session_id, text, emit=emit)
 
         if not response or response == "__EXIT__":
             return
@@ -211,18 +241,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text_response = response
 
-        # Send voice response if enabled, else text
-        chat_id = chat.id
-        if _voice_enabled.get(chat_id, False):
-            await _send_voice_response(message, text_response)
-        else:
-            # Send transcript + text response
-            chunks = _split_message(f"**You said:** {text}\n\n{text_response}")
-            for chunk in chunks:
-                try:
-                    await message.reply_text(chunk, parse_mode="Markdown")
-                except Exception:
-                    await message.reply_text(chunk)
+        # Always send voice response for voice input
+        await _send_voice_response(message, text_response)
 
     except Exception as e:
         logger.error(f"Telegram voice error: {e}")
@@ -230,15 +250,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _send_voice_response(message, text: str):
-    """Send a voice response (TTS -> OGG -> Telegram voice message)."""
+    """Send a voice response (LLM summary -> TTS -> OGG -> Telegram voice message)."""
     try:
         from ..voice.formatter import VoiceFormatter, VoiceMode
         from ..voice.tts import synthesize_to_wav
         from .voice import wav_to_ogg
 
+        # Generate voice summary via lightweight LLM
+        voice_summary = await _generate_voice_summary(text)
+
         # Format for speech (strip code, tables, etc.)
         formatter = VoiceFormatter()
-        speak_text = formatter.format(text, mode=VoiceMode.SMART)
+        speak_text = formatter.format(text, mode=VoiceMode.SMART, summary=voice_summary)
 
         if not speak_text:
             await message.reply_text(text)
@@ -257,15 +280,47 @@ async def _send_voice_response(message, text: str):
             await message.reply_text(text)
             return
 
-        # Send as Telegram voice message
+        # Send as Telegram voice message with full text as caption
         audio_file = io.BytesIO(ogg_bytes)
         audio_file.name = "nally_voice.ogg"
-        await message.reply_voice(voice=audio_file, caption=text[:1024] if len(text) > 100 else None)
+        caption = md_to_telegram_html(text[:1024]) if len(text) > 100 else None
+        await message.reply_voice(voice=audio_file, caption=caption)
 
     except Exception as e:
         logger.error(f"Voice response failed: {e}")
         # Fallback to text
         await message.reply_text(text)
+
+
+async def _generate_voice_summary(text: str) -> str:
+    """Generate a 1-2 sentence voice summary using lightweight LLM."""
+    try:
+        from ..agent.llm import llm
+
+        if len(text) <= 200:
+            return text
+
+        summary_response = await asyncio.to_thread(
+            llm.chat_with_model,
+            "ling-3.0-flash-free",
+            [
+                {"role": "system", "content": "Summarize this in 1-2 short sentences for voice. Pick the key point. Be concise and natural. Do not use markdown."},
+                {"role": "user", "content": text}
+            ],
+            temperature=0.3,
+            max_tokens=80
+        )
+        return summary_response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"Voice summary generation failed: {e}")
+        # Fallback: first 2 sentences
+        import re
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        if len(sentences) >= 2:
+            return " ".join(sentences[:2])
+        elif sentences:
+            return sentences[0]
+        return text[:200]
 
 
 async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE):
@@ -284,19 +339,21 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
 
     app = Application.builder().token(token).build()
 
-    # Store bot username for mention detection
+    # Store bot username and bot reference for mention detection and approval messages
     async def post_init(application: Application):
-        global BOT_USERNAME
+        global BOT_USERNAME, BOT
         me = await application.bot.get_me()
         BOT_USERNAME = me.username
+        BOT = application.bot
         logger.info(f"Telegram bot started: @{BOT_USERNAME}")
 
     app.post_init = post_init
 
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("voice", voice_command))
-    app.add_handler(CommandHandler("text", text_command))
+
+    # Permission gate inline buttons (must be before other message handlers)
+    app.add_handler(CallbackQueryHandler(approval_callback))
 
     # Voice messages (STT)
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))

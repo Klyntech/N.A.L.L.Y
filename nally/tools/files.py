@@ -159,7 +159,7 @@ class FileOps(Tool):
             parameters={
                 "action": {
                     "type": "string",
-                    "enum": ["write", "list", "mkdir"],
+                    "enum": ["write", "list", "mkdir", "delete"],
                     "description": "write = create/overwrite file, list = list directory, mkdir = create folder, delete = remove file or directory (recursive)",
                     "required": True,
                 },
@@ -220,6 +220,23 @@ class FileOps(Tool):
                         size = 0
                     items.append(f"{prefix}{item.name} ({size // 1024}KB)")
                 return "\n".join(items) if items else "Empty directory"
+
+            elif action == "delete":
+                if not file_path:
+                    return "Error: file_path is required for delete"
+                path = Path(file_path)
+                if not _is_safe_write_path(path):
+                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    return f"Error: path outside allowed directories. Write to: {allowed}"
+                if not path.exists():
+                    return f"Error: path not found: {file_path}"
+                if path.is_dir():
+                    import shutil
+                    shutil.rmtree(path)
+                    return f"Deleted directory: {file_path}"
+                else:
+                    path.unlink()
+                    return f"Deleted file: {file_path}"
 
             else:
                 return f"Unknown action: {action}. Use write, list, mkdir, or delete."

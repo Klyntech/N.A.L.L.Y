@@ -119,7 +119,7 @@ class PermissionGate:
 
         rules = self._config.get(tool_name)
 
-        # Exact match not found — try wildcard patterns (mcp_*, run_command)
+        # Exact match not found — try wildcard patterns (e.g. mcp_*)
         if rules is None:
             for pattern, pattern_rules in self._config.items():
                 if _wildcard_match(pattern, tool_name):

@@ -244,8 +244,8 @@ def format_for_voice(response: dict | str, config: VoiceConfig | None = None) ->
 
 # Backward compatibility
 __all__ = [
-    "VoiceFormatter",
     "VoiceConfig",
+    "VoiceFormatter",
     "VoiceMode",
     "create_voice_config_from_agent",
     "format_for_voice",

@@ -5,7 +5,7 @@ import logging
 import httpx
 
 from ..config import DATA_DIR
-from ..tools.registry import Tool, registry
+from .registry import Tool, registry
 
 logger = logging.getLogger("nally.gmail")
 

@@ -155,45 +155,123 @@ class ApprovalRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
+
+    from rich.console import Console
+    from rich.panel import Panel
+
+    console = Console()
+
+    # Suppress ALL noisy loggers during startup display
+    _suppress = (
+        "nally.mcp", "nally.tools", "nally.memory", "nally.skills",
+        "mcp", "telegram", "httpx", "httpcore",
+        "nally.memory.reflector",
+    )
+    _saved_levels = {}
+    for _name in _suppress:
+        _l = logging.getLogger(_name)
+        _saved_levels[_name] = _l.level
+        _l.setLevel(logging.CRITICAL)
+
     ensure_data_dir()
 
-    # Validate config on startup
+    # Create generated images dir (moved from module scope)
+    _gen_dir.mkdir(parents=True, exist_ok=True)
+
+    # Validate config
     try:
-        from nally.core.validator import print_validation_report, validate_config
+        from nally.core.validator import validate_config
 
         errors = validate_config(strict=True)
-        print_validation_report(errors)
+        has_errors = any(e[0] == "error" for e in errors)
+        if has_errors:
+            for level, key, msg in errors:
+                icon = "[red]ERROR[/]" if level == "error" else "[yellow]WARN[/]"
+                console.print(f"  {icon}  {key}: {msg}")
+        else:
+            console.print("  [green][+][/]  Config validated")
     except Exception as e:
-        logger.error(f"Configuration validation failed: {e}")
+        console.print(f"  [red][x][/]  Config validation failed: {e}")
         raise
 
-    load_all_tools()
-    logger.info("Tools loaded.")
+    # Load tools
+    _tool_count, mcp_status = load_all_tools()
+
+    # Build startup tree
+    console.print()
+    console.print(f"  [bold]|--[/] Loading tools .......... [green]{_tool_count} registered[/]")
+    console.print("  [bold]|--[/] Connecting MCP servers")
+
+    for i, srv in enumerate(mcp_status):
+        is_last = i == len(mcp_status) - 1
+        prefix = "|--" if not is_last else "`--"
+        connector = "  " if is_last else "|  "
+        name = srv["name"]
+        status = srv["status"]
+        tools = srv.get("tools", 0)
+        msg = srv.get("message", "")
+
+        if status == "ok":
+            tool_word = "tool" if tools == 1 else "tools"
+            dots = "." * max(1, 28 - len(name))
+            console.print(f"  {connector}{prefix} {name} {dots} [green]{tools} {tool_word}[/]")
+        elif status == "awaiting":
+            console.print(f"  {connector}{prefix} [dim](o) {name} -- {msg}[/]")
+        elif status == "timeout":
+            console.print(f"  {connector}{prefix} [yellow](o) {name} -- {msg}[/]")
+        else:
+            console.print(f"  {connector}{prefix} [red](x) {name} -- {msg}[/]")
+
+    # Pre-warm agent
+    agent_status = ["[yellow]starting...[/]"]
+    reflector_status = ["[yellow]starting...[/]"]
 
     def _prewarm():
         try:
-            logger.info("Pre-warming agent in background...")
             get_agent()
-            logger.info("Agent ready.")
+            agent_status[0] = "[green]ready[/]"
         except Exception as e:
-            logger.warning(f"Agent pre-warm failed: {e}")
+            agent_status[0] = f"[red]failed: {e}[/]"
 
     import threading
 
-    threading.Thread(target=_prewarm, daemon=True).start()
+    agent_thread = threading.Thread(target=_prewarm, daemon=True)
+    agent_thread.start()
 
-    # Start background reflector
+    # Start reflector
     try:
         from ..memory.reflector import reflector
 
         reflector.start(interval=3600)
-        logger.info("Background reflector started.")
+        reflector_status[0] = "[green]active[/]"
     except Exception as e:
-        logger.warning(f"Reflector startup failed: {e}")
+        reflector_status[0] = f"[red]failed: {e}[/]"
 
-    logger.info("Lifespan startup complete.")
+    # Wait for agent pre-warm (brief, don't block server)
+    agent_thread.join(timeout=5)
+
+    console.print(f"  [bold]|--[/] Pre-warming agent .......... {agent_status[0]}")
+    console.print(f"  [bold]`--[/] Memory reflector ........... {reflector_status[0]}")
+    console.print()
+
+    from nally.config import ACTIVE_MODEL, PROVIDER
+
+    port = os.environ.get("PORT", "5000")
+    console.print(Panel(
+        f"  [bold](*) NALLY online[/]  -  http://localhost:{port}  -  {PROVIDER.upper()}/{ACTIVE_MODEL}",
+        border_style="#7C6AEF",
+        padding=(0, 1),
+    ))
+    console.print()
+
+    # Restore logger levels for runtime
+    for _name, _level in _saved_levels.items():
+        logging.getLogger(_name).setLevel(_level)
+
     yield
-    # Shutdown: stop reflector and save all active sessions before exit
+
+    # Shutdown: stop reflector and save all active sessions
     try:
         from ..memory.reflector import reflector
 
@@ -203,7 +281,7 @@ async def lifespan(app: FastAPI):
     try:
         for _sid, agent in session_manager._sessions.items():
             if len(agent.messages) > 2:
-                agent.clear_history()
+                agent._save_history()
         logger.info("Saved all session summaries on shutdown.")
     except Exception as e:
         logger.warning(f"Shutdown save failed: {e}")
@@ -261,7 +339,6 @@ async def _middleware(request: Request, call_next):
 _web_dir = _base / "web"
 _data_dir = _base / "data"
 _gen_dir = _data_dir / "generated"
-_gen_dir.mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/")
@@ -380,7 +457,9 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
         # Clear any prior abort flag for this session
-        _abort_flags.pop(session_id, None)
+        from ..core.abort import clear_abort
+
+        clear_abort(session_id)
 
         # Broadcast user message immediately to other tabs
         broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id})
@@ -389,8 +468,10 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
         while True:
             # Check for abort
-            if _abort_flags.get(session_id):
-                _abort_flags.pop(session_id, None)
+            if check_abort(session_id):
+                from ..core.abort import clear_abort
+
+                clear_abort(session_id)
                 yield 'data: {"type": "error", "text": "Operation aborted by user."}\n\n'
                 yield 'data: {"event": "done"}\n\n'
                 return
@@ -497,22 +578,26 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
 
 # ── API: Abort ────────────────────────────────────────────
 
-_abort_flags: dict[str, bool] = {}
-
 
 def check_abort(session_id: str = "web:default") -> bool:
-    return _abort_flags.get(session_id, False)
+    from ..core.abort import check_abort as _check
+
+    return _check(session_id)
 
 
 @app.post("/api/abort")
 async def abort_session(session_id: str = "web:default", _auth=Depends(verify_auth)):
-    _abort_flags[session_id] = True
+    from ..core.abort import set_abort
+
+    set_abort(session_id)
     return {"status": "aborted"}
 
 
 @app.post("/api/abort/clear")
 async def abort_clear(session_id: str = "web:default", _auth=Depends(verify_auth)):
-    _abort_flags.pop(session_id, None)
+    from ..core.abort import clear_abort
+
+    clear_abort(session_id)
     return {"status": "cleared"}
 
 

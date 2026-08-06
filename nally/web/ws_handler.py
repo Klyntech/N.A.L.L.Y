@@ -160,9 +160,9 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
             # ── Abort ───────────────────────────────────
             elif msg_type == "abort":
-                from ..web.app import _abort_flags
+                from ..core.abort import set_abort
 
-                _abort_flags[session_id] = True
+                set_abort(session_id)
                 await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted"})
 
             # ── Approval response ───────────────────────
@@ -206,7 +206,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
 async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
     """Process a user message and stream events back."""
-    from ..web.app import _abort_flags
+    from ..core.abort import check_abort, clear_abort
 
     # Check if session is busy — queue the message
     if session_manager.is_busy(session_id):
@@ -257,7 +257,7 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
                 pass
 
     # Clear abort flag
-    _abort_flags.pop(session_id, None)
+    clear_abort(session_id)
 
     # Broadcast user message to other tabs
     await ws_manager.broadcast(
@@ -272,8 +272,8 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
     # Stream events back to client
     while True:
         # Check abort
-        if _abort_flags.get(session_id):
-            _abort_flags.pop(session_id, None)
+        if check_abort(session_id):
+            clear_abort(session_id)
             await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
             await ws_manager.send_json(cid, {"type": "done"})
             return
@@ -304,7 +304,7 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
 
 async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str, audio_format: str = ""):
     """Process voice audio from browser: STT -> agent -> TTS -> stream audio back."""
-    from ..web.app import _abort_flags
+    from ..core.abort import check_abort, clear_abort
 
     loop = asyncio.get_event_loop()
 
@@ -409,14 +409,14 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        _abort_flags.pop(session_id, None)
+        clear_abort(session_id)
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         # Stream events back, capture final response
         final_response = ""
         while True:
-            if _abort_flags.get(session_id):
-                _abort_flags.pop(session_id, None)
+            if check_abort(session_id):
+                clear_abort(session_id)
                 await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
                 await ws_manager.send_json(cid, {"type": "done"})
                 return
@@ -445,12 +445,19 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
                     exclude=cid,
                 )
 
-        # TTS the response and stream audio back
+        # TTS the response with voice summary
         if final_response:
-            from ..voice.formatter import format_for_voice
+            from ..voice.formatter import VoiceFormatter, VoiceMode
             from ..voice.tts import synthesize_to_wav
 
-            wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, format_for_voice(final_response))
+            # Generate voice summary via lightweight LLM
+            voice_summary = await _generate_ws_voice_summary(final_response)
+
+            # Format for speech
+            formatter = VoiceFormatter()
+            speak_text = formatter.format(final_response, mode=VoiceMode.SMART, summary=voice_summary)
+
+            wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, speak_text)
             if wav_bytes:
                 wav_b64 = base64.b64encode(wav_bytes).decode("ascii")
                 await ws_manager.send_json(cid, {"type": "tts_audio", "audio": wav_b64})
@@ -460,3 +467,34 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
     except Exception as e:
         logger.error(f"Voice processing failed: {e}", exc_info=True)
         await ws_manager.send_json(cid, {"type": "error", "text": f"Voice processing failed: {e}"})
+
+
+async def _generate_ws_voice_summary(text: str) -> str:
+    """Generate a 1-2 sentence voice summary using lightweight LLM."""
+    import re
+
+    try:
+        if len(text) <= 200:
+            return text
+
+        from ..agent.llm import llm
+
+        summary_response = await asyncio.to_thread(
+            llm.chat_with_model,
+            "ling-3.0-flash-free",
+            [
+                {"role": "system", "content": "Summarize this in 1-2 short sentences for voice. Pick the key point. Be concise and natural. Do not use markdown."},
+                {"role": "user", "content": text}
+            ],
+            temperature=0.3,
+            max_tokens=80
+        )
+        return summary_response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"Voice summary generation failed: {e}")
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        if len(sentences) >= 2:
+            return " ".join(sentences[:2])
+        elif sentences:
+            return sentences[0]
+        return text[:200]

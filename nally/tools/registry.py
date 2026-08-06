@@ -4,11 +4,9 @@ import importlib
 import logging
 from typing import Dict, List, Optional
 
-from ..config import ALLOWED_PLUGINS, PLUGINS_DIR
+from ..config import ALLOWED_PLUGINS, MAX_TOOL_OUTPUT, PLUGINS_DIR
 
-MAX_TOOL_OUTPUT = 4000  # Max chars before truncation (~1000 tokens)
-
-VALID_PERMISSIONS = {"safe", "destructive", "write", "read_only"}
+VALID_PERMISSIONS = {"safe", "destructive", "read_only", "write"}
 
 logger = logging.getLogger("nally.registry")
 

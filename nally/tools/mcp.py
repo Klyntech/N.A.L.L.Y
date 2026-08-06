@@ -1,8 +1,11 @@
 """MCP Status Tool — shows configured MCP servers and their connection status."""
 
+import logging
 import os
 
 from .registry import Tool
+
+logger = logging.getLogger("nally.mcp")
 
 
 class McpStatus(Tool):
@@ -59,8 +62,8 @@ def _check_status(server: dict, db: str, mcp_registry) -> str:
         if auth_mode == "oauth":
             # Check if tokens exist in DB
             try:
-                import concurrent.futures
                 import asyncio
+                import concurrent.futures
 
                 from ..mcp.oauth import get_existing_tokens
 
@@ -83,8 +86,6 @@ def _check_status(server: dict, db: str, mcp_registry) -> str:
                 return "Disconnected"
             except Exception as e:
                 logger.debug(f"MCP status check failed for {name}: {e}")
-                return "Disconnected"
-            except Exception:
                 return "Disconnected"
         else:
             return "Disconnected"

@@ -14,29 +14,26 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 def print_banner():
-    """Print Nally banner with personalized greeting"""
-    from nally.config import ACTIVE_PERSONALITY, PROVIDER
+    """Print Nally banner using pyfiglet block font + rich styling."""
+    from rich.console import Console
+    from rich.text import Text
 
-    print()
-    print("  +==================================================+")
-    print("  |           N A L L Y  -  AI Assistant             |")
-    print("  +==================================================+")
-    print()
-    print("  Your Personal AI Assistant (Powered by Nally)")
+    console = Console()
 
-    # Personalized greeting
     try:
-        from nally.memory.profile import user_profile
+        from pyfiglet import Figlet
 
-        user_name = user_profile.get_name()
-        if user_name:
-            print(f"  Welcome back, {user_name}!")
-    except (ImportError, Exception):
-        pass
+        f = Figlet(font="block")
+        art = f.renderText("NALLY")
+        styled = Text(art, style="#7C6AEF")
+        console.print(styled)
+    except Exception:
+        console.print("  [bold #7C6AEF]N A L L Y[/]")
 
-    print(f"  Powered by {PROVIDER.upper()} | Personality: {ACTIVE_PERSONALITY.title()}")
-    print("=" * 50)
-    print()
+    from nally import __version__
+
+    console.print(f"          Personal AI Assistant  -  v{__version__}", style="dim")
+    console.print()
 
 
 def main():
@@ -61,20 +58,38 @@ def main():
 
     print_banner()
 
-    # Validate configuration
-    try:
-        from nally.core.validator import print_validation_report, validate_config
-
-        errors = validate_config(strict=False)
-        print_validation_report(errors)
-    except Exception as e:
-        print(f"Config validation skipped: {e}")
-
     # Load tools for non-web modes (web mode loads via app.py lifespan)
     if args.cli or args.telegram_only:
         from nally.tools import load_all_tools
 
-        load_all_tools()
+        _tool_count, mcp_status = load_all_tools()
+
+        # Display startup tree for non-web modes
+        from rich.console import Console
+
+        console = Console()
+        console.print(f"  [bold]|--[/] Loading tools .......... [green]{_tool_count} registered[/]")
+        if mcp_status:
+            console.print("  [bold]|--[/] Connecting MCP servers")
+            for i, srv in enumerate(mcp_status):
+                is_last = i == len(mcp_status) - 1
+                prefix = "|--" if not is_last else "`--"
+                connector = "  " if is_last else "|  "
+                name = srv["name"]
+                status = srv["status"]
+                tools = srv.get("tools", 0)
+                msg = srv.get("message", "")
+                if status == "ok":
+                    tool_word = "tool" if tools == 1 else "tools"
+                    dots = "." * max(1, 28 - len(name))
+                    console.print(f"  {connector}{prefix} {name} {dots} [green]{tools} {tool_word}[/]")
+                elif status == "awaiting":
+                    console.print(f"  {connector}{prefix} [dim](o) {name} -- {msg}[/]")
+                elif status == "timeout":
+                    console.print(f"  {connector}{prefix} [yellow](o) {name} -- {msg}[/]")
+                else:
+                    console.print(f"  {connector}{prefix} [red](x) {name} -- {msg}[/]")
+        console.print()
 
     if args.cli:
         run_cli()
@@ -145,10 +160,6 @@ def run_web(port=5000):
 
     os.environ["PORT"] = str(port)
 
-    print(f"Nally Jarvis starting on http://localhost:{port}")
-    print("Press Ctrl+C to stop")
-    print()
-
     # Auto-open browser
     def _open():
         time.sleep(2)
@@ -180,10 +191,6 @@ def run_web_with_telegram(port=5000):
 
     os.environ["PORT"] = str(port)
 
-    print(f"Nally starting on http://localhost:{port} + Telegram bot")
-    print("Press Ctrl+C to stop")
-    print()
-
     # Start Telegram bot in a background thread
     def _start_telegram():
         try:
@@ -191,7 +198,8 @@ def run_web_with_telegram(port=5000):
 
             run_telegram_bot(polling=True)
         except Exception as e:
-            print(f"Telegram bot failed: {e}")
+            from rich.console import Console
+            Console().print(f"  [yellow]Telegram bot failed:[/] {e}")
 
     tg_thread = threading.Thread(target=_start_telegram, daemon=True)
     tg_thread.start()

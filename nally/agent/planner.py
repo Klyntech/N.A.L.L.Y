@@ -219,10 +219,10 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Abort check
     try:
-        from ..web.app import _abort_flags
+        from ..core.abort import check_abort, clear_abort
 
-        if _abort_flags.get(thread_id):
-            _abort_flags.pop(thread_id, None)
+        if check_abort(thread_id):
+            clear_abort(thread_id)
             return {**state, "plan_status": "none"}
     except Exception:
         pass
@@ -266,10 +266,10 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Abort check
     try:
-        from ..web.app import _abort_flags
+        from ..core.abort import check_abort, clear_abort
 
-        if _abort_flags.get(thread_id):
-            _abort_flags.pop(thread_id, None)
+        if check_abort(thread_id):
+            clear_abort(thread_id)
             return {**state, "plan_status": "none", "plan": None}
     except Exception:
         pass
@@ -359,10 +359,10 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Abort check
     try:
-        from ..web.app import _abort_flags
+        from ..core.abort import check_abort, clear_abort
 
-        if _abort_flags.get(thread_id):
-            _abort_flags.pop(thread_id, None)
+        if check_abort(thread_id):
+            clear_abort(thread_id)
             return {**state, "plan_status": "none"}
     except Exception:
         pass

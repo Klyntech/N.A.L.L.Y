@@ -214,16 +214,16 @@ _approval_results: Dict[str, bool] = {}
 # ── Abort checkpoint ──────────────────────────────────────
 def _check_abort(thread_id: str) -> bool:
     """Check if user requested abort for this session."""
-    from nally.web.app import _abort_flags
+    from ..core.abort import check_abort
 
-    return _abort_flags.get(thread_id, False)
+    return check_abort(thread_id)
 
 
 def _clear_abort(thread_id: str):
     """Clear abort flag for this session."""
-    from nally.web.app import _abort_flags
+    from ..core.abort import clear_abort
 
-    _abort_flags.pop(thread_id, None)
+    clear_abort(thread_id)
 
 
 def _has_duplicate_tool_calls(messages: list, window: int = 6) -> bool:
@@ -347,12 +347,18 @@ def _stream_with_emit(llm_client, openai_messages, tools, cache_key, emit):
     )
 
 
-def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit):
-    """Call LLM with streaming + retry. Raises LLMError on failure."""
+def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit, model=None):
+    """Call LLM with streaming + retry. Raises LLMError on failure.
+
+    Args:
+        model: Optional model override (bypasses routing, used by sub-agents).
+            When set, streaming is skipped (chat_with_model doesn't support it)
+            but retries still apply on transient errors.
+    """
     last_error = None
     for attempt in range(_MAX_RETRIES):
         try:
-            if emit:
+            if emit and not model:
                 try:
                     return _stream_with_emit(llm_client, openai_messages, tools, cache_key, emit)
                 except Exception as stream_err:
@@ -361,7 +367,10 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit):
                         emit("stream_done", {})
                     except Exception:
                         pass
-            response = llm_client.chat(openai_messages, tools=tools if tools else None, cache_key=cache_key)
+            if model:
+                response = llm_client.chat_with_model(model, openai_messages, tools, cache_key=cache_key)
+            else:
+                response = llm_client.chat(openai_messages, tools=tools if tools else None, cache_key=cache_key)
             return response
 
         except Exception as e:
@@ -462,10 +471,7 @@ def llm_call(state: AgentState) -> AgentState:
 
     model_override = state.get("model_override")
     try:
-        if model_override:
-            response = llm.chat_with_model(model_override, openai_messages, tools, cache_key=cache_key)
-        else:
-            response = _call_llm_with_retry(llm, openai_messages, tools, cache_key, emit)
+        response = _call_llm_with_retry(llm, openai_messages, tools, cache_key, emit, model=model_override)
     except LLMError as e:
         new_error_count = error_count + 1
         logger.error(f"LLM error ({new_error_count}/{MAX_CONSECUTIVE_ERRORS}): {e.message}")
@@ -736,15 +742,33 @@ def should_continue(state: AgentState) -> str:
     start_time = state.get("start_time", 0)
     if start_time and (time.time() - start_time) > MAX_AGENT_WALL_TIME:
         logger.warning(f"Agent exceeded {MAX_AGENT_WALL_TIME}s wall-clock budget")
+        emit = _get_emit()
+        if emit:
+            try:
+                emit("system_notice", {"text": f"Hit my {MAX_AGENT_WALL_TIME}s time budget for this turn — say 'continue' if you want me to keep going."})
+            except Exception:
+                pass
         return "end"
 
     if iteration >= max_iterations:
         logger.debug(f"Agent reached max iterations ({max_iterations})")
+        emit = _get_emit()
+        if emit:
+            try:
+                emit("system_notice", {"text": "Hit my step limit for this turn — say 'continue' to proceed."})
+            except Exception:
+                pass
         return "end"
 
     # Duplicate tool call detection (doom loop)
     if _has_duplicate_tool_calls(messages):
         logger.warning("Duplicate tool call detected, forcing stop")
+        emit = _get_emit()
+        if emit:
+            try:
+                emit("system_notice", {"text": "I noticed I was repeating the same action and stopped — let me know how you'd like to proceed."})
+            except Exception:
+                pass
         return "end"
 
     last_ai_msg = None

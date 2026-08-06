@@ -104,7 +104,7 @@ class RunCode(Tool):
                 return f"Exit code {result.returncode}\n{output}" if output else f"Exit code {result.returncode}"
             return output if output else "Script executed successfully"
         except subprocess.TimeoutExpired:
-            return "Script timed out after 60 seconds"
+            return f"Script timed out after {CODE_TIMEOUT} seconds"
 
 
 class CodeAnalysis(Tool):
@@ -137,7 +137,7 @@ class CodeAnalysis(Tool):
                 if path:
                     cmd.append(path)
                 cmd.append("-v" if verbose else "-q")
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=CODE_TIMEOUT)
                 output = result.stdout
                 if result.stderr:
                     output += f"\n{result.stderr}"
@@ -146,7 +146,7 @@ class CodeAnalysis(Tool):
                 cmd = [sys.executable, "-m", "unittest", "discover"]
                 if path:
                     cmd = [sys.executable, "-m", "unittest", path]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=CODE_TIMEOUT)
                 return result.stdout or "Tests completed"
 
             elif action == "lint":
@@ -155,7 +155,7 @@ class CodeAnalysis(Tool):
                     cmd = [sys.executable, "-m", linter, target]
                     if linter == "flake8" and not verbose:
                         cmd.append("--quiet")
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=CODE_TIMEOUT)
                     if result.returncode not in (127, 126):
                         output = result.stdout
                         if result.stderr:
@@ -166,6 +166,6 @@ class CodeAnalysis(Tool):
             else:
                 return f"Unknown action: {action}. Use test or lint."
         except subprocess.TimeoutExpired:
-            return "Analysis timed out after 120 seconds"
+            return f"Analysis timed out after {CODE_TIMEOUT} seconds"
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"

@@ -206,15 +206,29 @@ def _wrap_mcp_schema_dict(schema: dict) -> dict:
     return params
 
 
+def _clean_error(e: Exception) -> str:
+    """Extract a clean, readable error message from an exception (including ExceptionGroups)."""
+    if "ExceptionGroup" in type(e).__name__:
+        if hasattr(e, "exceptions") and e.exceptions:
+            return _clean_error(e.exceptions[0])
+        return "connection failed (check server config)"
+    msg = f"{type(e).__name__}: {e}"
+    if len(msg) > 80:
+        msg = msg[:77] + "..."
+    return msg
+
+
 def connect_mcp_servers(reg):
     """Connect to all configured MCP servers and register their tools.
 
+    Returns list of {name, status, tools, message} dicts for startup display.
     Stdio servers: connects with timeout, fetches tools.
     HTTP servers: tries reconnecting if tokens exist, otherwise awaits user connection.
     API key servers: tries reconnecting if env var set, otherwise awaits user connection.
     """
+    results = []
     if not MCP_SERVERS:
-        return
+        return results
 
     for server_config in MCP_SERVERS:
         name = server_config.get("name", "unknown")
@@ -225,23 +239,32 @@ def connect_mcp_servers(reg):
         if transport == "http":
             # Try reconnecting if tokens already stored
             if _try_reconnect_http(server_config, reg):
+                count = len([t for t in reg.tools.values() if t.name.startswith(f"mcp_{name}_")])
+                results.append({"name": name, "status": "ok", "tools": count})
                 continue
-            logger.info(f"MCP server '{name}': HTTP transport, awaiting connection")
+            results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting OAuth connection"})
             continue
 
         if auth_mode == "api_key":
             # Try reconnecting if env var is set
             if _try_reconnect_stdio_token(server_config, reg):
+                count = len([t for t in reg.tools.values() if t.name.startswith(f"mcp_{name}_")])
+                results.append({"name": name, "status": "ok", "tools": count})
                 continue
-            logger.info(f"MCP server '{name}': API key auth, awaiting connection")
+            results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting API key"})
             continue
 
         try:
             _connect_stdio_server(reg, server_config, permission)
+            count = len([t for t in reg.tools.values() if t.name.startswith(f"mcp_{name}_")])
+            results.append({"name": name, "status": "ok", "tools": count})
         except TimeoutError:
-            logger.warning(f"MCP server '{name}': connection timed out, skipping")
+            results.append({"name": name, "status": "timeout", "tools": 0, "message": "connection timed out"})
         except Exception as e:
-            logger.error(f"MCP server '{name}' failed to connect: {type(e).__name__}: {e}")
+            msg = _clean_error(e)
+            results.append({"name": name, "status": "error", "tools": 0, "message": msg})
+
+    return results
 
 
 def _get_existing_tokens_sync(service: str, db_path: str):
@@ -341,9 +364,16 @@ def _try_reconnect_stdio_token(server_config: dict, reg) -> bool:
 def _connect_stdio_server(reg, server_config: dict, default_permission: str):
     """Connect to a stdio MCP server, fetch tools, register them."""
     import concurrent.futures
+    import logging
     import os
 
     name = server_config.get("name", "unknown")
+
+    # Suppress noisy MCP SDK parse errors during connection (e.g. telegram server
+    # prints non-JSON startup message that triggers a harmless traceback)
+    mcp_logger = logging.getLogger("mcp.client.stdio")
+    prev_level = mcp_logger.level
+    mcp_logger.setLevel(logging.CRITICAL)
 
     async def _fetch_tools():
         from mcp.client.stdio import stdio_client
@@ -369,8 +399,11 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
                 result = await session.list_tools()
                 return result.tools
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        tools = pool.submit(asyncio.run, asyncio.wait_for(_fetch_tools(), timeout=30.0)).result(timeout=45)
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            tools = pool.submit(asyncio.run, asyncio.wait_for(_fetch_tools(), timeout=30.0)).result(timeout=45)
+    finally:
+        mcp_logger.setLevel(prev_level)
     count = 0
 
     for tool_info in tools:

@@ -195,6 +195,7 @@ CONTEXT_MAX_OUTPUT_TOKENS = 4096
 MAX_MEMORIES_TO_INJECT = 5
 MAX_TOOL_CALLS = int(os.getenv("NALLY_MAX_TOOL_CALLS", "50"))
 MAX_ITERATIONS_PER_TURN = int(os.getenv("NALLY_MAX_ITERATIONS", "25"))
+MAX_TOOL_OUTPUT = int(os.getenv("NALLY_MAX_TOOL_OUTPUT", "50000"))
 
 # ── Agent safety ──────────────────────────────────────────
 
@@ -208,6 +209,13 @@ PLAN_ENABLED = os.getenv("NALLY_PLAN_ENABLED", "false").lower() == "true"
 PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
 PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
 PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "300"))
+
+# ── Thinking Engine ─────────────────────────────────
+
+THINKING_ENABLED = os.getenv("NALLY_THINKING_ENABLED", "true").lower() == "true"
+THINKING_MAX_STRATEGIES = int(os.getenv("NALLY_THINKING_MAX_STRATEGIES", "3"))
+THINKING_DEEP_MODEL = os.getenv("NALLY_THINKING_MODEL", "")
+THINKING_TIMEOUT = int(os.getenv("NALLY_THINKING_TIMEOUT", "30"))
 
 # ── CORS ──────────────────────────────────────────────────
 
@@ -491,6 +499,15 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
 # Prefer get_system_prompt(user_context=...) at runtime for full prompts.
 SYSTEM_PROMPT = get_system_prompt()
 
+
+# ── TTS Backend ───────────────────────────────────────────
+# "piper" (default, free, local) or "elevenlabs" (premium, cloud)
+TTS_BACKEND = os.getenv("NALLY_TTS_BACKEND", "piper")
+
+# ElevenLabs (optional — only needed if TTS_BACKEND=elevenlabs)
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel (default)
+ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
 
 # ── Integrations ──────────────────────────────────────────
 
