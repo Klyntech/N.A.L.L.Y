@@ -498,12 +498,15 @@ async def _connect_http_stateless(server_config: dict, headers: dict, reg) -> in
 
 def _http_transport_fallback(server_config: dict, headers: dict):
     """Yield (transport_name, context_manager_factory) pairs for HTTP fallback."""
-    from mcp.client.streamable_http import streamablehttp_client
+    import httpx
+    from mcp.client.streamable_http import streamable_http_client
 
     url = server_config["url"]
 
+    http_client = httpx.AsyncClient(headers=headers)
+
     # 1. Try Streamable HTTP at configured URL
-    yield "streamable-http", lambda: streamablehttp_client(url, headers=headers)
+    yield "streamable-http", lambda: streamable_http_client(url, http_client=http_client)
 
     # 2. Try SSE at /sse endpoint (for servers like Notion that support both)
     try:
