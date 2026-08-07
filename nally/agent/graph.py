@@ -106,8 +106,8 @@ def _snapshot_project_files() -> dict:
                     snap[str(p)] = (p.stat().st_mtime, p.read_text(encoding="utf-8"))
                 except (PermissionError, OSError, UnicodeDecodeError):
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to snapshot project files: {e}")
     return snap
 
 
@@ -151,8 +151,8 @@ def _diff_snapshots(before: dict) -> list:
                             results.append((fp, "".join(diff)))
                 except (PermissionError, OSError, UnicodeDecodeError):
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to diff project snapshots: {e}")
     # Cap each diff at 100 lines
     capped = []
     for fp, d in results:
@@ -466,8 +466,8 @@ def llm_call(state: AgentState) -> AgentState:
         if recent_receipts:
             receipt_summary = receipt_store.format_for_context(recent_receipts)
             openai_messages.append({"role": "system", "content": receipt_summary})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to inject receipts into context: {e}")
 
     model_override = state.get("model_override")
     try:
@@ -534,8 +534,8 @@ def llm_call(state: AgentState) -> AgentState:
                             emit("verification", vresult.to_dict())
                         except Exception:
                             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Claim verification failed: {e}")
 
     if emit and assistant_msg.tool_calls:
         for tc in assistant_msg.tool_calls:
@@ -653,9 +653,10 @@ def tool_executor(state: AgentState) -> AgentState:
 
         start = time.time()
         try:
-            result = registry.execute(tool_name, tool_args)
+            result, success = registry.execute(tool_name, tool_args)
         except Exception as e:
             result = f"Error executing {tool_name}: {e!s}"
+            success = False
             logger.error_with_context(f"Tool {tool_name} failed", e)
 
         duration = (time.time() - start) * 1000
@@ -670,14 +671,14 @@ def tool_executor(state: AgentState) -> AgentState:
                 tool=tool_name,
                 args=tool_args,
                 result=str(result)[:2000],
-                success=not str(result).startswith("Error"),
+                success=success,
                 duration_ms=duration,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to record receipt for {tool_name}: {e}")
 
         # For run_command, detect changed files via snapshot diff
-        if snapshot_before is not None and not str(result).startswith("Error"):
+        if snapshot_before is not None and success:
             changes = _diff_snapshots(snapshot_before)
             if changes:
                 diff = "".join(d for _, d in changes)
@@ -699,7 +700,7 @@ def tool_executor(state: AgentState) -> AgentState:
                     "name": tool_name,
                     "result": result_str,
                     "duration_ms": round(duration),
-                    "success": not str(result).startswith("Error"),
+                    "success": success,
                 }
                 if diff:
                     payload["diff"] = diff

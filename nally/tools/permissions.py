@@ -113,8 +113,25 @@ class PermissionGate:
         assert self._config is not None
 
         # Check skill overrides first — active skills grant their allowed-tools
+        # But only if the tool isn't explicitly denied in the base config
         for _skill_name, allowed_tools in self._skill_overrides.items():
             if tool_name in allowed_tools:
+                # Check if the tool is explicitly denied in base config
+                base_rules = self._config.get(tool_name)
+                if base_rules is None:
+                    # Try wildcard patterns
+                    for pattern, pattern_rules in self._config.items():
+                        if _wildcard_match(pattern, tool_name):
+                            base_rules = pattern_rules
+                            break
+                # If base config says deny, skill override can't override it
+                if isinstance(base_rules, str) and base_rules == "deny":
+                    return PermissionDecision.DENY
+                if isinstance(base_rules, dict):
+                    match_value = _extract_match_value(tool_name, tool_args)
+                    for pattern, effect in base_rules.items():
+                        if _wildcard_match(pattern, match_value) and effect == "deny":
+                            return PermissionDecision.DENY
                 return PermissionDecision.ALLOW
 
         rules = self._config.get(tool_name)

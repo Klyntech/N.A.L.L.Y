@@ -65,7 +65,12 @@ class SkillRegistry:
             desc_words = set(desc_lower.split())
             msg_words = set(message_lower.split())
             overlap = desc_words & msg_words
-            if len(overlap) >= 2 or any(kw in message_lower for kw in name.split("-")):
+            # Require 3+ word overlap, OR full skill name in message (not partial segments)
+            name_words = name.split("-")
+            full_name_in_msg = len(name_words) >= 2 and all(
+                kw in message_lower for kw in name_words
+            )
+            if len(overlap) >= 3 or full_name_in_msg:
                 matches.append((name, len(overlap)))
 
         # Sort by relevance (most overlap first)

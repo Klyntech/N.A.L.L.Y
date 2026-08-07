@@ -125,7 +125,10 @@ class ReadFile(Tool):
             },
         )
 
-    def execute(self, file_path: str) -> str:
+    def execute(self, file_path: str = "", path: str = "", **kwargs) -> str:
+        file_path = file_path or path
+        if not file_path:
+            return "Error: no file path provided"
         try:
             path = Path(file_path)
 

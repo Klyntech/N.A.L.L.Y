@@ -13,11 +13,14 @@ Design:
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("nally.receipts")
 
 
 class Receipt:
@@ -68,7 +71,10 @@ class Receipt:
 
 
 class ReceiptStore:
-    """Append-only receipt store with HMAC signing."""
+    """Append-only receipt store with HMAC signing and rotation."""
+
+    MAX_STORE_SIZE = 10 * 1024 * 1024  # 10MB before rotation
+    MAX_ROTATED_FILES = 5  # Keep up to 5 rotated files
 
     def __init__(self, store_path: Optional[Path] = None, secret_key: Optional[str] = None):
         self.store_path = store_path or Path("data/receipts.jsonl")
@@ -87,22 +93,56 @@ class ReceiptStore:
         if self._key_path.exists():
             try:
                 return self._key_path.read_text().strip().encode()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to read HMAC key from {self._key_path}: {e}")
         key = secrets.token_hex(32)
         try:
             self._key_path.parent.mkdir(parents=True, exist_ok=True)
             self._key_path.write_text(key)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to persist HMAC key to {self._key_path}: {e}")
         return key.encode()
 
-    def _load_existing(self):
-        """Load receipts from disk on startup."""
+    def _rotate_if_needed(self):
+        """Rotate receipt file if it exceeds MAX_STORE_SIZE."""
         if not self.store_path.exists():
             return
+        if self.store_path.stat().st_size < self.MAX_STORE_SIZE:
+            return
+
+        # Remove oldest rotated file if at limit
+        rotated = sorted(self.store_path.parent.glob("receipts.jsonl.*"))
+        while len(rotated) >= self.MAX_ROTATED_FILES:
+            try:
+                rotated[0].unlink()
+                rotated.pop(0)
+            except Exception:
+                break
+
+        # Rotate current file
+        next_num = len(rotated) + 1
+        rotated_path = self.store_path.parent / f"receipts.jsonl.{next_num}"
         try:
-            with open(self.store_path, encoding="utf-8") as f:
+            self.store_path.rename(rotated_path)
+            logger.info(f"Rotated receipts to {rotated_path.name}")
+        except Exception as e:
+            logger.warning(f"Failed to rotate receipts: {e}")
+
+    def _load_existing(self):
+        """Load receipts from disk on startup (current + rotated files)."""
+        # Load rotated files first (older data)
+        rotated = sorted(self.store_path.parent.glob("receipts.jsonl.*"))
+        for rotated_path in rotated:
+            self._load_file(rotated_path)
+        # Load current file last (newest data)
+        self._load_file(self.store_path)
+
+    def _load_file(self, path: Path):
+        """Load receipts from a single JSONL file."""
+        if not path.exists():
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -113,8 +153,8 @@ class ReceiptStore:
                         self._by_tool_call_id[r.tool_call_id] = r
                     except (json.JSONDecodeError, KeyError):
                         continue
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load receipts from {path}: {e}")
 
     def _compute_hash(self, receipt: Receipt) -> str:
         """SHA-256 of canonical receipt content (excludes hash and hmac fields)."""
@@ -155,14 +195,14 @@ class ReceiptStore:
         # In-memory index
         self._by_tool_call_id[tool_call_id] = receipt
 
-        # Append to disk
+        # Append to disk (with rotation check)
         try:
             self.store_path.parent.mkdir(parents=True, exist_ok=True)
+            self._rotate_if_needed()
             with open(self.store_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(receipt.to_dict(), ensure_ascii=False) + "\n")
         except Exception as e:
-            import logging
-            logging.getLogger("nally.receipts").error(f"Failed to persist receipt {receipt.id}: {e}")
+            logger.error(f"Failed to persist receipt {receipt.id}: {e}")
 
         return receipt
 

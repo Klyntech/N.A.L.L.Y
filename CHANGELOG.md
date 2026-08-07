@@ -8,7 +8,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Telegram Markdown→HTML formatter (`nally/telegram/format.py`) — bold, italic, code, headers, lists render properly in Telegram instead of showing raw markdown characters
+- Structured tool success — `registry.execute()` returns `(result, success)` tuple instead of relying on fragile `str(result).startswith("Error")` prefix check; receipt recording, snapshot diffing, and frontend events all use the structured boolean now
+- Receipt store rotation — JSONL files auto-rotate at 10MB, keeps up to 5 rotated files; loads from all rotated files on startup
+- Telegram Markdown→HTML formatter (`nally/telegram/format.py`) — bold, italic, code, headers, lists, tables render properly in Telegram instead of showing raw markdown characters
 - Telegram inline permission gates — Approve/Deny buttons for tool approval requests (run_command, git push), message disappears on click
 - Shared abort module (`nally/core/abort.py`) — thread-safe `check_abort`/`set_abort`/`clear_abort` with Lock, fixes circular import between agent/graph.py and web/app.py
 - MCP structured connection status — `connect_mcp_servers()` returns `[{name, status, tools, message}]` list instead of scattered log messages; status values: ok, awaiting, timeout, error
@@ -23,7 +25,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Telegram formatting — agent returned raw Markdown (`**bold**`, `` `code` ``) but bot sent with `parse_mode="HTML"`, causing Telegram to reject and fall back to plain text; now converts Markdown to HTML before sending
+- Telegram formatting — agent returned raw Markdown but bot sent with `parse_mode="HTML"`, causing Telegram to reject and fall back to plain text; now converts Markdown to HTML before sending
+- Permission defaults tightened — `file_ops` delete now requires approval (ask), `think`, `web_search`, `gmail_read/search/list`, `mcp_status` explicitly set to allow
+- `rm -rf /`, `rm -rf ~`, `rm -rf *` changed from deny to ask (user wants the option, not a hard block)
+- Skill `allowed-tools` no longer bypasses explicit deny rules — if a command is denied in `permissions.json`, skill overrides can't escalate past it
+- Intent matching threshold raised from 2 to 3 words — reduces false-positive skill activations
+- Skill name substring fallback removed — message must contain the full hyphenated skill name (e.g. "ui-design"), not just a segment (e.g. "ui")
+- Dead `get_skill_content()` call fixed — now uses `skill_registry.get(name).body` correctly
+- Silent exception swallowing fixed on critical paths — receipt system, claim verifier, skill activation, and override cleanup now log warnings instead of silently failing
+- Receipt HMAC key read/write failures now logged
+- Receipt store load failures now logged
+
+### Changed
+
+- Tool success detection — `registry.execute()` returns `tuple[str, bool]` instead of bare string; `graph.py` unpacks the tuple for receipt recording, snapshot diffing, and frontend events
 - Telegram voice transcript HTML injection — user speech from voice messages is now HTML-escaped before inserting into HTML response
 - SSE `/api/events` infinite 401 loop — login now validates tokens against `/api/me` (auth-gated) instead of unauthenticated `/api/status`; SSE retries probe auth and re-shows login on invalid token instead of retrying forever
 - Telegram bot crash on startup — `nonlocal BOT_USERNAME` changed to `global` (module-level variable, not closure)

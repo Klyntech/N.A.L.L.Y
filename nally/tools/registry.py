@@ -79,21 +79,29 @@ class ToolRegistry:
         """Get all tools as OpenAI schemas"""
         return [tool.to_openai_schema() for tool in self.tools.values()]
 
-    def execute(self, name: str, arguments: dict) -> str:
-        """Execute a tool by name with output truncation"""
+    def execute(self, name: str, arguments: dict) -> tuple[str, bool]:
+        """Execute a tool by name with output truncation.
+
+        Returns:
+            (result, success) — result string and whether the tool succeeded.
+            success is determined by the tool itself returning normally (no exception)
+            OR by checking if the result starts with "Error" as a fallback.
+        """
         tool = self.tools.get(name)
         if not tool:
-            return f"Error: Tool '{name}' not found"
+            return f"Error: Tool '{name}' not found", False
 
         try:
             result = tool.execute(**arguments)
             result = str(result)
             if len(result) > MAX_TOOL_OUTPUT:
                 result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
-            return result
+            # Success = no exception. Also check prefix as secondary signal.
+            success = not result.startswith("Error")
+            return result, success
         except Exception as e:
             logger.error(f"Tool '{name}' execution failed: {type(e).__name__}: {e}")
-            return f"Error executing {name}: {type(e).__name__}: {e}"
+            return f"Error executing {name}: {type(e).__name__}: {e}", False
 
     def load_plugins(self):
         """Load plugins from the plugins directory (allowlist-gated, safe import)"""

@@ -193,6 +193,8 @@ def run_web_with_telegram(port=5000):
 
     # Start Telegram bot in a background thread
     def _start_telegram():
+        import asyncio
+        asyncio.set_event_loop(asyncio.new_event_loop())
         try:
             from nally.telegram.bot import run_telegram_bot
 

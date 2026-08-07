@@ -238,8 +238,8 @@ class NallyAgent:
                     # Grant skill's allowed-tools temporarily
                     if skill_obj and skill_obj.allowed_tools:
                         perm_gate.set_skill_overrides(matched[0], skill_obj.allowed_tools)
-        except Exception:
-            pass  # Skills not available
+        except Exception as e:
+            logger.warning(f"Skill activation failed: {e}")
 
         # Gate skill injection: only for creation requests, not questions
         def _is_creation_request(text: str) -> bool:
@@ -293,13 +293,13 @@ class NallyAgent:
                 if not skill_registry._loaded:
                     skill_registry.load()
                 for skill_name in ["ui-design", "design-system"]:
-                    body = skill_registry.get_skill_content(skill_name)
-                    if body:
+                    skill_obj = skill_registry.get(skill_name)
+                    if skill_obj and skill_obj.body:
                         self.messages.insert(
-                            1, {"role": "system", "content": f"[SKILL REFERENCE: {skill_name}]\n\n{body}"}
+                            1, {"role": "system", "content": f"[SKILL REFERENCE: {skill_name}]\n\n{skill_obj.body}"}
                         )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Design skill injection failed: {e}")
 
         # Smart context management
         self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
@@ -364,8 +364,8 @@ class NallyAgent:
                 from ..tools.permissions import gate as perm_gate
 
                 perm_gate.clear_all_skill_overrides()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to clear skill overrides: {e}")
 
             elapsed = (time.time() - start) * 1000
             logger.nally_response(final_response)

@@ -75,7 +75,7 @@ def _clean_message_text(text: str) -> str:
 
 def _make_emit(chat_id: int):
     """Create an emit callback that sends approval requests as inline buttons."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def emit(event: str, data: dict):
         if event != "confirmation_required":
@@ -88,12 +88,15 @@ def _make_emit(chat_id: int):
         args = data.get("args", {})
         args_str = " ".join(f"{k}={v}" for k, v in args.items()) if args else ""
 
-        text = f"<b>Permission required</b>\n\n<b>Tool:</b> <code>{tool}</code>"
+        def _esc(s: str) -> str:
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        text = f"<b>Permission required</b>\n\n<b>Tool:</b> <code>{_esc(tool)}</code>"
         if args_str:
-            text += f"\n<b>Args:</b> <code>{args_str}</code>"
+            text += f"\n<b>Args:</b> <code>{_esc(args_str[:500])}</code>"
         if data.get("diff"):
             diff = data["diff"][:800]
-            text += f"\n\n<pre>{diff}</pre>"
+            text += f"\n\n<pre>{_esc(diff)}</pre>"
 
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("Approve", callback_data=f"approve:{tc_id}"),
@@ -104,8 +107,11 @@ def _make_emit(chat_id: int):
             if BOT:
                 coro = BOT.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard)
                 asyncio.run_coroutine_threadsafe(coro, loop)
-        except Exception:
-            pass
+                logger.info(f"Approval message sent for tool_call_id={tc_id}")
+            else:
+                logger.warning("Approval emit: BOT is None, cannot send approval message")
+        except Exception as e:
+            logger.error(f"Approval emit failed: {e}")
 
     return emit
 
@@ -114,20 +120,25 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle Approve/Deny button presses for permission gates."""
     query = update.callback_query
     if not query or not query.data:
+        logger.warning(f"Approval callback: empty query or data")
         return
 
+    logger.info(f"Approval callback received: data={query.data}")
     await query.answer()
 
     data = query.data
     if data.startswith("approve:") or data.startswith("deny:"):
         tc_id = data.split(":", 1)[1]
         approved = data.startswith("approve:")
+        logger.info(f"Approval callback: resolving tc_id={tc_id}, approved={approved}")
         from nally.agent.graph import resolve_approval
         resolve_approval(tc_id, approved)
         try:
             await query.message.delete()
         except Exception:
             pass
+    else:
+        logger.warning(f"Approval callback: unexpected data format: {data}")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -264,20 +275,20 @@ async def _send_voice_response(message, text: str):
         speak_text = formatter.format(text, mode=VoiceMode.SMART, summary=voice_summary)
 
         if not speak_text:
-            await message.reply_text(text)
+            await message.reply_text(md_to_telegram_html(text), parse_mode="HTML")
             return
 
         # Synthesize to WAV, then convert to OGG
         wav_bytes = await asyncio.to_thread(synthesize_to_wav, speak_text)
         if not wav_bytes:
             # Fallback to text
-            await message.reply_text(text)
+            await message.reply_text(md_to_telegram_html(text), parse_mode="HTML")
             return
 
         ogg_bytes = await asyncio.to_thread(wav_to_ogg, wav_bytes)
         if not ogg_bytes:
             # Fallback to text
-            await message.reply_text(text)
+            await message.reply_text(md_to_telegram_html(text), parse_mode="HTML")
             return
 
         # Send as Telegram voice message with full text as caption
@@ -289,7 +300,7 @@ async def _send_voice_response(message, text: str):
     except Exception as e:
         logger.error(f"Voice response failed: {e}")
         # Fallback to text
-        await message.reply_text(text)
+        await message.reply_text(md_to_telegram_html(text), parse_mode="HTML")
 
 
 async def _generate_voice_summary(text: str) -> str:
