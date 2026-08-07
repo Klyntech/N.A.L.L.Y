@@ -209,6 +209,7 @@ PLAN_ENABLED = os.getenv("NALLY_PLAN_ENABLED", "false").lower() == "true"
 PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
 PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
 PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "300"))
+PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "15"))
 
 # ── Thinking Engine ─────────────────────────────────
 

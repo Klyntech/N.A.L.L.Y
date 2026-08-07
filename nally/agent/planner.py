@@ -19,13 +19,15 @@ from ..config import (
     PLAN_ENABLED,
     PLAN_MAX_REVISIONS,
     PLAN_MAX_STEPS,
+    PLAN_STEP_MAX_ITERATIONS,
+    PLAN_STEP_TIMEOUT,
 )
 from ..utils.logger import logger
 
 # ── Timeout Helper ────────────────────────────────────────
 
 
-def _call_with_timeout(func, timeout=60):
+def _call_with_timeout(func, timeout=PLAN_STEP_TIMEOUT):
     """Run a function with a wall-clock timeout. Raises TimeoutError if exceeded."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(func)
@@ -578,7 +580,7 @@ def _execute_step(step: PlanStep, state: Dict[str, Any]) -> str:
     return run_agent(
         messages=messages,
         tools=tools,
-        max_iterations=15,
+        max_iterations=PLAN_STEP_MAX_ITERATIONS,
         thread_id=f"plan-{state.get('thread_id', 'default')}-{step.id}",
     )
 

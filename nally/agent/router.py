@@ -27,11 +27,9 @@ class PatternMatcher:
     def __init__(self):
         self.patterns: List[Pattern] = []
         self._typo_map = {
-            "dim": "dim",
             "dm": "dim",
             "diim": "dim",
             "dimm": "dim",
-            "brighten": "brighten",
             "brighen": "brighten",
             "brijhten": "brighten",
             "screenshot": "screenshot",
@@ -610,7 +608,8 @@ def handle_run_code(match):
 
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
-        exec(code, {"__builtins__": __builtins__})
+        restricted_globals = {"__builtins__": {}}
+        exec(code, restricted_globals)
         output = sys.stdout.getvalue()
         sys.stdout = old_stdout
         return f"Output:\n{output}" if output else "Code executed (no output)."

@@ -253,6 +253,31 @@ async def lifespan(app: FastAPI):
 
     console.print(f"  [bold]|--[/] Pre-warming agent .......... {agent_status[0]}")
     console.print(f"  [bold]`--[/] Memory reflector ........... {reflector_status[0]}")
+
+    # Start Telegram webhook if token is set
+    _tg_status = "[dim]skipped (no token)[/]"
+    try:
+        from ..config import TELEGRAM_BOT_TOKEN
+        telegram_port = os.environ.get("PORT", "5000")
+
+        if TELEGRAM_BOT_TOKEN:
+            from ..telegram.bot import start_telegram_webhook
+
+            # Use localhost for dev; set TELEGRAM_WEBHOOK_URL in .env for production
+            tg_webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL", f"http://localhost:{telegram_port}")
+            tg_app = await start_telegram_webhook(tg_webhook_url)
+            if tg_app:
+                app.state.telegram_app = tg_app
+                _tg_status = "[green]active (webhook)[/]"
+            else:
+                _tg_status = "[yellow]failed[/]"
+        else:
+            app.state.telegram_app = None
+    except Exception as e:
+        app.state.telegram_app = None
+        _tg_status = f"[red]failed: {e}[/]"
+
+    console.print(f"  [bold]`--[/] Telegram ................. {_tg_status}")
     console.print()
 
     from nally.config import ACTIVE_MODEL, PROVIDER
@@ -271,11 +296,19 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: stop reflector and save all active sessions
+    # Shutdown: stop reflector, telegram bot, and save all active sessions
     try:
         from ..memory.reflector import reflector
 
         reflector.stop()
+    except Exception:
+        pass
+    try:
+        tg_app = getattr(app.state, "telegram_app", None)
+        if tg_app:
+            await tg_app.stop()
+            await tg_app.shutdown()
+            logger.info("Telegram bot stopped.")
     except Exception:
         pass
     try:
@@ -941,6 +974,32 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     from .ws_handler import websocket_chat
 
     await websocket_chat(websocket, session_id)
+
+
+# ── Telegram Webhook ──────────────────────────────────────
+
+@app.post("/telegram/webhook/{token}")
+async def telegram_webhook(token: str, request: Request):
+    """Receive Telegram updates via webhook (no polling needed)."""
+    from ..config import TELEGRAM_BOT_TOKEN
+
+    # Verify token matches
+    if token != TELEGRAM_BOT_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    # Get the Telegram bot app
+    tg_app = app.state.telegram_app
+    if not tg_app:
+        raise HTTPException(status_code=503, detail="Telegram bot not ready")
+
+    # Process the update
+    from telegram import Update
+
+    data = await request.json()
+    update = Update.de_json(data, tg_app.bot)
+    await tg_app.process_update(update)
+
+    return {"status": "ok"}
 
 
 # ── Run server ────────────────────────────────────────────

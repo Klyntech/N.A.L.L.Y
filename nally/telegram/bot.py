@@ -336,7 +336,14 @@ async def _generate_voice_summary(text: str) -> str:
 
 async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE):
     """Log errors from the telegram bot."""
-    logger.error(f"Telegram bot error: {context.error}")
+    from telegram.error import TimedOut, NetworkError
+    error = context.error
+    if isinstance(error, TimedOut):
+        logger.warning(f"Telegram bot timeout: {error} (likely slow agent response)")
+    elif isinstance(error, NetworkError):
+        logger.error(f"Telegram network error: {error}")
+    else:
+        logger.error(f"Telegram bot error: {error}")
 
 
 def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application:
@@ -348,7 +355,15 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
     """
     global BOT_USERNAME
 
-    app = Application.builder().token(token).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .get_updates_connect_timeout(30.0)
+        .get_updates_read_timeout(30.0)
+        .get_updates_write_timeout(30.0)
+        .get_updates_pool_timeout(10.0)
+        .build()
+    )
 
     # Store bot username and bot reference for mention detection and approval messages
     async def post_init(application: Application):
@@ -406,3 +421,38 @@ def run_telegram_bot(polling: bool = True, webhook_url: Optional[str] = None):
             url_path=token,
             webhook_url=f"{webhook_url}/{token}",
         )
+
+
+async def start_telegram_webhook(webhook_base_url: str):
+    """Start Telegram bot in webhook mode and register with Telegram API.
+
+    Called from FastAPI lifespan when running with --telegram flag.
+    webhook_base_url: e.g. "https://your-domain.com" or "http://localhost:5000"
+    """
+    global BOT, BOT_USERNAME
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        logger.warning("TELEGRAM_BOT_TOKEN not set — Telegram webhook not started")
+        return None
+
+    app = create_bot_app(token, webhook_base_url)
+
+    # Initialize the application (sets BOT via post_init)
+    await app.initialize()
+    await app.start()
+
+    # Register webhook with Telegram
+    webhook_path = f"/telegram/webhook/{token}"
+    full_webhook_url = f"{webhook_base_url.rstrip('/')}{webhook_path}"
+
+    await app.bot.set_webhook(
+        url=full_webhook_url,
+        allowed_updates=[
+            "message",
+            "callback_query",
+        ],
+    )
+    logger.info(f"Telegram webhook set: {full_webhook_url}")
+
+    return app

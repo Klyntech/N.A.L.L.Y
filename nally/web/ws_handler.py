@@ -120,10 +120,16 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     # Subscribe to event bus for plan events
     from ..events.bus import event_bus
 
+    _loop = asyncio.get_running_loop()
+
     def _on_plan_event(event_type, data):
         """Broadcast plan events to this session's WebSocket clients."""
         try:
             asyncio.ensure_future(ws_manager.broadcast(session_id, {"type": event_type, **data}))
+        except RuntimeError:
+            _loop.call_soon_threadsafe(
+                asyncio.ensure_future, ws_manager.broadcast(session_id, {"type": event_type, **data})
+            )
         except Exception:
             pass
 
@@ -359,7 +365,8 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
                     await ws_manager.send_json(cid, {"type": "error", "text": "Audio decode failed"})
                     return
 
-                pcm_bytes = open(tmp_out_path, "rb").read()
+                with open(tmp_out_path, "rb") as f:
+                    pcm_bytes = f.read()
             finally:
                 for p in [tmp_in_path, tmp_out_path]:
                     try:
