@@ -1,0 +1,124 @@
+/* ─── Mobile Orb (FAB) ──────────────────────── */
+#orb-fab {
+  display: none;
+  position: fixed;
+  bottom: 20px; right: 20px;
+  z-index: 90;
+}
+
+/* Mobile back button */
+.mobile-back {
+  display: none;
+  background: none; border: none;
+  color: rgba(228,226,220,0.5);
+  cursor: pointer; padding: 4px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+  margin-right: 4px;
+}
+.mobile-back:hover { color: rgba(228,226,220,0.8); background: rgba(255,255,255,0.05); }
+
+/* Mobile settings button */
+.mobile-settings {
+  display: none;
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  color: rgba(228,226,220,0.4);
+  cursor: pointer;
+  z-index: 91;
+  transition: color 0.2s ease;
+}
+.mobile-settings:hover { color: rgba(228,226,220,0.7); }
+.mobile-settings svg { width: 22px; height: 22px; }
+.mobile-settings i { display: flex; }
+
+/* Desktop settings button */
+.desktop-settings {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  color: rgba(228,226,220,0.3);
+  cursor: pointer;
+  z-index: 91;
+  transition: all 0.2s ease;
+}
+.desktop-settings:hover { color: rgba(228,226,220,0.7); }
+.desktop-settings svg { width: 18px; height: 18px; }
+.desktop-settings i { display: flex; }
+
+/* ─── Mobile Layout ─────────────────────────── */
+@media (max-width: 640px) {
+  #root {
+    position: fixed !important;
+    top: 0 !important; left: 0 !important;
+    right: 0 !important; bottom: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    pointer-events: none;
+  }
+  #root > * { pointer-events: auto; }
+
+  #orb-mount {
+    transform: scale(0.65);
+    margin: 0;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  #orb-mount .orb-wrapper {
+    width: 312px !important;
+    height: 312px !important;
+  }
+
+  #status-text { display: none; }
+  #thought-wrap { display: none; }
+  #diff-panel { display: none !important; }
+  .mobile-settings { display: flex; }
+  .desktop-settings { display: none; }
+  #chat-drawer.open ~ .mobile-settings { display: none; }
+  #chat-drawer.open ~ .settings-dropdown { opacity: 0; pointer-events: none; }
+  .settings-dropdown.pos-desktop { display: none; }
+  .settings-dropdown.pos-mobile { display: block; }
+
+  #chat-drawer {
+    position: fixed !important;
+    top: 0 !important; left: 0 !important;
+    transform: none !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  #chat-drawer.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-back { display: flex; }
+  .titlebar-dots { display: none; }
+
+  .drawer-titlebar {
+    padding: 12px 14px;
+    gap: 8px;
+  }
+
+  .resize-handle { display: none !important; }
+
+  .drawer-messages {
+    padding: 12px;
+  }
+
+  .drawer-input-wrap {
+    padding: 10px 12px 14px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+}

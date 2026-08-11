@@ -156,17 +156,21 @@ class ApprovalRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import logging
+    import threading
 
     from rich.console import Console
-    from rich.panel import Panel
+
+    from nally.core.startup import StartupDisplay
 
     console = Console()
+    display = StartupDisplay(console)
 
     # Suppress ALL noisy loggers during startup display
     _suppress = (
         "nally.mcp", "nally.tools", "nally.memory", "nally.skills",
         "mcp", "telegram", "httpx", "httpcore",
         "nally.memory.reflector",
+        "uvicorn", "uvicorn.access", "uvicorn.error",
     )
     _saved_levels = {}
     for _name in _suppress:
@@ -189,41 +193,20 @@ async def lifespan(app: FastAPI):
             for level, key, msg in errors:
                 icon = "[red]ERROR[/]" if level == "error" else "[yellow]WARN[/]"
                 console.print(f"  {icon}  {key}: {msg}")
+            display.phase("Config", "[red]errors found[/]", ok=False)
         else:
-            console.print("  [green][+][/]  Config validated")
+            display.phase("Config", "[green]valid[/]")
     except Exception as e:
-        console.print(f"  [red][x][/]  Config validation failed: {e}")
+        display.phase("Config", f"[red]failed: {e}[/]", ok=False)
         raise
 
-    # Load tools
+    # Load tools (includes MCP connections — now parallel)
     _tool_count, mcp_status = load_all_tools()
 
-    # Build startup tree
-    console.print()
-    console.print(f"  [bold]|--[/] Loading tools .......... [green]{_tool_count} registered[/]")
-    console.print("  [bold]|--[/] Connecting MCP servers")
+    display.phase("Tools", f"[green]{_tool_count} registered[/]")
+    display.mcp_summary(mcp_status)
 
-    for i, srv in enumerate(mcp_status):
-        is_last = i == len(mcp_status) - 1
-        prefix = "|--" if not is_last else "`--"
-        connector = "  " if is_last else "|  "
-        name = srv["name"]
-        status = srv["status"]
-        tools = srv.get("tools", 0)
-        msg = srv.get("message", "")
-
-        if status == "ok":
-            tool_word = "tool" if tools == 1 else "tools"
-            dots = "." * max(1, 28 - len(name))
-            console.print(f"  {connector}{prefix} {name} {dots} [green]{tools} {tool_word}[/]")
-        elif status == "awaiting":
-            console.print(f"  {connector}{prefix} [dim](o) {name} -- {msg}[/]")
-        elif status == "timeout":
-            console.print(f"  {connector}{prefix} [yellow](o) {name} -- {msg}[/]")
-        else:
-            console.print(f"  {connector}{prefix} [red](x) {name} -- {msg}[/]")
-
-    # Pre-warm agent
+    # Pre-warm agent (threaded, non-blocking)
     agent_status = ["[yellow]starting...[/]"]
     reflector_status = ["[yellow]starting...[/]"]
 
@@ -233,8 +216,6 @@ async def lifespan(app: FastAPI):
             agent_status[0] = "[green]ready[/]"
         except Exception as e:
             agent_status[0] = f"[red]failed: {e}[/]"
-
-    import threading
 
     agent_thread = threading.Thread(target=_prewarm, daemon=True)
     agent_thread.start()
@@ -251,44 +232,45 @@ async def lifespan(app: FastAPI):
     # Wait for agent pre-warm (brief, don't block server)
     agent_thread.join(timeout=5)
 
-    console.print(f"  [bold]|--[/] Pre-warming agent .......... {agent_status[0]}")
-    console.print(f"  [bold]`--[/] Memory reflector ........... {reflector_status[0]}")
+    display.phase("Agent", agent_status[0])
+    display.phase("Reflector", reflector_status[0])
 
-    # Start Telegram webhook if token is set
+    # Start Telegram bot — non-blocking via create_task
     _tg_status = "[dim]skipped (no token)[/]"
+    app.state.telegram_app = None
     try:
         from ..config import TELEGRAM_BOT_TOKEN
-        telegram_port = os.environ.get("PORT", "5000")
 
         if TELEGRAM_BOT_TOKEN:
-            from ..telegram.bot import start_telegram_webhook
-
-            # Use localhost for dev; set TELEGRAM_WEBHOOK_URL in .env for production
-            tg_webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL", f"http://localhost:{telegram_port}")
-            tg_app = await start_telegram_webhook(tg_webhook_url)
-            if tg_app:
-                app.state.telegram_app = tg_app
-                _tg_status = "[green]active (webhook)[/]"
+            tg_webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL", "").strip()
+            if tg_webhook_url:
+                try:
+                    from ..telegram.bot import start_telegram_webhook
+                    tg_app = await start_telegram_webhook(tg_webhook_url)
+                    if tg_app:
+                        app.state.telegram_app = tg_app
+                        _tg_status = "[green]active (webhook)[/]"
+                    else:
+                        _tg_status = "[yellow]failed[/]"
+                except Exception as e:
+                    _tg_status = f"[red]failed: {e}[/]"
             else:
-                _tg_status = "[yellow]failed[/]"
-        else:
-            app.state.telegram_app = None
+                from ..telegram.bot import start_telegram_polling
+                tg_app = await start_telegram_polling()
+                if tg_app:
+                    app.state.telegram_app = tg_app
+                    _tg_status = "[green]active (polling)[/]"
+                else:
+                    _tg_status = "[yellow]failed[/]"
     except Exception as e:
-        app.state.telegram_app = None
         _tg_status = f"[red]failed: {e}[/]"
 
-    console.print(f"  [bold]`--[/] Telegram ................. {_tg_status}")
-    console.print()
+    display.phase("Telegram", _tg_status)
 
     from nally.config import ACTIVE_MODEL, PROVIDER
 
-    port = os.environ.get("PORT", "5000")
-    console.print(Panel(
-        f"  [bold](*) NALLY online[/]  -  http://localhost:{port}  -  {PROVIDER.upper()}/{ACTIVE_MODEL}",
-        border_style="#7C6AEF",
-        padding=(0, 1),
-    ))
-    console.print()
+    port = int(os.environ.get("PORT", "5000"))
+    display.summary(port=port, provider=PROVIDER, model=ACTIVE_MODEL)
 
     # Restore logger levels for runtime
     for _name, _level in _saved_levels.items():
@@ -306,9 +288,8 @@ async def lifespan(app: FastAPI):
     try:
         tg_app = getattr(app.state, "telegram_app", None)
         if tg_app:
-            await tg_app.stop()
-            await tg_app.shutdown()
-            logger.info("Telegram bot stopped.")
+            from ..telegram.bot import stop_telegram_polling
+            await stop_telegram_polling(tg_app)
     except Exception:
         pass
     try:
@@ -350,13 +331,15 @@ app.include_router(health_router)
 
 @app.middleware("http")
 async def _middleware(request: Request, call_next):
-    # Rate limit
-    client_ip = request.client.host if request.client else "unknown"
-    if not _rate_limiter.allow(client_ip):
-        return JSONResponse(
-            status_code=429,
-            content={"error": "rate_limit_exceeded", "message": "Too many requests. Please wait."},
-        )
+    # Rate limit — skip for static assets
+    path = request.url.path
+    if not path.startswith("/static/") and path != "/favicon.ico":
+        client_ip = request.client.host if request.client else "unknown"
+        if not _rate_limiter.allow(client_ip):
+            return JSONResponse(
+                status_code=429,
+                content={"error": "rate_limit_exceeded", "message": "Too many requests. Please wait."},
+            )
 
     # Request ID
     request_id = str(uuid.uuid4())[:8]
@@ -442,6 +425,34 @@ async def status():
 @app.get("/api/me")
 async def me(_auth=Depends(verify_auth)):
     return {"authenticated": True, "session": "web:default"}
+
+
+@app.get("/api/traces")
+async def traces(limit: int = 50, _auth=Depends(verify_auth)):
+    """List recent run_ids with a one-line summary for browsing."""
+    from ..core.tracing import tracer
+    from ..memory import memory_store
+
+    if not tracer._store:
+        tracer.set_store(memory_store)
+
+    limit = max(1, min(limit, 200))
+    return {"traces": tracer.list_runs(limit)}
+
+
+@app.get("/api/trace/{run_id}")
+async def trace(run_id: str, _auth=Depends(verify_auth)):
+    """Return the full nested span tree for a run_id."""
+    from ..core.tracing import tracer
+    from ..memory import memory_store
+
+    if not tracer._store:
+        tracer.set_store(memory_store)
+
+    tree = tracer.get_run_tree(run_id)
+    if tree is None:
+        raise HTTPException(status_code=404, detail=f"No trace found for run_id: {run_id}")
+    return tree
 
 
 # ── API: Chat (SSE streaming) ────────────────────────────

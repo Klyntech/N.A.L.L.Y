@@ -1,0 +1,123 @@
+/* ─── Diff Viewer Panel (Desktop only) ──────── */
+#diff-panel {
+  position: fixed;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
+  width: 420px;
+  max-height: 70vh;
+  background: rgba(18,18,24,0.97);
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  z-index: 90;
+  display: none;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+#diff-panel.open { display: flex; }
+.diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.diff-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.diff-header-icon {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.diff-header-icon svg { width: 12px; height: 12px; color: var(--iris); }
+.diff-header-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(228,226,220,0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-header-file {
+  font-size: 10px;
+  color: rgba(228,226,220,0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.diff-close {
+  background: none;
+  border: none;
+  color: rgba(228,226,220,0.3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.diff-close:hover { background: rgba(255,255,255,0.06); color: rgba(228,226,220,0.8); }
+.diff-close svg { width: 14px; height: 14px; }
+.diff-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+  font-variant-ligatures: contextual;
+}
+.diff-body::-webkit-scrollbar { width: 4px; height: 4px; }
+.diff-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+.diff-line { display: block; }
+.diff-line-add { color: #34D399; background: rgba(52,211,153,0.08); }
+.diff-line-del { color: #EF4444; background: rgba(239,68,68,0.08); }
+.diff-line-hdr { color: var(--iris); font-weight: 600; margin-top: 6px; }
+.diff-line-ctx { color: rgba(228,226,220,0.4); }
+.diff-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.diff-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.diff-stat-add { color: #34D399; }
+.diff-stat-del { color: #EF4444; }
+.diff-minimize {
+  background: none;
+  border: none;
+  color: rgba(228,226,220,0.3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.diff-minimize:hover { background: rgba(255,255,255,0.06); color: rgba(228,226,220,0.8); }
+.diff-minimize svg { width: 14px; height: 14px; }

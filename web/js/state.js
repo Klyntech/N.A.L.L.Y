@@ -1,0 +1,32 @@
+window.NALLY = window.NALLY || {};
+
+NALLY.state = {
+  token: localStorage.getItem(NALLY.STORAGE_KEY) || '',
+  drawerOpen: false,
+  isMaximized: false,
+  savedBounds: null,
+  typingEl: null,
+  useWebSocket: false,
+  ws: null,
+  isRecording: false,
+  mediaRecorder: null,
+  audioChunks: [],
+  micStream: null,
+  settingsOpen: false,
+  chatAbort: null,
+  streamMsgEl: null,
+  currentRunId: null,
+  thinkTimers: [],
+  speakTimers: [],
+  toolCards: {},
+  tabId: Math.random().toString(36).slice(2, 10),
+  syncChannel: null,
+  evtSource: null,
+  pollInterval: null,
+  startTime: Date.now(),
+  thoughtCollapsed: false,
+  cmdActiveIdx: 0,
+  cmdItems: [],
+  dragState: { active: false, offsetX: 0, offsetY: 0 },
+  resizeState: { active: false, dir: '', startX: 0, startY: 0, startW: 0, startH: 0, startL: 0, startT: 0 }
+};

@@ -1,0 +1,250 @@
+/* ─── Settings Dropdown ──────────────────────── */
+.settings-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 99;
+}
+.settings-overlay.open { display: block; }
+
+.settings-dropdown {
+  position: fixed;
+  width: 220px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: rgba(18,18,24,0.97);
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px) scale(0.96);
+  transition: all 0.18s cubic-bezier(0.22,1,0.36,1);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.settings-dropdown::-webkit-scrollbar { width: 3px; }
+.settings-dropdown::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+.settings-dropdown.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+/* Desktop: above bottom-right settings icon */
+.settings-dropdown.pos-desktop {
+  bottom: 56px;
+  right: 20px;
+  top: auto;
+}
+/* Mobile: below top-left settings icon */
+.settings-dropdown.pos-mobile {
+  top: 52px;
+  left: 16px;
+}
+
+/* Accordion sections */
+.settings-section {
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.settings-section:last-child { border-bottom: none; }
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+  user-select: none;
+}
+.settings-head:hover { background: rgba(255,255,255,0.03); }
+
+.settings-head-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(228,226,220,0.6);
+}
+.settings-head-icon {
+  width: 12px; height: 12px;
+  color: rgba(228,226,220,0.2);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.settings-section.open .settings-head-icon {
+  transform: rotate(90deg);
+}
+
+.settings-body {
+  display: none;
+  padding: 0 12px 8px;
+}
+.settings-section.open .settings-body {
+  display: block;
+}
+
+/* Rows */
+.settings-dropdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+.settings-dropdown-label {
+  font-size: 12px;
+  color: rgba(228,226,220,0.65);
+}
+.settings-dropdown-value {
+  font-size: 11px;
+  color: rgba(228,226,220,0.4);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Theme swatches */
+.theme-swatches {
+  display: flex;
+  gap: 5px;
+}
+.theme-swatch {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+.theme-swatch:hover { transform: scale(1.2); box-shadow: 0 3px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.2); }
+.theme-swatch.active { border-color: rgba(255,255,255,0.85); box-shadow: 0 0 8px var(--iris-glow), 0 2px 6px rgba(0,0,0,0.3); }
+
+/* Toggle */
+.settings-toggle {
+  position: relative;
+  width: 36px; height: 20px;
+  cursor: pointer;
+}
+.settings-toggle input { display: none; }
+.settings-toggle-track {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255,255,255,0.1);
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+.settings-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: rgba(228,226,220,0.5);
+  transition: all 0.2s;
+}
+.settings-toggle input:checked + .settings-toggle-track {
+  background: var(--iris);
+}
+.settings-toggle input:checked + .settings-toggle-track::after {
+  transform: translateX(16px);
+  background: white;
+}
+
+.settings-dropdown-credit {
+  text-align: center;
+  font-size: 10px;
+  color: rgba(228,226,220,0.15);
+  padding: 6px 10px 8px;
+}
+
+.settings-emergency-btn {
+  width: 100%;
+  padding: 6px 0;
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.2);
+  border-radius: 5px;
+  color: #EF4444;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.settings-emergency-btn:hover {
+  background: rgba(239,68,68,0.2);
+  border-color: rgba(239,68,68,0.4);
+}
+
+/* Service cards */
+.svc-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.svc-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+.svc-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+.svc-card.connected { border-color: rgba(52,211,153,0.2); }
+.svc-card.coming-soon-card { opacity: 0.4; cursor: default; }
+.svc-badge.coming-soon { background: rgba(255,255,255,0.06); color: rgba(228,226,220,0.4); }
+
+.svc-icon {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: white;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.svc-card:hover .svc-icon { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.2); }
+
+.svc-name {
+  font-size: 11px;
+  color: #e4e2dc;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.svc-badge {
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.1);
+  color: rgba(228,226,220,0.7);
+  font-weight: 600;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.svc-card.connected .svc-badge {
+  background: rgba(52,211,153,0.15);
+  color: var(--green);
+}
+
+.svc-disconnect {
+  position: absolute;
+  top: 1px; right: 3px;
+  background: none; border: none;
+  color: rgba(228,226,220,0.15);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px;
+  display: none;
+  line-height: 1;
+}
+.svc-card.connected:hover .svc-disconnect { display: block; }
+.svc-disconnect:hover { color: #EF4444; }

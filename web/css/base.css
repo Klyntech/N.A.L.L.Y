@@ -1,0 +1,124 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+/* ─── Themes ──────────────────────────────── */
+:root {
+  --teal: #3ECFB8;
+  --green: #34D399;
+}
+body, body.theme-midnight {
+  --iris: #7C6AEF;
+  --iris-glow: rgba(124,106,239,0.35);
+  --bg: #0a0a0a;
+  --orb-speed: 4s;
+  --orb-glow-a: rgba(124,106,239,0.2);
+  --orb-glow-b: rgba(124,106,239,0.4);
+}
+body.theme-emerald {
+  --iris: #34D399;
+  --iris-glow: rgba(52,211,153,0.35);
+  --bg: #080f0a;
+  --orb-speed: 2s;
+  --orb-glow-a: rgba(52,211,153,0.2);
+  --orb-glow-b: rgba(52,211,153,0.4);
+}
+body.theme-crimson {
+  --iris: #EF4444;
+  --iris-glow: rgba(239,68,68,0.35);
+  --bg: #0f0a0a;
+  --orb-speed: 3s;
+  --orb-glow-a: rgba(239,68,68,0.2);
+  --orb-glow-b: rgba(239,68,68,0.4);
+}
+body.theme-ocean {
+  --iris: #38BDF8;
+  --iris-glow: rgba(56,189,248,0.35);
+  --bg: #0a0a0f;
+  --orb-speed: 5s;
+  --orb-glow-a: rgba(56,189,248,0.2);
+  --orb-glow-b: rgba(56,189,248,0.4);
+}
+body.theme-gold {
+  --iris: #F59E0B;
+  --iris-glow: rgba(245,158,11,0.35);
+  --bg: #0f0d0a;
+  --orb-speed: 3.5s;
+  --orb-glow-a: rgba(245,158,11,0.2);
+  --orb-glow-b: rgba(245,158,11,0.4);
+}
+
+html, body { background: var(--bg); height: 100%; width: 100%; overflow: hidden; font-family: 'Space Grotesk', sans-serif; transition: background 0.4s ease; }
+#root { height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 40px; }
+
+/* ─── Status text ───────────────────────────── */
+#status-text {
+  font-size: 13px;
+  font-family: 'Space Grotesk', sans-serif;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: rgba(228,226,220,0.25);
+  transition: all 0.4s ease;
+  min-height: 20px;
+}
+#thought-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+#thought-wrap.visible { opacity: 1; }
+#thought-wrap.collapsed #thought-content { max-height: 0; opacity: 0; padding: 0; margin: 0; overflow: hidden; }
+#thought-toggle {
+  background: none; border: none; cursor: pointer;
+  color: rgba(124,106,239,0.35);
+  font-size: 11px; letter-spacing: 1px;
+  font-family: 'Space Grotesk', sans-serif;
+  display: flex; align-items: center; gap: 4px;
+  transition: color 0.3s ease;
+  padding: 2px 8px;
+}
+#thought-toggle:hover { color: rgba(124,106,239,0.7); }
+#thought-toggle .chevron {
+  display: inline-block;
+  transition: transform 0.3s ease;
+  font-size: 10px;
+}
+#thought-wrap.collapsed #thought-toggle .chevron { transform: rotate(-90deg); }
+#thought-content {
+  font-size: 14px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-style: italic;
+  letter-spacing: 1px;
+  color: rgba(124,106,239,0.55);
+  text-align: center;
+  max-width: 400px;
+  min-height: 20px;
+  max-height: 40px;
+  transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+  opacity: 1;
+  padding: 2px 0;
+}
+
+/* Compact mode */
+body.compact .drawer-messages { padding: 8px 10px; }
+body.compact .msg-text { font-size: 12px; line-height: 1.5; }
+body.compact .msg-text pre { padding: 8px 10px; margin: 6px 0; }
+body.compact .msg-text pre code { font-size: 11px; }
+body.compact .msg-text code { font-size: 11px; padding: 1px 4px; }
+body.compact .msg-text h1 { font-size: 15px; }
+body.compact .msg-text h2 { font-size: 14px; }
+body.compact .msg-text h3 { font-size: 13px; }
+body.compact .tool-card { margin: 4px 0; }
+body.compact .tool-card-header { padding: 6px 10px; }
+body.compact .tool-card-summary { font-size: 12px; }
+body.compact .tool-card-code { font-size: 11px; padding: 6px 8px; }
+body.compact .drawer-input { padding: 8px 12px; font-size: 13px; min-height: 36px; }
+
+/* Lock mode — disable interactive elements */
+body.lock-mode .drawer-input { pointer-events: none; opacity: 0.4; }
+body.lock-mode .drawer-send { pointer-events: none; opacity: 0.4; }
+body.lock-mode .settings-overlay { pointer-events: auto; }
+body.lock-mode .settings-dropdown-row:not(.lock-row) { pointer-events: none; opacity: 0.4; }
+body.lock-mode .mobile-settings { pointer-events: none; opacity: 0.4; }
+body.lock-mode .desktop-settings { pointer-events: none; opacity: 0.4; }

@@ -1,0 +1,151 @@
+/* ─── Orb Keyframes ─────────────────────────── */
+@keyframes orbSpinCW {
+  0% { transform: rotate(0deg); }
+  50% { transform: rotate(180deg) scale(1.02); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes orbSpinCCW {
+  0% { transform: rotate(360deg); }
+  50% { transform: rotate(180deg) scale(0.98); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes orbCorePulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 18px var(--iris-glow)) drop-shadow(0 0 35px var(--orb-glow-a)); }
+  50% { transform: scale(1.05); filter: drop-shadow(0 0 35px var(--iris-glow)) drop-shadow(0 0 60px var(--orb-glow-b)); }
+}
+@keyframes orbAmbientPulse {
+  0%, 100% { transform: scale(0.88); opacity: 0.3; filter: blur(55px) saturate(1.2); }
+  50% { transform: scale(1.15); opacity: 0.75; filter: blur(40px) saturate(1.8); }
+}
+@keyframes orbListening {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(62,207,184,0.5)) drop-shadow(0 0 50px rgba(62,207,184,0.25)); }
+  50% { transform: scale(1.08); filter: drop-shadow(0 0 50px rgba(62,207,184,0.85)) drop-shadow(0 0 90px rgba(62,207,184,0.4)); }
+}
+@keyframes orbThinkingPulse {
+  0%   { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+  8%   { transform: scale(1.07); filter: drop-shadow(0 0 35px var(--iris-glow)) drop-shadow(0 0 60px var(--orb-glow-a)); }
+  18%  { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+  26%  { transform: scale(1.1); filter: drop-shadow(0 0 45px var(--iris-glow)) drop-shadow(0 0 80px var(--orb-glow-b)); }
+  40%  { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 15px var(--iris-glow)); }
+}
+@keyframes orbThinkingRingPulse {
+  0%   { opacity: 0; transform: scale(1); }
+  10%  { opacity: 0.6; transform: scale(1.05); }
+  40%  { opacity: 0; transform: scale(1.4); }
+  100% { opacity: 0; transform: scale(1); }
+}
+@keyframes orbThinkingRipple {
+  0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.5; border-color: var(--iris-glow); }
+  100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; border-color: var(--orb-glow-a); }
+}
+@keyframes orbSpeaking {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)) drop-shadow(0 0 50px rgba(52,211,153,0.35)); }
+  50% { transform: scale(1.1); filter: drop-shadow(0 0 45px rgba(52,211,153,0.9)) drop-shadow(0 0 80px rgba(52,211,153,0.55)); }
+}
+@keyframes orbBreathe {
+  0%   { transform: scale(0.3); opacity: 0; filter: blur(20px) brightness(0.3); }
+  25%  { transform: scale(0.6); opacity: 0.5; filter: blur(8px) brightness(0.7); }
+  50%  { transform: scale(0.9); opacity: 0.9; filter: blur(2px) brightness(1.1); }
+  70%  { transform: scale(1.08); opacity: 1; filter: blur(0px) brightness(1.3); }
+  85%  { transform: scale(0.96); opacity: 1; filter: blur(0px) brightness(1); }
+  100% { transform: scale(1); opacity: 1; filter: blur(0px) brightness(1); }
+}
+@keyframes rippleExpand {
+  0%   { transform: translate(-50%, -50%) scale(0); opacity: 0.8; border-width: 3px; }
+  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; border-width: 1px; }
+}
+@keyframes particleFly {
+  0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; }
+}
+@keyframes wordPulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+@keyframes emphasisFlare {
+  0% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)); }
+  30% { transform: scale(1.15); filter: drop-shadow(0 0 60px rgba(52,211,153,1)) drop-shadow(0 0 100px rgba(52,211,153,0.6)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(52,211,153,0.6)); }
+}
+
+/* ─── Orb Classes ───────────────────────────── */
+.orb-wrapper {
+  position: relative;
+  width: 312px; height: 312px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none;
+  transition: transform 0.15s ease-out;
+  transform-style: preserve-3d;
+}
+.orb-inner {
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.12s ease-out;
+}
+.orb-inner.breathe { animation: orbBreathe 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.orb-inner.word-pulse { animation: wordPulse 0.25s ease-out; }
+.orb-inner.emphasis-flare { animation: emphasisFlare 0.4s ease-out; }
+.orb-ambient {
+  position: absolute;
+  width: 470px; height: 470px;
+  border-radius: 50%;
+  background: var(--iris-glow);
+  filter: blur(40px);
+  pointer-events: none;
+  transition: all 0.6s ease;
+  animation: orbAmbientPulse 8s ease-in-out infinite;
+}
+.orb-ring-cw { animation: orbSpinCW 55s linear infinite; transform-origin: 250px 250px; }
+.orb-ring-ccw { animation: orbSpinCCW 60s linear infinite; transform-origin: 250px 250px; }
+.orb-reactor { animation: orbCorePulse var(--orb-speed) ease-in-out infinite; transform-origin: 250px 250px; }
+
+/* State: listening */
+.orb-state-listening .orb-reactor { animation: orbListening 1.5s ease-in-out infinite; }
+.orb-state-listening .orb-ring-cw { animation-duration: 8s; }
+.orb-state-listening .orb-ring-ccw { animation-duration: 10s; }
+/* State: thinking */
+.orb-state-thinking .orb-ring-cw { animation: orbSpinCW 2.5s linear infinite; }
+.orb-state-thinking .orb-ring-ccw { animation: orbSpinCCW 3s linear infinite reverse; }
+.orb-state-thinking .orb-reactor { animation: orbThinkingPulse 1.2s ease-in-out infinite; }
+.orb-thinking-ring-pulse {
+  position: absolute; top: 50%; left: 50%;
+  width: 312px; height: 312px; border-radius: 50%;
+  border: 2px solid rgba(124,106,239,0.4);
+  transform: translate(-50%, -50%) scale(1);
+  pointer-events: none; opacity: 0;
+  animation: orbThinkingRingPulse 1.2s ease-out infinite;
+}
+.orb-thinking-ripple {
+  position: absolute; top: 50%; left: 50%;
+  width: 120px; height: 120px; border-radius: 50%;
+  border: 1.5px solid rgba(124,106,239,0.5);
+  pointer-events: none;
+  animation: orbThinkingRipple 1.2s ease-out infinite;
+}
+/* State: speaking */
+.orb-state-speaking .orb-reactor { animation: orbSpeaking 2s ease-in-out infinite; }
+.orb-state-speaking .orb-ring-cw { animation-duration: 20s; }
+.orb-state-speaking .orb-ring-ccw { animation-duration: 25s; }
+
+/* Ripple */
+.ripple {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 100px; height: 100px;
+  border-radius: 50%;
+  border: 2px solid rgba(124,106,239,0.45);
+  pointer-events: none;
+  animation: rippleExpand 1.5s ease-out forwards;
+}
+/* Particle */
+.particle {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: particleFly 1s ease-out forwards;
+}
