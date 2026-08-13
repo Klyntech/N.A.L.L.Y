@@ -73,6 +73,8 @@ def detect_interface(session_id: str) -> str:
         return "Telegram"
     if session_id.startswith("voice:"):
         return "Voice"
+    if session_id.startswith("voip:"):
+        return "VoIP"
     return "CLI"
 
 

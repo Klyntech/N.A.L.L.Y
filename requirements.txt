@@ -50,6 +50,12 @@ piper-tts>=1.3.0
 sounddevice>=0.4.6
 keyboard>=0.13.5
 
+# VoIP (zero-cost SIP phone via LiveKit Cloud free tier)
+livekit-agents>=0.1.0
+livekit-plugins-silero>=0.1.0
+livekit-plugins-deepgram>=0.1.0
+livekit-plugins-elevenlabs>=0.1.0
+
 # Database (optional, for PostgreSQL backend)
 asyncpg>=0.29.0
 
