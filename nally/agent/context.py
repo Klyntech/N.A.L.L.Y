@@ -8,9 +8,20 @@ Handles:
 """
 
 import json
+import re
 from typing import Dict, List
 
 from ..utils.logger import logger
+
+_STOPWORDS = frozenset({
+    "the", "is", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "it", "this", "that", "are", "was", "were", "be",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
+    "may", "might", "can", "shall", "not", "no", "if", "then", "than", "so",
+    "just", "about", "what", "when", "where", "how", "who", "which", "there",
+    "here", "now", "also", "very", "too", "my", "your", "its", "our", "their",
+    "me", "him", "her", "us", "them", "you", "he", "she", "we", "they", "i",
+})
 
 # Try tiktoken for accurate token counting, fall back to char estimation
 try:
@@ -196,6 +207,35 @@ class ContextManager:
         except Exception as e:
             logger.debug(f"Memory recall failed: {e}")
             return messages
+
+        # Also search with extracted keywords (skip stopwords)
+        try:
+            keywords = [w for w in re.split(r'[^a-zA-Z0-9_]+', query) if len(w) >= 3 and w.lower() not in _STOPWORDS]
+            if keywords:
+                keyword_query = " ".join(keywords[:5])
+                kw_mems = memory_v2.recall(search=keyword_query, min_confidence=0.5, limit=5)
+                if kw_mems and isinstance(kw_mems, dict):
+                    if not memories:
+                        memories = {}
+                    for k, v in kw_mems.items():
+                        if k not in memories:
+                            memories[k] = v
+        except Exception:
+            pass
+
+        # Always inject high-priority category memories (projects, auto_facts)
+        try:
+            from ..memory.store_v2 import memory_v2 as mv2
+            for cat in ("project", "auto_fact"):
+                cat_mems = mv2.recall(category=cat, min_confidence=0.5, limit=5)
+                if cat_mems and isinstance(cat_mems, dict):
+                    if not memories:
+                        memories = {}
+                    for k, v in cat_mems.items():
+                        if k not in memories:
+                            memories[k] = v
+        except Exception:
+            pass
 
         if not memories or not isinstance(memories, dict) or len(memories) == 0:
             return messages

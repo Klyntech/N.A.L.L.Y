@@ -7,6 +7,7 @@ from typing import Callable, Dict, List, Optional
 
 from ..tools.registry import registry
 from ..utils.logger import logger
+from ..core.tracing import tracer
 
 
 def _get_filtered_tools(query: str) -> List[Dict]:
@@ -24,11 +25,12 @@ def _get_filtered_tools(query: str) -> List[Dict]:
 class SubAgent:
     """An autonomous sub-agent that can think, use tools, and return results"""
 
-    def __init__(self, goal: str, context: str = "", agent_id: str = None, model: str = None):
+    def __init__(self, goal: str, context: str = "", agent_id: str = None, model: str = None, depth: int = 0):
         self.id = agent_id or f"sub_{uuid.uuid4().hex[:8]}"
         self.goal = goal
         self.context = context
         self.model = model
+        self.depth = depth
         self.status = "pending"
         self.result: Optional[str] = None
         self.error: Optional[str] = None
@@ -39,10 +41,19 @@ class SubAgent:
         self._lock = threading.Lock()
         self._emit: Optional[Callable] = None
         self._thread: Optional[threading.Thread] = None
+        # Tracing context captured at spawn time (thread-local span stack does
+        # not propagate into this sub-agent's own thread).
+        self._trace_parent_span_id: Optional[str] = None
+        self._trace_run_id: Optional[str] = None
 
     def set_callback(self, callback: Optional[Callable]):
         """Set progress reporting callback."""
         self._emit = callback
+
+    def set_trace_context(self, parent_span_id: Optional[str], run_id: Optional[str]):
+        """Set the tracing parent context captured at spawn time."""
+        self._trace_parent_span_id = parent_span_id
+        self._trace_run_id = run_id
 
     def _emit_event(self, event: str, data: dict):
         """Emit event if callback is set."""
@@ -61,8 +72,30 @@ class SubAgent:
 
     def _run(self):
         """Run the sub-agent autonomously."""
+        # Publish our nesting depth on the contextvar so that any sub-agent we
+        # spawn (via the agent tool, executed in a pooled worker thread) is
+        # correctly bounded by MAX_SUBAGENT_DEPTH in the pool.
+        _depth_token = None
+        try:
+            from .pool import SUBAGENT_DEPTH
+
+            _depth_token = SUBAGENT_DEPTH.set(self.depth)
+        except Exception:
+            pass
+
         with self._lock:
             self.status = "running"
+
+        sub_span = None
+        try:
+            sub_span = tracer.start_span(
+                f"subagent:{self.id}",
+                {"goal": self.goal, "context": self.context, "model": self.model},
+                parent_span_id=self._trace_parent_span_id,
+                run_id=self._trace_run_id,
+            )
+        except Exception:
+            sub_span = None
 
         self._emit_event(
             "subagent_status",
@@ -99,6 +132,12 @@ class SubAgent:
                 self.status = "completed"
                 self.completed_at = datetime.now().isoformat()
 
+            if sub_span is not None:
+                try:
+                    tracer.end_span(sub_span.span_id, output={"result": result, "status": "completed"})
+                except Exception:
+                    pass
+
             self._emit_event(
                 "subagent_result",
                 {
@@ -116,6 +155,12 @@ class SubAgent:
                 self.status = "failed"
                 self.completed_at = datetime.now().isoformat()
 
+            if sub_span is not None:
+                try:
+                    tracer.end_span_exc(sub_span.span_id, e)
+                except Exception:
+                    pass
+
             self._emit_event(
                 "subagent_error",
                 {
@@ -125,6 +170,16 @@ class SubAgent:
                 },
             )
             logger.error(f"SubAgent {self.id} failed: {e}")
+
+        finally:
+            # Restore the nesting depth contextvar set at the top of _run.
+            if _depth_token is not None:
+                try:
+                    from .pool import SUBAGENT_DEPTH
+
+                    SUBAGENT_DEPTH.reset(_depth_token)
+                except Exception:
+                    pass
 
     def _agent_loop(self) -> str:
         """Run the agent loop using LangGraph."""
@@ -143,12 +198,18 @@ class SubAgent:
             },
         )
 
+        cur = tracer.get_current_span()
+        child_parent = cur.span_id if cur else self._trace_parent_span_id
+        child_run = cur.run_id if cur else self._trace_run_id
+
         return run_agent(
             messages=self.messages,
             tools=tools,
             emit=self._emit,
             max_iterations=15,
             thread_id=self.id,
+            _parent_span_id=child_parent,
+            _run_id=child_run,
             model=self.model,
         )
 

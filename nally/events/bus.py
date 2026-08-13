@@ -117,11 +117,9 @@ class EventBus:
         event = Event(type=event_type, data=data or {}, source=source)
 
         # Record history
-        self._history.append(event)
-        self._stats[event_type] = self._stats.get(event_type, 0) + 1
-
-        # Get handlers under lock, then call outside lock
         with self._lock:
+            self._history.append(event)
+            self._stats[event_type] = self._stats.get(event_type, 0) + 1
             handlers = list(self._handlers.get(event_type, []))
             wildcard = list(self._wildcard_handlers)
 
@@ -133,14 +131,16 @@ class EventBus:
 
     def get_history(self, event_type: Optional[str] = None, limit: int = 50) -> List[Event]:
         """Get recent events, optionally filtered by type."""
-        events = list(self._history)
-        if event_type:
-            events = [e for e in events if e.type == event_type]
-        return events[-limit:]
+        with self._lock:
+            events = list(self._history)
+            if event_type:
+                events = [e for e in events if e.type == event_type]
+            return events[-limit:]
 
     def get_stats(self) -> Dict[str, int]:
         """Get event publish counts by type."""
-        return dict(self._stats)
+        with self._lock:
+            return dict(self._stats)
 
     def clear_history(self) -> None:
         """Clear event history."""

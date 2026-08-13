@@ -19,18 +19,21 @@ CORE_TOOLS = {
     "run_code",
     "code_analysis",
     "web_search",
-    "image_gen",
-    "remember",
-    "recall",
-    "forget",
+    "generate_image",
     "memory_stats",
+    "think",
     # Gmail direct tools
     "gmail_search",
-    "gmail_read",
-    "gmail_send",
+    "gmail_read_thread",
     "gmail_labels",
+    "gmail_profile",
     # Subagent
     "agent",
+    # Phone calls
+    "make_call",
+    "get_call_status",
+    "hangup_call",
+    "list_calls",
 }
 
 # Tools always included in filtered results regardless of query

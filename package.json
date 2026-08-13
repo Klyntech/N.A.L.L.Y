@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@oliverames/meta-mcp-server": "^2.0.2",
+    "@upstash/context7-mcp": "^4.0.0",
+    "telegram-bot-mcp-server": "^1.0.0"
+  }
+}

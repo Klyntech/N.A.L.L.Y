@@ -1,10 +1,21 @@
 """SubAgentPool - Manages creation, execution, and result collection of sub-agents"""
 
+import contextvars
+import logging
 import threading
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 from .agent import SubAgent
+from ..config import MAX_SUBAGENT_DEPTH
+from ..core.tracing import tracer
+
+logger = logging.getLogger("nally.subagent.pool")
+
+# Tracks the current sub-agent nesting depth. Propagated into tool-executor
+# worker threads via contextvars so a sub-agent that spawns further sub-agents
+# is correctly bounded by MAX_SUBAGENT_DEPTH (prevents agent→agent→agent… → ∞).
+SUBAGENT_DEPTH = contextvars.ContextVar("nally_subagent_depth", default=0)
 
 
 class SubAgentPool:
@@ -15,9 +26,41 @@ class SubAgentPool:
         self._lock = threading.Lock()
         self._total_spawned = 0
 
-    def spawn(self, goal: str, context: str = "", emit: Optional[Callable] = None, model: Optional[str] = None) -> str:
-        """Spawn a single sub-agent."""
-        agent = SubAgent(goal=goal, context=context, model=model)
+    def spawn(
+        self,
+        goal: str,
+        context: str = "",
+        emit: Optional[Callable] = None,
+        model: Optional[str] = None,
+        depth: Optional[int] = None,
+    ) -> Optional[str]:
+        """Spawn a single sub-agent.
+
+        Args:
+            depth: Nesting depth of this spawn. If None, read from the
+                SUBAGENT_DEPTH contextvar (set by the parent sub-agent).
+
+        Returns:
+            The new sub-agent id, or None if the depth limit was reached.
+        """
+        if depth is None:
+            depth = SUBAGENT_DEPTH.get()
+
+        # Hard circuit breaker: refuse to spawn beyond MAX_SUBAGENT_DEPTH.
+        if depth >= MAX_SUBAGENT_DEPTH:
+            logger.warning(
+                f"SubAgent depth limit ({MAX_SUBAGENT_DEPTH}) reached at depth {depth} — refusing to spawn deeper"
+            )
+            return None
+
+        # Capture the parent span context now (this thread's span stack does not
+        # propagate into the sub-agent's own thread).
+        cur_span = tracer.get_current_span()
+        parent_id = cur_span.span_id if cur_span else None
+        run_id = cur_span.run_id if cur_span else None
+
+        agent = SubAgent(goal=goal, context=context, model=model, depth=depth + 1)
+        agent.set_trace_context(parent_id, run_id)
         agent.set_callback(emit)
         agent.start(emit)
 
@@ -27,7 +70,7 @@ class SubAgentPool:
 
         return agent.id
 
-    def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None, model: Optional[str] = None) -> List[str]:
+    def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None, model: Optional[str] = None, depth: Optional[int] = None) -> List[Optional[str]]:
         """Spawn multiple sub-agents in parallel. Each task: {goal, context}"""
         return [
             self.spawn(
@@ -35,6 +78,7 @@ class SubAgentPool:
                 t.get("context", "") if isinstance(t, dict) else "",
                 emit,
                 model=model,
+                depth=depth,
             )
             for t in tasks
         ]

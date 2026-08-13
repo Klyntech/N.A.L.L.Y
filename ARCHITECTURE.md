@@ -113,7 +113,8 @@ NallyError
 ├── PermissionDenied  (tool denied by permission gate)
 ├── LLMError          (rate_limit, overloaded, connection_failed, auth_failed)
 ├── MemoryError       (storage, corruption)
-└── ConfigError       (missing_key, invalid_value)
+├── ConfigError       (missing_key, invalid_value)
+└── PlanError         (generation_failed, max_revisions_exceeded, step_unrecoverable)
 ```
 
 ### Permission Gate (`nally/tools/permissions.py`)
@@ -124,7 +125,7 @@ Declarative tool access control via `nally/config/permissions.json`:
 {
   "run_command": {
     "rules": [
-      {"match": {"command": "rm -rf *"}, "decision": "deny"},
+      {"match": {"command": "rm -rf *"}, "decision": "ask"},
       {"match": {"command": "npm install*"}, "decision": "ask"},
       {"match": {"command": "*"}, "decision": "allow"}
     ]
@@ -210,6 +211,89 @@ Progressive disclosure skill loading — injects specialized instructions into t
 **Security:** `validate_skill()` checks for prompt injection patterns (e.g., "ignore previous instructions") and suspicious URLs before loading.
 
 **Hot-reload:** `skill_registry.reload()` rescans the skills directory without restarting the server.
+
+### Execution Tracing (`nally/core/tracing.py`)
+
+Nested span-based tracing with parent-child relationships, run IDs, and thread-local span stacks:
+
+```python
+class Tracer:
+    def start_span(self, name, input, parent_span_id=None, run_id=None) -> Span
+    def end_span(self, span_id, output=None, error=None) -> Optional[Span]
+    def get_run_tree(self, run_id) -> Optional[dict]  # Build tree from flat spans
+    def list_runs(self, limit=50) -> List[dict]
+```
+
+- **Span**: `span_id`, `parent_span_id`, `run_id`, `name`, `status`, `input`, `output`, `error`, `started_at`, `ended_at`
+- **Thread-local span stack**: Auto-detects parent from current thread context
+- **Persistence**: Spans saved to SQLite `spans` table via `MemoryRepository.save_span()`
+- **API**: `GET /api/traces` (list runs), `GET /api/trace/{run_id}` (run tree detail)
+
+### Tool Receipts (`nally/tools/receipts.py`)
+
+Every tool execution generates an HMAC-signed receipt stored in JSONL:
+
+```python
+class ReceiptStore:
+    def record(self, tool_call_id, tool, args, result, success, duration_ms) -> Receipt
+    def get(self, tool_call_id) -> Optional[Receipt]
+    def verify(self, receipt) -> bool  # Verify HMAC integrity
+    def format_for_context(self, receipts) -> str  # For claim verifier
+```
+
+- **Tamper-evident**: SHA-256 hash + HMAC-SHA256 signature per receipt
+- **Auto-rotation**: JSONL files rotate at 10MB, keeps 5 rotated files
+- **In-memory index**: By `tool_call_id` for O(1) lookup
+- **Used by**: Claim verifier to cross-check LLM claims
+
+### Claim Verifier (`nally/agent/verifier.py`)
+
+Post-response verification that cross-checks LLM claims against tool receipts — detects hallucinations without LLM in the hot path:
+
+```python
+class ClaimVerifier:
+    def verify(self, llm_response, receipts) -> VerificationResult
+    # Verdicts: BACKED, UNSUPPORTED, CONTRADICTED, PARTIAL
+```
+
+- **Deterministic**: Regex-based claim extraction, no LLM in verification hot path
+- **Detects**: tool_bypass (claimed action not in receipts), false_success, false_failure
+- **Emits**: `verification` event with verdict details
+
+### Plan-and-Execute (`nally/agent/planner.py`)
+
+Optional pipeline (disabled by default, enable with `NALLY_PLAN_ENABLED=true`):
+
+1. **Classify**: Regex-based pattern matching — is this a complex multi-step task?
+2. **Plan**: LLM generates structured plan with steps, dependencies, estimates
+3. **Execute**: Each step runs via mini ReAct sub-loop with own iteration budget
+4. **Replan**: On failure, LLM revises plan (up to `NALLY_PLAN_MAX_REVISIONS`)
+5. **Synthesize**: Final LLM call combines step results into coherent response
+
+**Config**: `NALLY_PLAN_MAX_STEPS=10`, `NALLY_PLAN_STEP_TIMEOUT=300s`, `NALLY_PLAN_STEP_MAX_ITERATIONS=15`
+
+### Background Reflector (`nally/memory/reflector.py`)
+
+Hourly LLM-powered reflection engine running in a daemon thread:
+
+```python
+class Reflector:
+    def daily_reflection(self) -> None       # Hourly batch reflection
+    def reflect_on_conversation(self) -> None # Post-conversation reflection
+    # Extracts: ConversationSummary, Episode, SemanticPattern
+```
+
+- **Extracts**: Summaries, episodes, semantic patterns from recent conversations
+- **Semantic patterns**: Recurring themes/structures stored in `semantic` table with confidence scoring
+- **Singleton**: `reflector = Reflector()` — started during FastAPI lifespan
+
+### Event Bus (`nally/events/bus.py`)
+
+Pub/sub event bus for decoupled communication:
+
+- **Plan events**: `plan_created`, `plan_step_started`, `plan_step_completed`, `plan_complete`
+- **Agent notifications**: Streaming events forwarded to WebSocket/SSE subscribers
+- **Used by**: Planner → Web frontend for real-time plan progress display
 
 ### Database Adapters (`nally/db/`)
 
@@ -307,6 +391,9 @@ LLM sees injected context → Responds with remembered fact
 | GET | `/web/` | No | Redirect to `/` |
 | GET | `/debug` | No | Debug console page |
 | GET | `/api/status` | No | Server status, provider, model, tool count |
+| GET | `/api/me` | Yes | Current user/session info |
+| GET | `/api/traces` | Yes | List recent execution trace runs |
+| GET | `/api/trace/{run_id}` | Yes | Get full trace tree for a run |
 | POST | `/api/chat` | Yes (Bearer) | Chat with SSE streaming |
 | GET | `/api/events` | Yes (query param) | Persistent SSE for multi-tab sync |
 | GET | `/api/history` | Yes | Conversation history |
@@ -324,6 +411,7 @@ LLM sees injected context → Responds with remembered fact
 | GET | `/api/oauth/google/callback` | No | Google OAuth callback (external redirect) |
 | GET | `/api/oauth/higgsfield/callback` | No | Higgsfield OAuth callback (external redirect) |
 | POST | `/api/env/{key}` | Yes | Set env var at runtime + persist to .env |
+| POST | `/telegram/webhook/{token}` | No | Telegram webhook receiver (token-based auth) |
 | GET | `/health` | No | Full health check (DB, Redis, tools) |
 | GET | `/health/live` | No | Kubernetes liveness probe |
 | GET | `/health/ready` | No | Kubernetes readiness probe |

@@ -236,32 +236,34 @@ async def lifespan(app: FastAPI):
     display.phase("Reflector", reflector_status[0])
 
     # Start Telegram bot — non-blocking via create_task
-    _tg_status = "[dim]skipped (no token)[/]"
+    # Single-owner enforcement (Path B): the standalone bot subprocess owns
+    # polling; the web server only owns Telegram in webhook mode. In polling
+    # mode we must NOT create any Application here — doing so would poll the
+    # same token as the subprocess and cause Telegram 409 conflicts.
+    _tg_status = "[dim]skipped[/]"
     app.state.telegram_app = None
+    app.state._tg_task = None
     try:
-        from ..config import TELEGRAM_BOT_TOKEN
+        from ..config import resolve_telegram_mode
 
-        if TELEGRAM_BOT_TOKEN:
+        telegram_mode = resolve_telegram_mode()
+
+        if telegram_mode == "webhook":
             tg_webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL", "").strip()
-            if tg_webhook_url:
-                try:
-                    from ..telegram.bot import start_telegram_webhook
-                    tg_app = await start_telegram_webhook(tg_webhook_url)
-                    if tg_app:
-                        app.state.telegram_app = tg_app
-                        _tg_status = "[green]active (webhook)[/]"
-                    else:
-                        _tg_status = "[yellow]failed[/]"
-                except Exception as e:
-                    _tg_status = f"[red]failed: {e}[/]"
-            else:
-                from ..telegram.bot import start_telegram_polling
-                tg_app = await start_telegram_polling()
-                if tg_app:
-                    app.state.telegram_app = tg_app
-                    _tg_status = "[green]active (polling)[/]"
-                else:
-                    _tg_status = "[yellow]failed[/]"
+
+            async def _start_telegram_webhook_bg():
+                """Background task: start Telegram webhook, capture the Application."""
+                from ..telegram.bot import start_telegram_webhook
+                tg_app = await start_telegram_webhook(tg_webhook_url)
+                app.state.telegram_app = tg_app
+                return tg_app
+
+            app.state._tg_task = asyncio.create_task(_start_telegram_webhook_bg())
+            _tg_status = "[green]connecting (webhook)...[/]"
+        elif telegram_mode == "polling":
+            _tg_status = "[green]running in separate process (polling)[/]"
+        else:
+            _tg_status = "[dim]off (TELEGRAM_MODE=off or no token)[/]"
     except Exception as e:
         _tg_status = f"[red]failed: {e}[/]"
 
@@ -286,7 +288,18 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     try:
+        tg_task = getattr(app.state, "_tg_task", None)
         tg_app = getattr(app.state, "telegram_app", None)
+
+        # If bot is still starting up, cancel the task
+        if tg_task and not tg_task.done():
+            tg_task.cancel()
+            try:
+                await tg_task
+            except asyncio.CancelledError:
+                pass
+
+        # If bot started successfully, stop it gracefully
         if tg_app:
             from ..telegram.bot import stop_telegram_polling
             await stop_telegram_polling(tg_app)
@@ -613,11 +626,41 @@ async def clear(_auth=Depends(verify_auth)):
 async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)):
     from nally.agent.graph import resolve_approval
 
-    resolve_approval(request.tool_call_id, request.approved)
+    # resolve_approval does blocking SQLite I/O — keep it off the event loop.
+    await asyncio.to_thread(resolve_approval, request.tool_call_id, request.approved)
     broadcast_manager.broadcast(
         "approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved}
     )
     return {"ok": True}
+
+
+# ── API: Telegram (bot runs as a separate process) ────────
+# The bot polls Telegram in its own process and forwards messages/approvals
+# here over HTTP. The agent + approval gate live in THIS process, so resolving
+# an approval here unblocks the gate that is waiting in this process.
+
+
+@app.post("/api/telegram/message")
+async def tg_message(request: Request):
+    data = await request.json()
+    from ..agent.sessions import session_manager
+    from ..telegram.bot import _make_emit_standalone
+
+    emit = _make_emit_standalone(data["chat_id"])
+    response = await asyncio.to_thread(
+        session_manager.process, data["session_id"], data["text"], emit=emit
+    )
+    return {"response": response}
+
+
+@app.post("/api/telegram/approve")
+async def tg_approve(request: Request):
+    data = await request.json()
+    from ..agent.graph import resolve_approval
+
+    # resolve_approval does blocking SQLite I/O — keep it off the event loop.
+    resolved = await asyncio.to_thread(resolve_approval, data["tc_id"], data["approved"])
+    return {"resolved": resolved}
 
 
 # ── API: Abort ────────────────────────────────────────────

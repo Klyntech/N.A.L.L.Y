@@ -23,6 +23,8 @@ class AgentSessionManager:
         self._busy: Dict[str, bool] = {}
         self._queue: Dict[str, List[str]] = {}
         self._pool_lock = threading.Lock()
+        # Guards _busy/_queue across the process/queue_message/is_busy paths.
+        self._queue_lock = threading.Lock()
 
     def _get_lock(self, session_id: str) -> threading.Lock:
         """Get or create a lock for a session."""
@@ -43,15 +45,17 @@ class AgentSessionManager:
 
     def is_busy(self, session_id: str) -> bool:
         """Check if session is currently processing a message."""
-        return self._busy.get(session_id, False)
+        with self._queue_lock:
+            return self._busy.get(session_id, False)
 
     def queue_message(self, session_id: str, message: str) -> int:
         """Queue a message for later processing. Returns queue position (1-based), or 0 if rejected."""
-        q = self._queue.setdefault(session_id, [])
-        if len(q) >= MAX_QUEUE_SIZE:
-            return -1  # Queue full
-        q.append(message)
-        return len(q)
+        with self._queue_lock:
+            q = self._queue.setdefault(session_id, [])
+            if len(q) >= MAX_QUEUE_SIZE:
+                return -1  # Queue full
+            q.append(message)
+            return len(q)
 
     def process(self, session_id: str, message: str, emit: Optional[Callable] = None) -> str:
         """Process a message for a specific session (thread-safe).
@@ -60,21 +64,25 @@ class AgentSessionManager:
         """
         lock = self._get_lock(session_id)
         with lock:
-            self._busy[session_id] = True
+            with self._queue_lock:
+                self._busy[session_id] = True
             try:
                 agent = self.get(session_id)
                 result = agent.process(message, emit=emit)
                 return result
             finally:
-                self._busy[session_id] = False
+                with self._queue_lock:
+                    self._busy[session_id] = False
                 self._drain_queue(session_id)
 
     def _drain_queue(self, session_id: str):
         """Process any queued messages after current op finishes."""
-        q = self._queue.get(session_id, [])
+        with self._queue_lock:
+            q = self._queue.get(session_id, [])
+            queued = list(q)
+            q.clear()
         agent = self.get(session_id)
-        while q:
-            msg = q.pop(0)
+        for msg in queued:
             logger.info(f"Processing queued message for {session_id}")
             try:
                 agent.process(msg)

@@ -90,11 +90,6 @@ class ConnectionManager:
             if cid != exclude:
                 await self.send_json(cid, data)
 
-    async def broadcast_all(self, data: dict):
-        """Send JSON to all connected clients."""
-        for cid in list(self._connections.keys()):
-            await self.send_json(cid, data)
-
 
 # Singleton
 ws_manager = ConnectionManager()
@@ -177,7 +172,8 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 approved = msg.get("approved", False)
                 from ..agent.graph import resolve_approval
 
-                resolve_approval(tool_call_id, approved)
+                # resolve_approval does blocking SQLite I/O — keep it off the loop.
+                await asyncio.to_thread(resolve_approval, tool_call_id, approved)
                 await ws_manager.broadcast(
                     session_id,
                     {"type": "approval_resolved", "tool_call_id": tool_call_id, "approved": approved},
@@ -477,7 +473,7 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
 
 
 async def _generate_ws_voice_summary(text: str) -> str:
-    """Generate a 1-2 sentence voice summary using lightweight LLM."""
+    """Generate a 1-2 sentence voice summary using the main LLM."""
     import re
 
     try:
@@ -487,16 +483,11 @@ async def _generate_ws_voice_summary(text: str) -> str:
         from ..agent.llm import llm
 
         summary_response = await asyncio.to_thread(
-            llm.chat_with_model,
-            "ling-3.0-flash-free",
-            [
-                {"role": "system", "content": "Summarize this in 1-2 short sentences for voice. Pick the key point. Be concise and natural. Do not use markdown."},
-                {"role": "user", "content": text}
-            ],
-            temperature=0.3,
-            max_tokens=80
+            llm.simple_chat,
+            user_message=f"Rewrite this as a 1-2 sentence spoken summary. Keep it conversational and natural, like you're talking to a friend. No markdown, no lists, just flowing speech:\n\n{text}",
+            system_prompt="You are a voice assistant. Rewrite responses for natural spoken delivery. Be conversational, warm, concise. Never use markdown, bullet points, or lists. Just flowing sentences.",
         )
-        return summary_response.choices[0].message.content.strip()
+        return summary_response.strip()
     except Exception as e:
         logger.warning(f"Voice summary generation failed: {e}")
         sentences = re.split(r"(?<=[.!?])\s+", text.strip())

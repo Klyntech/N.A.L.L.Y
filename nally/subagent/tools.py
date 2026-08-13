@@ -1,6 +1,7 @@
 """SubAgent Tool - Delegate tasks to autonomous sub-agents"""
 
 from ..tools.registry import Tool, registry
+from ..config import MAX_SUBAGENT_DEPTH
 from .pool import pool
 
 
@@ -59,6 +60,8 @@ class Agent(Tool):
                 if not goal:
                     return "Error: goal is required for delegate"
                 agent_id = pool.spawn(goal, context, model=model)
+                if not agent_id:
+                    return f"Error: sub-agent depth limit reached (max nesting depth = {MAX_SUBAGENT_DEPTH}). Cannot delegate further — report this to the user."
                 agent = pool._agents.get(agent_id)
                 if not agent:
                     return "Error: failed to spawn sub-agent"
@@ -73,7 +76,17 @@ class Agent(Tool):
                 if not tasks:
                     return "Error: tasks list is required for spawn"
                 ids = pool.spawn_many(tasks, model=model)
-                return f"Spawned {len(ids)} sub-agents:\n" + "\n".join(f"  {i + 1}. {tid}" for i, tid in enumerate(ids))
+                spawned = [i for i in ids if i]
+                refused = len(ids) - len(spawned)
+                if refused:
+                    prefix = f"Warning: {refused} task(s) refused — sub-agent depth limit reached (max nesting depth = {MAX_SUBAGENT_DEPTH}).\n"
+                else:
+                    prefix = ""
+                if not spawned:
+                    return prefix + "Error: no sub-agents could be spawned (depth limit)."
+                return prefix + f"Spawned {len(spawned)} sub-agents:\n" + "\n".join(
+                    f"  {i + 1}. {tid}" for i, tid in enumerate(spawned)
+                )
 
             elif action == "collect":
                 if not task_ids:

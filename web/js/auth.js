@@ -27,6 +27,7 @@ NALLY.doLogin = function() {
     NALLY.dom.loginOverlay.classList.add('hidden');
     NALLY.waitForMarked(NALLY.loadHistory);
     setTimeout(NALLY.subscribeEvents, 500);
+    NALLY.initWebSocket();
   }).catch(function() {
     NALLY.dom.loginErr.style.display = 'block';
   });
@@ -44,6 +45,7 @@ NALLY.initAuth = function() {
       if (ok) {
         NALLY.dom.loginOverlay.classList.add('hidden');
         NALLY.waitForMarked(NALLY.loadHistory);
+        NALLY.initWebSocket();
       } else {
         NALLY.showLogin();
       }

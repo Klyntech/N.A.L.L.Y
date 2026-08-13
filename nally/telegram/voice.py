@@ -75,65 +75,6 @@ def ogg_to_pcm(ogg_bytes: bytes, sample_rate: int = STT_SAMPLE_RATE) -> bytes | 
         return None
 
 
-def pcm_to_ogg(pcm_bytes: bytes, sample_rate: int = 22050) -> bytes | None:
-    """Convert raw PCM (float32) to OGG/Opus for Telegram voice message.
-
-    Args:
-        pcm_bytes: Raw PCM audio as float32 bytes.
-        sample_rate: Sample rate of input PCM.
-
-    Returns:
-        OGG/Opus bytes, or None on failure.
-    """
-    try:
-        import shutil
-        if not shutil.which("ffmpeg"):
-            logger.error("ffmpeg not installed — required for voice conversion")
-            return None
-
-        with tempfile.NamedTemporaryFile(suffix=".pcm", delete=False) as tmp_in:
-            tmp_in.write(pcm_bytes)
-            tmp_in_path = tmp_in.name
-
-        tmp_out_path = tmp_in_path.replace(".pcm", ".ogg")
-
-        try:
-            proc = subprocess.run(
-                [
-                    "ffmpeg", "-y",
-                    "-f", "f32le",
-                    "-ar", str(sample_rate),
-                    "-ac", "1",
-                    "-i", tmp_in_path,
-                    "-c:a", "libopus",
-                    "-b:a", "64k",
-                    "-application", "voip",
-                    tmp_out_path,
-                ],
-                capture_output=True,
-                timeout=30,
-            )
-
-            if proc.returncode != 0:
-                logger.error(f"ffmpeg PCM->OGG failed: {proc.stderr.decode()[:200]}")
-                return None
-
-            ogg_bytes = Path(tmp_out_path).read_bytes()
-            logger.debug(f"Converted PCM->OGG: {len(pcm_bytes)} -> {len(ogg_bytes)} bytes")
-            return ogg_bytes
-
-        finally:
-            for p in [tmp_in_path, tmp_out_path]:
-                try:
-                    Path(p).unlink(missing_ok=True)
-                except OSError:
-                    pass
-
-    except Exception as e:
-        logger.error(f"PCM to OGG conversion failed: {e}")
-        return None
-
-
 def wav_to_ogg(wav_bytes: bytes) -> bytes | None:
     """Convert WAV bytes to OGG/Opus for Telegram voice message.
 
@@ -161,8 +102,8 @@ def wav_to_ogg(wav_bytes: bytes) -> bytes | None:
                     "ffmpeg", "-y",
                     "-i", tmp_in_path,
                     "-c:a", "libopus",
-                    "-b:a", "64k",
-                    "-application", "voip",
+                    "-b:a", "96k",
+                    "-application", "audio",
                     tmp_out_path,
                 ],
                 capture_output=True,

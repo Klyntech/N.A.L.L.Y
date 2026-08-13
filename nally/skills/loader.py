@@ -10,6 +10,9 @@ logger = logging.getLogger("nally.skills")
 # Where skills live
 SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
 
+# Module-level cache to avoid redundant scans
+_cached_skills: Optional[dict[str, "Skill"]] = None
+
 # ── Frontmatter parser (no external deps) ─────────────────
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -158,7 +161,12 @@ def load_skill(skill_dir: Path) -> Optional[Skill]:
     name = meta.get("name", skill_dir.name)
     description = meta.get("description", "")
     allowed_tools_raw = meta.get("allowed-tools", "")
-    allowed_tools = allowed_tools_raw.split() if isinstance(allowed_tools_raw, str) else []
+    if isinstance(allowed_tools_raw, list):
+        allowed_tools = allowed_tools_raw
+    elif isinstance(allowed_tools_raw, str):
+        allowed_tools = allowed_tools_raw.split()
+    else:
+        allowed_tools = []
 
     # Validate name matches directory
     if name != skill_dir.name:
@@ -185,14 +193,21 @@ def load_skill(skill_dir: Path) -> Optional[Skill]:
 def load_skills(skills_dir: Optional[Path] = None) -> dict[str, Skill]:
     """Scan skills directory and return dict of name -> Skill.
 
-    This is Level 1 (discovery) + Level 2 (full load) combined.
-    For progressive disclosure, use get_skill_manifest() for Level 1.
+    Uses module-level cache to avoid redundant scans.
+    Pass force=True to bypass cache (e.g. for hot-reload).
     """
+    global _cached_skills
+
     skills_dir = skills_dir or SKILLS_DIR
+
+    if _cached_skills is not None:
+        return _cached_skills
+
     result = {}
 
     if not skills_dir.exists():
         logger.info(f"Skills directory not found: {skills_dir}")
+        _cached_skills = result
         return result
 
     for child in sorted(skills_dir.iterdir()):
@@ -202,6 +217,15 @@ def load_skills(skills_dir: Optional[Path] = None) -> dict[str, Skill]:
                 result[skill.name] = skill
 
     logger.info(f"Loaded {len(result)} skills from {skills_dir}")
+
+    # Print clear startup warnings for any flagged skills
+    warned = [(n, s) for n, s in result.items() if s.warnings]
+    if warned:
+        for name, skill in warned:
+            for w in skill.warnings:
+                print(f"  [!] Skill '{name}' WARNING: {w}")
+
+    _cached_skills = result
     return result
 
 
@@ -210,6 +234,7 @@ def get_skill_manifest(skills_dir: Optional[Path] = None) -> str:
 
     This is injected into the system prompt at startup.
     ~100 tokens per skill — cheap enough for all skills.
+    Uses cached skills from load_skills() to avoid re-scanning.
     """
     skills = load_skills(skills_dir)
     if not skills:
@@ -226,19 +251,7 @@ def get_skill_manifest(skills_dir: Optional[Path] = None) -> str:
     return "\n".join(lines)
 
 
-def activate_skill(skill_name: str, skills_dir: Optional[Path] = None) -> Optional[str]:
-    """Level 2 activation: return full SKILL.md body for a triggered skill.
-
-    Returns the skill body text, or None if skill not found.
-    """
-    skills_dir = skills_dir or SKILLS_DIR
-    skill_dir = skills_dir / skill_name
-
-    if not skill_dir.exists():
-        return None
-
-    skill = load_skill(skill_dir)
-    if not skill:
-        return None
-
-    return skill.body
+def clear_cache():
+    """Clear the skills cache. Called during hot-reload."""
+    global _cached_skills
+    _cached_skills = None

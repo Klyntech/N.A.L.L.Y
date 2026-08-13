@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import DATA_DIR
-from .confidence import boost_confidence, days_since, decay_confidence, initial_confidence
+from .confidence import boost_confidence, days_since, decay_confidence
 
 # ── Profile Keys ───────────────────────────────────────────
 
@@ -103,6 +103,33 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
     timestamp TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conv_msg_session ON conversation_messages(session_id);
+
+CREATE TABLE IF NOT EXISTS spans (
+    span_id TEXT PRIMARY KEY,
+    parent_span_id TEXT,
+    run_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT DEFAULT 'running',
+    input_json TEXT DEFAULT '{}',
+    output_json TEXT,
+    error TEXT,
+    started_at REAL NOT NULL,
+    ended_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_spans_run_id ON spans(run_id);
+CREATE INDEX IF NOT EXISTS idx_spans_started ON spans(started_at);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(key, value, category, content='memories', content_rowid='id');
+CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+    INSERT INTO memories_fts(rowid, key, value, category) VALUES (new.id, new.key, new.value, new.category);
+END;
+CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+    INSERT INTO memories_fts(memories_fts, rowid, key, value, category) VALUES('delete', old.id, old.key, old.value, old.category);
+END;
+CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+    INSERT INTO memories_fts(memories_fts, rowid, key, value, category) VALUES('delete', old.id, old.key, old.value, old.category);
+    INSERT INTO memories_fts(rowid, key, value, category) VALUES (new.id, new.key, new.value, new.category);
+END;
 """
 
 
@@ -146,6 +173,39 @@ class MemoryRepository:
         if not self._schema_initialized:
             conn.executescript(_SCHEMA)
             self._schema_initialized = True
+            self._backfill_fts(conn)
+
+    def _backfill_fts(self, conn: sqlite3.Connection):
+        """Populate FTS index from existing memories (one-time, idempotent)."""
+        try:
+            fts_count = conn.execute("SELECT COUNT(*) FROM memories_fts").fetchone()[0]
+            mem_count = conn.execute("SELECT COUNT(*) FROM memories WHERE deleted = 0").fetchone()[0]
+            if fts_count < mem_count:
+                conn.execute(
+                    "INSERT INTO memories_fts(rowid, key, value, category) SELECT id, key, value, category FROM memories WHERE deleted = 0 AND id NOT IN (SELECT rowid FROM memories_fts)"
+                )
+        except Exception:
+            pass  # FTS table might not exist yet on older DBs
+
+    def _fts_search(self, conn, search: str, min_confidence: float, limit: int):
+        """Search memories using FTS5 tokenized matching. Returns rows or None if FTS unavailable."""
+        try:
+            # Tokenize query: split on non-alphanumeric, join with OR
+            import re
+            tokens = [t for t in re.split(r'[^a-zA-Z0-9_]+', search) if len(t) >= 2]
+            if not tokens:
+                return None
+            fts_query = " OR ".join(tokens)
+            rows = conn.execute(
+                """SELECT m.* FROM memories m
+                   JOIN memories_fts f ON m.id = f.rowid
+                   WHERE memories_fts MATCH ? AND m.deleted = 0 AND m.confidence >= ?
+                   ORDER BY m.confidence DESC LIMIT ?""",
+                (fts_query, min_confidence, limit),
+            ).fetchall()
+            return rows
+        except Exception:
+            return None  # Fall back to LIKE
 
     @staticmethod
     def _now() -> str:
@@ -153,7 +213,7 @@ class MemoryRepository:
 
     # ── Long-term Memory ──────────────────────────────────────
 
-    def remember(self, key: str, value: str, category: str = "general") -> str:
+    def remember(self, key: str, value: str, category: str = "general", confidence: float = 0.5) -> str:
         """Store a fact. Boosts confidence if key already exists."""
         # Warn when storing profile facts with unrecognized keys
         if category == "profile" and key not in RECOGNIZED_PROFILE_KEYS:
@@ -181,7 +241,7 @@ class MemoryRepository:
             else:
                 conn.execute(
                     "INSERT INTO memories (key, value, category, confidence, mention_count, created, last_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (key, value, category, initial_confidence(), 1, now, now),
+                    (key, value, category, confidence, 1, now, now),
                 )
                 return f"Remembered: {key} = {value}"
 
@@ -214,7 +274,11 @@ class MemoryRepository:
                 return {row["key"]: row["value"] for row in rows}
 
             if search:
-                # SQL LIKE instead of Python filtering
+                # FTS5 tokenized search with LIKE fallback
+                rows = self._fts_search(conn, search, min_confidence, limit)
+                if rows is not None:
+                    return {row["key"]: row["value"] for row in rows}
+                # Fallback to LIKE if FTS unavailable or empty
                 like_pattern = f"%{search}%"
                 rows = conn.execute(
                     "SELECT * FROM memories WHERE deleted = 0 AND confidence >= ? AND (key LIKE ? OR value LIKE ? OR category LIKE ?) ORDER BY confidence DESC LIMIT ?",
@@ -325,6 +389,22 @@ class MemoryRepository:
                 rows = conn.execute("SELECT * FROM episodes ORDER BY date DESC LIMIT ?", (limit,)).fetchall()
 
             return [dict(row) for row in rows]
+
+    def get_recent_episodes_text(self, limit: int = 3) -> str:
+        """Get recent episodes as formatted text for system prompt injection."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT topic, outcome, date FROM episodes WHERE topic != 'daily_reflection' ORDER BY date DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        if not rows:
+            return ""
+        lines = []
+        for r in rows:
+            date_str = r["date"][:10] if r["date"] else "?"
+            outcome = (r["outcome"] or "")[:80]
+            lines.append(f"- [{date_str}] {r['topic']}: {outcome}")
+        return "Recent activity:\n" + "\n".join(lines)
 
     # ── Conversation Memory ───────────────────────────────────
 
@@ -504,6 +584,98 @@ class MemoryRepository:
             except sqlite3.OperationalError:
                 return None
 
+    # ── Execution Tracing ────────────────────────────────────
+
+    def save_span(self, span: dict) -> None:
+        """Persist a completed span. Called by Tracer. Full JSON, no truncation."""
+        with self._connection() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO spans
+                   (span_id, parent_span_id, run_id, name, status,
+                    input_json, output_json, error, started_at, ended_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    span["span_id"],
+                    span.get("parent_span_id"),
+                    span.get("run_id", ""),
+                    span.get("name", ""),
+                    span.get("status", "ok"),
+                    json.dumps(span.get("input") or {}, default=str),
+                    json.dumps(span.get("output"), default=str) if span.get("output") is not None else None,
+                    span.get("error"),
+                    span.get("started_at", 0),
+                    span.get("ended_at"),
+                ),
+            )
+
+    def get_spans_by_run(self, run_id: str) -> List[Dict[str, Any]]:
+        """Get all spans for a run_id, ordered by start time. Parses JSON columns."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM spans WHERE run_id = ? ORDER BY started_at",
+                (run_id,),
+            ).fetchall()
+        return [self._span_to_dict(r) for r in rows]
+
+    def list_recent_runs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """List recent run_ids with a one-line summary for browsing."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT run_id,
+                          MIN(started_at) AS started,
+                          MAX(COALESCE(ended_at, started_at)) AS ended,
+                          COUNT(*) AS span_count,
+                          SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count
+                   FROM spans
+                   GROUP BY run_id
+                   ORDER BY started DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                d["tool_count"] = conn.execute(
+                    "SELECT COUNT(*) AS c FROM spans WHERE run_id = ? AND name LIKE 'tool:%'", (d["run_id"],)
+                ).fetchone()["c"]
+                d["started"] = d.get("started")
+                d["ended"] = d.get("ended")
+                d["duration_ms"] = (
+                    round((d["ended"] - d["started"]) * 1000, 1) if d.get("ended") and d.get("started") else None
+                )
+                results.append(d)
+        return results
+
+    def prune_spans(self, keep_days: int = 30) -> int:
+        """Delete spans older than keep_days. Explicit maintenance — NOT auto-run."""
+        import time as _time
+
+        cutoff = _time.time() - (keep_days * 86400)
+        with self._connection() as conn:
+            cursor = conn.execute("DELETE FROM spans WHERE started_at < ?", (cutoff,))
+            return cursor.rowcount
+
+    @staticmethod
+    def _span_to_dict(row) -> Dict[str, Any]:
+        """Convert an sqlite3.Row span to a dict with parsed JSON columns."""
+        d = dict(row)
+        try:
+            d["input"] = json.loads(d.get("input_json") or "{}")
+        except (json.JSONDecodeError, ValueError):
+            d["input"] = {}
+        try:
+            d["output"] = json.loads(d["output_json"]) if d.get("output_json") else None
+        except (json.JSONDecodeError, ValueError):
+            d["output"] = None
+        d.pop("input_json", None)
+        d.pop("output_json", None)
+        d["duration_ms"] = (
+            round((d["ended_at"] - d["started_at"]) * 1000, 1)
+            if d.get("ended_at") and d.get("started_at")
+            else None
+        )
+        return d
+
 
 # ── Profile Migration ─────────────────────────────────────
 
@@ -652,27 +824,4 @@ MEMORY_TOOL_SCHEMAS = [
 ]
 
 
-# ── Backend Factory ────────────────────────────────────────
 
-
-def create_memory_store():
-    """Create the appropriate memory store based on config.
-
-    Returns PostgreSQLDatabase if DATABASE_URL starts with postgresql://,
-    otherwise returns SQLite-backed MemoryRepository.
-    """
-    import os
-
-    database_url = os.getenv("DATABASE_URL", "")
-
-    if database_url and database_url.startswith(("postgresql://", "postgres://")):
-        try:
-            from ..db.postgres import PostgreSQLDatabase
-
-            return PostgreSQLDatabase(database_url)
-        except Exception as e:
-            import logging
-
-            logging.getLogger("nally.memory").warning(f"PostgreSQL backend failed ({e}), falling back to SQLite")
-
-    return MemoryRepository()

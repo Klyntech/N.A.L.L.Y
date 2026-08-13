@@ -22,16 +22,43 @@ from ..config import (
     PLAN_STEP_MAX_ITERATIONS,
     PLAN_STEP_TIMEOUT,
 )
+from ..core.tracing import tracer
 from ..utils.logger import logger
 
 # ── Timeout Helper ────────────────────────────────────────
 
 
+def _span(name: str, input: dict):
+    """Start a traced span as a child of the current span. Never raises on failure."""
+    try:
+        cur = tracer.get_current_span()
+        return tracer.start_span(
+            name,
+            input,
+            parent_span_id=cur.span_id if cur else None,
+            run_id=cur.run_id if cur else None,
+        )
+    except Exception:
+        return None
+
+
 def _call_with_timeout(func, timeout=PLAN_STEP_TIMEOUT):
-    """Run a function with a wall-clock timeout. Raises TimeoutError if exceeded."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func)
+    """Run a function with a wall-clock timeout. Raises TimeoutError if exceeded.
+
+    The executor is torn down WITHOUT waiting for the abandoned task so a
+    slow call cannot block the caller past the timeout (audit Broken #10).
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="planner-timeout"
+    )
+    future = executor.submit(func)
+    try:
         return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        raise
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 # ── Data Structures ───────────────────────────────────────
@@ -245,6 +272,13 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     decision = classify_by_patterns(user_text)
 
+    cl_span = _span("plan_classify", {"text": user_text})
+    if cl_span is not None:
+        try:
+            tracer.end_span(cl_span.span_id, output={"decision": decision})
+        except Exception:
+            pass
+
     if decision == "plan":
         logger.info(f"Planning triggered for: {user_text[:80]}")
         return {**state, "plan_status": "planning"}
@@ -303,6 +337,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         prompt = f"Create a plan for: {user_text}"
 
     try:
+        span = _span("plan_generate", {"prompt": prompt, "is_revision": is_revision})
         response = _call_with_timeout(
             lambda: llm.simple_chat(
                 user_message=prompt,
@@ -311,6 +346,19 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
             timeout=60,
         )
         plan = parse_plan_response(response, user_text)
+
+        if span is not None:
+            try:
+                tracer.end_span(
+                    span.span_id,
+                    output={
+                        "response": response,
+                        "plan_ok": plan is not None,
+                        "step_count": len(plan.steps) if plan is not None else 0,
+                    },
+                )
+            except Exception:
+                pass
 
         if plan is None:
             logger.warning("Plan generation returned invalid JSON, falling back to ReAct")
@@ -431,6 +479,17 @@ def replan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     Matches LangGraph's replan pattern: checks if we're done, if revisions
     are needed, or if more steps remain.
     """
+    replan_span = _span("plan_replan", {"plan_status": state.get("plan_status"), "step_results": state.get("step_results")})
+    out = _replan_decision(state)
+    if replan_span is not None:
+        try:
+            tracer.end_span(replan_span.span_id, output={"plan_status": out.get("plan_status")})
+        except Exception:
+            pass
+    return out
+
+
+def _replan_decision(state: Dict[str, Any]) -> Dict[str, Any]:
     plan = state.get("plan")
     if not plan:
         return state
@@ -440,28 +499,29 @@ def replan_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     iteration = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 100)
+    iteration += 1
 
     if iteration >= max_iterations:
         plan.status = PlanStatus.COMPLETE
-        return {**state, "plan_status": "complete", "plan": plan}
+        return {**state, "iteration": iteration, "plan_status": "complete", "plan": plan}
 
     # All done — no pending, no failed
     if not pending and not failed:
         plan.status = PlanStatus.COMPLETE
-        return {**state, "plan_status": "complete", "plan": plan}
+        return {**state, "iteration": iteration, "plan_status": "complete", "plan": plan}
 
     # Too many revisions — give up
     if plan.revision_count >= PLAN_MAX_REVISIONS:
         plan.status = PlanStatus.COMPLETE
-        return {**state, "plan_status": "complete", "plan": plan}
+        return {**state, "iteration": iteration, "plan_status": "complete", "plan": plan}
 
     # Has failures — revise the plan
     if failed:
         plan.status = PlanStatus.REVISING
-        return {**state, "plan_status": "revising", "plan": plan}
+        return {**state, "iteration": iteration, "plan_status": "revising", "plan": plan}
 
     # Still has pending steps — keep executing
-    return state
+    return {**state, "iteration": iteration}
 
 
 def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -494,6 +554,7 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     try:
+        synth_span = _span("plan_synthesize", {"prompt": synthesis_prompt})
         response = _call_with_timeout(
             lambda: llm.simple_chat(
                 user_message=synthesis_prompt,
@@ -501,6 +562,11 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
             ),
             timeout=60,
         )
+        if synth_span is not None:
+            try:
+                tracer.end_span(synth_span.span_id, output={"response": response})
+            except Exception:
+                pass
 
         plan.summary = response
         plan.status = PlanStatus.COMPLETE
@@ -577,12 +643,42 @@ def _execute_step(step: PlanStep, state: Dict[str, Any]) -> str:
         {"role": "user", "content": full_prompt},
     ]
 
-    return run_agent(
-        messages=messages,
-        tools=tools,
-        max_iterations=PLAN_STEP_MAX_ITERATIONS,
-        thread_id=f"plan-{state.get('thread_id', 'default')}-{step.id}",
-    )
+    step_span = None
+    try:
+        cur = tracer.get_current_span()
+        step_span = tracer.start_span(
+            "plan_step",
+            {"step_id": step.id, "goal": step.goal},
+            parent_span_id=cur.span_id if cur else None,
+            run_id=cur.run_id if cur else None,
+        )
+    except Exception:
+        step_span = None
+    parent_id = step_span.span_id if step_span else None
+    parent_run = step_span.run_id if step_span else None
+
+    try:
+        result = run_agent(
+            messages=messages,
+            tools=tools,
+            max_iterations=PLAN_STEP_MAX_ITERATIONS,
+            thread_id=f"plan-{state.get('thread_id', 'default')}-{step.id}",
+            _parent_span_id=parent_id,
+            _run_id=parent_run,
+        )
+        if step_span is not None:
+            try:
+                tracer.end_span(step_span.span_id, output={"result": result})
+            except Exception:
+                pass
+        return result
+    except Exception as e:
+        if step_span is not None:
+            try:
+                tracer.end_span_exc(step_span.span_id, e)
+            except Exception:
+                pass
+        raise
 
 
 def _fallback_synthesis(plan: Plan, step_results: Dict[str, str]) -> str:

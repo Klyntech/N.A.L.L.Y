@@ -38,13 +38,11 @@ def _get_version() -> str:
 # ── Checkers ───────────────────────────────────────────────
 
 
-def _check_database() -> dict:
+async def _check_database() -> dict:
     """Check database connectivity."""
     # PostgreSQL via Layerbase or self-hosted
     if DATABASE_URL and DATABASE_URL.startswith(("postgresql://", "postgres://")):
         try:
-            import asyncio
-
             import asyncpg
 
             async def _test():
@@ -52,7 +50,7 @@ def _check_database() -> dict:
                 await conn.fetchval("SELECT 1")
                 await conn.close()
 
-            asyncio.run(_test())
+            await _test()
             return {"status": "ok", "engine": "postgresql", "url": DATABASE_URL[:40] + "..."}
         except ImportError:
             return {"status": "error", "engine": "postgresql", "error": "asyncpg not installed"}
@@ -76,7 +74,7 @@ def _check_database() -> dict:
     return {"status": "ok", "engine": "sqlite", "note": "will be created on first use"}
 
 
-def _check_redis() -> dict:
+async def _check_redis() -> dict:
     """Check Redis connectivity if configured."""
     redis_url = os.getenv("REDIS_URL", "")
     if not redis_url:
@@ -85,8 +83,6 @@ def _check_redis() -> dict:
     # Layerbase REST (Upstash-compatible)
     if "layerbase" in redis_url or "upstash" in redis_url:
         try:
-            import asyncio
-
             import httpx
 
             async def _test():
@@ -103,15 +99,13 @@ def _check_redis() -> dict:
                     )
                     return resp.status_code == 200
 
-            ok = asyncio.run(_test())
+            ok = await _test()
             return {"status": "ok" if ok else "error", "engine": "redis", "provider": "layerbase"}
         except Exception as e:
             return {"status": "error", "engine": "redis", "provider": "layerbase", "error": str(e)[:100]}
 
     # Self-hosted Redis
     try:
-        import asyncio
-
         import redis.asyncio as aioredis
 
         async def _test():
@@ -119,7 +113,7 @@ def _check_redis() -> dict:
             await client.ping()
             await client.close()
 
-        asyncio.run(_test())
+        await _test()
         return {"status": "ok", "engine": "redis", "provider": "self-hosted"}
     except ImportError:
         return {"status": "ok", "engine": "redis", "note": "redis package not installed"}
@@ -152,8 +146,8 @@ async def health_check():
     version = _get_version()
 
     checks = {
-        "database": _check_database(),
-        "redis": _check_redis(),
+        "database": await _check_database(),
+        "redis": await _check_redis(),
         "tools": _check_tools(),
     }
 
@@ -184,7 +178,7 @@ async def liveness():
 @router.get("/health/ready")
 async def readiness():
     """Kubernetes readiness probe — confirms ready to accept traffic."""
-    db = _check_database()
+    db = await _check_database()
     if db.get("status") == "error":
         return JSONResponse(
             content={"status": "not_ready", "reason": "database unavailable"},

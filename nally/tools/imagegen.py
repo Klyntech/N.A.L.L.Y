@@ -1,4 +1,4 @@
-"""Image Generation Tool — Vision-guided quality loop with MIMO critique."""
+"""Image Generation Tool — Vision-guided quality loop with critique."""
 
 import base64
 import io
@@ -314,11 +314,11 @@ def score_aesthetics(image_bytes: bytes) -> dict:
     return scores
 
 
-# ── Vision Critique (MIMO) ────────────────────────────────
+# ── Vision Critique ───────────────────────────────────────
 
 
 def vision_critique(image_bytes: bytes, prompt: str, scores: dict) -> str:
-    """Send image to MIMO for visual critique. Returns critique text."""
+    """Send image for visual critique. Returns critique text."""
     try:
         from ..agent.llm import NallyLLM
 
@@ -382,7 +382,7 @@ Be concise. Max 3 issues. The improved prompt should be ready to use directly.""
 
 
 def parse_critique(critique_text: str) -> dict:
-    """Parse MIMO's critique response into structured data."""
+    """Parse critique response into structured data."""
     try:
         # Try to extract JSON from response
         if "```json" in critique_text:

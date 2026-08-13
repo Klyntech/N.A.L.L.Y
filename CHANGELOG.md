@@ -109,7 +109,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added — Skills & Training
 
 - Skill system — `skills/*/SKILL.md` with frontmatter parsing and hot-reload
-- Video editing, UI design, test writing, shipping, research, refactoring, design-system, productivity, creative, code-review, plan, image generation, docs, diagnose, devops, API design, architect, backend API skills
+- Video editing, UI design, test writing, shipping, research, refactoring, design-system, productivity, creative, code-review, plan, image generation, docs, diagnose, devops, API design, architect, backend API, data skills
 - Training: 8 frontend quality lessons, backend quality rules, anti-hallucination safeguards
 
 ### Added — Infrastructure

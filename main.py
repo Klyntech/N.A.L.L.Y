@@ -9,41 +9,21 @@ import sys
 import time
 from pathlib import Path
 
+from rich.console import Console
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
-
-
-def print_banner():
-    """Print Nally banner using pyfiglet block font + rich styling."""
-    from rich.console import Console
-    from rich.text import Text
-
-    console = Console()
-
-    try:
-        from pyfiglet import Figlet
-
-        f = Figlet(font="block")
-        art = f.renderText("NALLY")
-        styled = Text(art, style="#7C6AEF")
-        console.print(styled)
-    except Exception:
-        console.print("  [bold #7C6AEF]N A L L Y[/]")
-
-    from nally import __version__
-
-    console.print(f"          Personal AI Assistant  -  v{__version__}", style="dim")
-    console.print()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
     parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
     parser.add_argument("--voice", action="store_true", help="Run in voice mode (push-to-talk)")
-    parser.add_argument("--telegram", action="store_true", help="Run web server + Telegram bot")
+    parser.add_argument("--telegram", action="store_true", help="Run web server + Telegram bot (same as default)")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     parser.add_argument("--port", type=int, default=5000, help="Web server port (default: 5000)")
     parser.add_argument("--provider", choices=["groq", "opencode"], help="Override LLM provider")
+    parser.add_argument("--verbose", action="store_true", help="Show full MCP server tree during startup")
     args = parser.parse_args()
 
     if args.port < 1024 or args.port > 65535:
@@ -56,7 +36,13 @@ def main():
 
         os.environ["NALLY_PROVIDER"] = args.provider
 
-    print_banner()
+    from nally import __version__
+    from nally.core.startup import StartupDisplay, print_banner
+
+    console = Console()
+    display = StartupDisplay(console)
+
+    print_banner(version=__version__, console=console)
 
     # Load tools for non-web modes (web mode loads via app.py lifespan)
     if args.cli or args.telegram_only:
@@ -64,32 +50,9 @@ def main():
 
         _tool_count, mcp_status = load_all_tools()
 
-        # Display startup tree for non-web modes
-        from rich.console import Console
-
-        console = Console()
-        console.print(f"  [bold]|--[/] Loading tools .......... [green]{_tool_count} registered[/]")
+        display.phase("Tools", f"[green]{_tool_count} registered[/]")
         if mcp_status:
-            console.print("  [bold]|--[/] Connecting MCP servers")
-            for i, srv in enumerate(mcp_status):
-                is_last = i == len(mcp_status) - 1
-                prefix = "|--" if not is_last else "`--"
-                connector = "  " if is_last else "|  "
-                name = srv["name"]
-                status = srv["status"]
-                tools = srv.get("tools", 0)
-                msg = srv.get("message", "")
-                if status == "ok":
-                    tool_word = "tool" if tools == 1 else "tools"
-                    dots = "." * max(1, 28 - len(name))
-                    console.print(f"  {connector}{prefix} {name} {dots} [green]{tools} {tool_word}[/]")
-                elif status == "awaiting":
-                    console.print(f"  {connector}{prefix} [dim](o) {name} -- {msg}[/]")
-                elif status == "timeout":
-                    console.print(f"  {connector}{prefix} [yellow](o) {name} -- {msg}[/]")
-                else:
-                    console.print(f"  {connector}{prefix} [red](x) {name} -- {msg}[/]")
-        console.print()
+            display.mcp_summary(mcp_status, verbose=args.verbose)
 
     if args.cli:
         run_cli()
@@ -97,9 +60,11 @@ def main():
         run_voice()
     elif args.telegram_only:
         run_telegram(polling=True)
-    elif args.telegram:
-        run_web_with_telegram(port=args.port)
     else:
+        # Default and --telegram both run the web server. The Telegram bot
+        # owner is decided by resolve_telegram_mode(): polling mode spawns a
+        # separate bot process, webhook mode is owned by the web server's
+        # lifespan. Exactly one owner per token.
         run_web(port=args.port)
 
 
@@ -153,12 +118,25 @@ def run_voice():
 
 def run_web(port=5000):
     """Run Nally in web mode (Jarvis React UI)"""
+    import atexit
+    import logging
     import os
+    import subprocess
+    import sys
     import threading
     import time
     import webbrowser
 
     os.environ["PORT"] = str(port)
+    os.environ["NALLY_PORT"] = str(port)
+
+    # Suppress Uvicorn's noisy startup/access logs
+    class _UvicornFilter(logging.Filter):
+        def filter(self, record):
+            return False
+
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        logging.getLogger(name).addFilter(_UvicornFilter())
 
     # Auto-open browser
     def _open():
@@ -167,11 +145,49 @@ def run_web(port=5000):
 
     threading.Thread(target=_open, daemon=True).start()
 
+    # The Telegram bot runs as a SEPARATE process (its own event loop) and
+    # forwards messages/approvals to this web server over HTTP. Spawn it here
+    # so `python main.py` stays a single command. (Use --telegram-only to run
+    # the bot without the web server.)
+    #
+    # Single-owner enforcement: the standalone poller is spawned ONLY when the
+    # resolved mode is polling. In webhook mode the web server owns Telegram
+    # via its own Application (started in the FastAPI lifespan), so spawning a
+    # second poller here would cause a Telegram 409 conflict on the same token.
+    bot_proc = None
+    from nally.config import resolve_telegram_mode
+
+    telegram_mode = resolve_telegram_mode()
+    if telegram_mode == "polling":
+        bot_proc = subprocess.Popen(
+            [sys.executable, "run_bot_standalone.py"],
+            cwd=str(Path(__file__).parent),
+        )
+        print("Telegram bot launched as a separate process (run_bot_standalone.py).")
+    elif telegram_mode == "webhook":
+        print("Telegram bot owned by web server (webhook mode) — no separate poller spawned.")
+    else:
+        print("[warn] TELEGRAM_BOT_TOKEN not set or TELEGRAM_MODE=off — Telegram bot not started "
+              "(web server is still running).")
+
+    def _kill_bot():
+        if bot_proc is not None and bot_proc.poll() is None:
+            bot_proc.terminate()
+            try:
+                bot_proc.wait(timeout=5)
+            except Exception:
+                bot_proc.kill()
+
+    atexit.register(_kill_bot)
+
     import uvicorn
 
     from nally.web.app import app
 
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+    finally:
+        _kill_bot()
 
 
 def run_telegram(polling=True, webhook_url=None):
@@ -182,45 +198,6 @@ def run_telegram(polling=True, webhook_url=None):
     print("Press Ctrl+C to stop")
     print()
     run_telegram_bot(polling=polling, webhook_url=webhook_url)
-
-
-def run_web_with_telegram(port=5000):
-    """Run both web server and Telegram bot concurrently."""
-    import os
-    import threading
-
-    os.environ["PORT"] = str(port)
-
-    # Start Telegram bot in a background thread
-    def _start_telegram():
-        import asyncio
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        try:
-            from nally.telegram.bot import run_telegram_bot
-
-            run_telegram_bot(polling=True)
-        except Exception as e:
-            from rich.console import Console
-            Console().print(f"  [yellow]Telegram bot failed:[/] {e}")
-
-    tg_thread = threading.Thread(target=_start_telegram, daemon=True)
-    tg_thread.start()
-
-    # Start web server (blocking)
-    import time
-    import webbrowser
-
-    def _open():
-        time.sleep(2)
-        webbrowser.open(f"http://localhost:{port}")
-
-    threading.Thread(target=_open, daemon=True).start()
-
-    import uvicorn
-
-    from nally.web.app import app
-
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
 
 if __name__ == "__main__":

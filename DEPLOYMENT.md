@@ -1,0 +1,200 @@
+# Deployment
+
+## Docker (Recommended)
+
+### Build
+
+```bash
+docker build -t nally:latest .
+```
+
+The Dockerfile uses a multi-stage build:
+- **Builder stage**: Installs Python dependencies
+- **Runtime stage**: Copies deps + app code, creates non-root user, sets up health check
+
+### Run
+
+```bash
+docker run -d \
+  --name nally \
+  -p 5000:5000 \
+  -v nally-data:/app/data \
+  -e NALLY_PROVIDER=opencode \
+  -e OPENCODE_API_KEY=sk-... \
+  -e NALLY_ACCESS_TOKEN=your-secret \
+  --restart unless-stopped \
+  nally:latest
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  nally:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - NALLY_PROVIDER=opencode
+      - OPENCODE_API_KEY=sk-...
+      - NALLY_ACCESS_TOKEN=your-secret
+    volumes:
+      - nally-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:5000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  nally-data:
+```
+
+### Environment Variables for Production
+
+```env
+# Required
+NALLY_PROVIDER=opencode
+OPENCODE_API_KEY=sk-...
+NALLY_ACCESS_TOKEN=generate-a-long-random-string
+
+# Security
+ALLOWED_ORIGINS=https://your-domain.com
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_RPM=30
+RATE_LIMIT_BURST=60
+
+# Optional: PostgreSQL instead of SQLite
+DATABASE_URL=postgresql://user:pass@host:5432/nally
+
+# Optional: Redis for caching
+REDIS_URL=redis://host:6379
+```
+
+## Systemd (Linux)
+
+Create `/etc/systemd/system/nally.service`:
+
+```ini
+[Unit]
+Description=Nally AI Assistant
+After=network.target
+
+[Service]
+Type=simple
+User=nally
+WorkingDirectory=/opt/nally
+ExecStart=/opt/nally/venv/bin/python main.py --port 5000
+Restart=always
+RestartSec=5
+Environment=NALLY_PROVIDER=opencode
+Environment=OPENCODE_API_KEY=sk-...
+Environment=NALLY_ACCESS_TOKEN=your-secret
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable nally
+sudo systemctl start nally
+sudo systemctl status nally
+```
+
+## Reverse Proxy
+
+### Nginx
+
+```nginx
+server {
+    listen 80;
+    server_name nally.your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SSE support — disable buffering
+    location /api/chat {
+        proxy_pass http://localhost:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection '';
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding off;
+    }
+
+    # WebSocket support
+    location /ws/ {
+        proxy_pass http://localhost:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+### Caddy
+
+```
+nally.your-domain.com {
+    reverse_proxy localhost:5000
+}
+```
+
+Caddy automatically handles SSE and WebSocket upgrades.
+
+## Health Checks
+
+For load balancers and orchestrators:
+
+| Endpoint | Purpose | Auth |
+|----------|---------|------|
+| `/health` | Full health (DB, Redis, tools) | No |
+| `/health/live` | Liveness probe | No |
+| `/health/ready` | Readiness probe | No |
+
+Kubernetes example:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 5000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+## GitHub Container Registry
+
+Pre-built images are published on `v*` tags:
+
+```bash
+docker pull ghcr.io/klyntech/nally:latest
+```
+
+Tags:
+- `latest` — latest stable
+- `v1.1.0` — specific version
+- `<sha>` — commit SHA
+
+## Monitoring
+
+- Logs: `logs/` directory (rotating, 1MB max, 7-day retention)
+- Execution traces: `GET /api/traces` (browse recent runs)
+- Run details: `GET /api/trace/{run_id}` (full span tree)
+- Tool receipts: JSONL files in `data/` (auto-rotate at 10MB)

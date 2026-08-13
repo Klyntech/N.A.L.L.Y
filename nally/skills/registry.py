@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .loader import SKILLS_DIR, Skill, get_skill_manifest, load_skills
+from .loader import SKILLS_DIR, Skill, get_skill_manifest, load_skills, clear_cache
 
 logger = logging.getLogger("nally.skills")
 
@@ -20,15 +20,32 @@ class SkillRegistry:
     def load(self, skills_dir: Optional[Path] = None):
         """Load all skills (Level 1 + Level 2). Called at startup."""
         self._skills = load_skills(skills_dir)
-        self._manifest = get_skill_manifest(skills_dir)
+        # Build manifest from already-loaded skills (no re-scan)
+        self._manifest = self._build_manifest()
         self._loaded = True
+        warned = [n for n, s in self._skills.items() if s.warnings]
+        if warned:
+            logger.warning(f"Skills with security warnings: {', '.join(warned)} — check /api/skills for details")
         logger.info(f"Skill registry: {len(self._skills)} skills loaded")
+
+    def _build_manifest(self) -> str:
+        """Build manifest string from loaded skills (no disk I/O)."""
+        if not self._skills:
+            return ""
+        lines = ["AVAILABLE SKILLS:"]
+        for name, skill in sorted(self._skills.items()):
+            desc = skill.description or "No description"
+            if len(desc) > 100:
+                desc = desc[:97] + "..."
+            lines.append(f"- {name}: {desc}")
+        return "\n".join(lines)
 
     def reload(self, skills_dir: Optional[Path] = None):
         """Hot-swap: rescan skills directory without restart."""
         old_count = len(self._skills)
+        clear_cache()  # clear loader cache before reload
         self._skills = load_skills(skills_dir)
-        self._manifest = get_skill_manifest(skills_dir)
+        self._manifest = self._build_manifest()
         new_count = len(self._skills)
         logger.info(f"Skill registry reloaded: {old_count} -> {new_count} skills")
 

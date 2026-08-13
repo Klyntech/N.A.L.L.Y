@@ -92,8 +92,18 @@ nally/
 # Run in CLI mode
 python main.py --cli
 
+# Run voice mode (push-to-talk)
+python main.py --voice
+
+# Run Telegram bot (with web server)
+python main.py --telegram
+
+# Run Telegram bot only (no web server)
+python main.py --telegram-only
+
 # Run with specific provider
 python main.py --provider groq
+python main.py --provider opencode
 
 # Run on custom port
 python main.py --port 8080

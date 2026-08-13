@@ -89,7 +89,7 @@ class TestCallLlmWithRetry:
     @patch("nally.agent.graph._stream_with_emit", side_effect=Exception("stream down"))
     def test_no_model_uses_chat_with_retry(self, _mock_stream):
         """Without model override, llm.chat should be called (not chat_with_model)."""
-        from nally.agent.graph import _MAX_RETRIES
+        from nally.agent.graph import _RATE_LIMIT_RETRIES
 
         client = self._make_llm_client(side_effect=Exception("Error 500"))
         emit = self._mock_emit()
@@ -98,7 +98,7 @@ class TestCallLlmWithRetry:
         with pytest.raises(LLMError):
             _call_llm_with_retry(client, messages, None, "test", emit)
 
-        assert client.chat.call_count == _MAX_RETRIES
+        assert client.chat.call_count == _RATE_LIMIT_RETRIES
         assert client.chat_with_model.call_count == 0
 
 

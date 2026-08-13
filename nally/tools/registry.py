@@ -2,6 +2,7 @@
 
 import importlib
 import logging
+import threading
 from typing import Dict, List, Optional
 
 from ..config import ALLOWED_PLUGINS, MAX_TOOL_OUTPUT, PLUGINS_DIR
@@ -54,6 +55,9 @@ class ToolRegistry:
 
     def __init__(self):
         self.tools: Dict[str, Tool] = {}
+        # Guards the tools dict: mutated at startup (register/unregister,
+        # plugin load) and iterated at runtime (get_all_tools, filter, mcp).
+        self._lock = threading.Lock()
 
     def register(self, tool: Tool):
         """Register a tool (warn if overwriting, validate permission)"""
@@ -62,14 +66,16 @@ class ToolRegistry:
                 f"Tool '{tool.name}' has invalid permission '{tool.permission}'. "
                 f"Must be one of: {', '.join(sorted(VALID_PERMISSIONS))}"
             )
-        if tool.name in self.tools:
-            logger.warning(f"Tool '{tool.name}' already registered — overwriting")
-        self.tools[tool.name] = tool
+        with self._lock:
+            if tool.name in self.tools:
+                logger.warning(f"Tool '{tool.name}' already registered — overwriting")
+            self.tools[tool.name] = tool
 
     def unregister(self, name: str):
         """Unregister a tool"""
-        if name in self.tools:
-            del self.tools[name]
+        with self._lock:
+            if name in self.tools:
+                del self.tools[name]
 
     def get(self, name: str) -> Optional[Tool]:
         """Get a tool by name"""
@@ -77,7 +83,9 @@ class ToolRegistry:
 
     def get_all_tools(self) -> List[dict]:
         """Get all tools as OpenAI schemas"""
-        return [tool.to_openai_schema() for tool in self.tools.values()]
+        with self._lock:
+            tools = list(self.tools.values())
+        return [tool.to_openai_schema() for tool in tools]
 
     def execute(self, name: str, arguments: dict) -> tuple[str, bool]:
         """Execute a tool by name with output truncation.

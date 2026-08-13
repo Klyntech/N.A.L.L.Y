@@ -66,6 +66,6 @@ def test_model_in_agent_get_status():
 
 
 def test_model_in_agent_to_dict():
-    agent = SubAgent(goal="test", model="mimo-v2.5-free")
+    agent = SubAgent(goal="test", model="hy3-free")
     d = agent.to_dict()
     assert d["goal"] == "test"

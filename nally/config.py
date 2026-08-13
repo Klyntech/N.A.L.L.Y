@@ -94,7 +94,7 @@ MCP_SERVERS: list[dict] = [
     {
         "name": "telegram",
         "command": "npx",
-        "args": ["-y", "telegram-bot-mcp-server"],
+        "args": ["--no-install", "telegram-bot-mcp-server"],
         "transport": "stdio",
         "auth_mode": "api_key",
         "description": "Telegram — messages, groups, channels",
@@ -103,19 +103,19 @@ MCP_SERVERS: list[dict] = [
         "permission": "write",
     },
     # ── Browser automation ──
-    {
-        "name": "playwright",
-        "command": "npx",
-        "args": ["@playwright/mcp@latest", "--headless", "--browser", "chromium"],
-        "transport": "stdio",
-        "description": "Playwright — browser automation, web scraping, form filling, screenshots, PDF export",
-        "permission": "safe",
-    },
+    # {
+    #     "name": "playwright",
+    #     "command": "npx",
+    #     "args": ["--no-install", "@playwright/mcp", "--headless", "--browser", "chromium"],
+    #     "transport": "stdio",
+    #     "description": "Playwright — browser automation, web scraping, form filling, screenshots, PDF export",
+    #     "permission": "safe",
+    # },
     # ── Documentation lookup ──
     {
         "name": "context7",
         "command": "npx",
-        "args": ["-y", "@upstash/context7-mcp"],
+        "args": ["--no-install", "@upstash/context7-mcp"],
         "transport": "stdio",
         "description": "Context7 — up-to-date docs & code examples for 1000+ libraries",
         "permission": "safe",
@@ -124,7 +124,7 @@ MCP_SERVERS: list[dict] = [
     {
         "name": "meta",
         "command": "npx",
-        "args": ["-y", "@oliverames/meta-mcp-server"],
+        "args": ["--no-install", "@oliverames/meta-mcp-server"],
         "transport": "stdio",
         "auth_mode": "api_key",
         "description": "Meta Business Suite — Facebook Pages, Instagram, Threads, Ads Manager, Commerce",
@@ -153,20 +153,22 @@ GROQ_MODELS = {
     "frontier": "llama-3.3-70b-versatile",
 }
 
-# OpenCode
-OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "")
+# OpenCode — supports comma-separated multiple keys for rotation on rate limits
+OPENCODE_API_KEY_RAW = os.getenv("OPENCODE_API_KEY", "")
+OPENCODE_KEYS = [k.strip() for k in OPENCODE_API_KEY_RAW.split(",") if k.strip()]
+OPENCODE_API_KEY = OPENCODE_KEYS[0] if OPENCODE_KEYS else ""  # backward compat
 OPENCODE_BASE_URL = "https://opencode.ai/zen/v1"
 OPENCODE_MODELS = {
-    "fast": "mimo-v2.5-free",
-    "balanced": "mimo-v2.5-free",
-    "powerful": "mimo-v2.5-free",
-    "frontier": "mimo-v2.5-free",
+    "fast": "nemotron-3.5-lightning-free",
+    "balanced": "hy3-free",
+    "powerful": "hy3-free",
+    "frontier": "hy3-free",
 }
 
 # Free models available for SubAgents (no GPT models)
 SUBAGENT_MODELS = [
-    "mimo-v2.5-free",
-    "deepseek-v4-flash-free",
+    "nemotron-3.5-lightning-free",
+    "hy3-free",
     "nemotron-3-ultra-free",
     "ling-3.0-flash-free",
     "laguna-s-2.1-free",
@@ -184,6 +186,13 @@ else:
 
 ACTIVE_MODEL = MODELS["frontier"]
 
+# ── Proxy / SSL ───────────────────────────────────────────
+
+HTTP_PROXY = os.getenv("HTTP_PROXY", "")
+HTTPS_PROXY = os.getenv("HTTPS_PROXY", "")
+VERIFY_SSL = os.getenv("NALLY_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
+CA_BUNDLE = os.getenv("NALLY_CA_BUNDLE", "")
+
 # ── Agent settings ────────────────────────────────────────
 
 SESSION_ID = os.getenv("NALLY_SESSION", "default")
@@ -192,7 +201,7 @@ CONTEXT_MAX_TOKENS = 500_000
 CONTEXT_RECENT_MESSAGES = 10
 CONTEXT_COMPRESSION_THRESHOLD = 20
 CONTEXT_MAX_OUTPUT_TOKENS = 4096
-MAX_MEMORIES_TO_INJECT = 5
+MAX_MEMORIES_TO_INJECT = 12
 MAX_TOOL_CALLS = int(os.getenv("NALLY_MAX_TOOL_CALLS", "50"))
 MAX_ITERATIONS_PER_TURN = int(os.getenv("NALLY_MAX_ITERATIONS", "25"))
 MAX_TOOL_OUTPUT = int(os.getenv("NALLY_MAX_TOOL_OUTPUT", "50000"))
@@ -202,6 +211,19 @@ MAX_TOOL_OUTPUT = int(os.getenv("NALLY_MAX_TOOL_OUTPUT", "50000"))
 MAX_AGENT_WALL_TIME = int(os.getenv("NALLY_MAX_AGENT_WALL_TIME", "300"))
 RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "50"))
 DUPLICATE_TOOL_THRESHOLD = 3
+
+# Hard circuit breakers (kill infinite loops / runaway spawns)
+# Max nested sub-agent levels: agent -> subagent -> subagent is depth 2; a 3rd level is refused.
+MAX_SUBAGENT_DEPTH = int(os.getenv("NALLY_MAX_SUBAGENT_DEPTH", "2"))
+# Max attempts for a single tool call before reporting the exact error (no infinite retry).
+TOOL_RETRY_LIMIT = int(os.getenv("NALLY_TOOL_RETRY_LIMIT", "3"))
+# Fraction of CONTEXT_MAX_TOKENS at which Nally proactively warns and summarizes.
+TOKEN_WARN_THRESHOLD = float(os.getenv("NALLY_TOKEN_WARN_THRESHOLD", "0.8"))
+
+# How long (seconds) the agent waits for the user to approve a gated tool call
+# before declining. Telegram inline buttons can arrive late (polling/webhook
+# lag), so keep this generous. 0 = wait forever (abort still works).
+APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
 
 # ── Planning ─────────────────────────────────────────────
 
@@ -496,9 +518,22 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     return prompt
 
 
-# Backward-compatible constant (no user context at import time).
+# Backward-compatible constant, resolved lazily on first access so that
+# importing config.py does not probe skills/platform at import time.
 # Prefer get_system_prompt(user_context=...) at runtime for full prompts.
-SYSTEM_PROMPT = get_system_prompt()
+_SYSTEM_PROMPT_CACHE = {}
+
+
+def _resolve_system_prompt() -> str:
+    if "value" not in _SYSTEM_PROMPT_CACHE:
+        _SYSTEM_PROMPT_CACHE["value"] = get_system_prompt()
+    return _SYSTEM_PROMPT_CACHE["value"]
+
+
+def __getattr__(name: str):
+    if name == "SYSTEM_PROMPT":
+        return _resolve_system_prompt()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ── TTS Backend ───────────────────────────────────────────
@@ -508,7 +543,7 @@ TTS_BACKEND = os.getenv("NALLY_TTS_BACKEND", "piper")
 # ElevenLabs (optional — only needed if TTS_BACKEND=elevenlabs)
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel (default)
-ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 
 # ── Integrations ──────────────────────────────────────────
 
@@ -517,8 +552,34 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "").strip()
+TELEGRAM_MODE_ENV = os.getenv("TELEGRAM_MODE", "auto").strip().lower()
 PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY", "")
+
+
+def resolve_telegram_mode() -> str:
+    """Resolve which process owns the Telegram bot connection.
+
+    Returns one of "off", "polling", "webhook":
+    - off:     TELEGRAM_MODE=off, or no bot token configured.
+    - webhook: TELEGRAM_MODE=webhook, or auto + TELEGRAM_WEBHOOK_URL set.
+    - polling: TELEGRAM_MODE=polling, or auto + no webhook URL.
+
+    Exactly one Telegram Application owner is guaranteed per token:
+    the standalone bot subprocess owns polling, the web server owns webhook.
+    """
+    if TELEGRAM_MODE_ENV == "off" or not TELEGRAM_BOT_TOKEN:
+        return "off"
+    if TELEGRAM_MODE_ENV == "webhook":
+        return "webhook"
+    if TELEGRAM_MODE_ENV == "polling":
+        return "polling"
+    # auto: prefer webhook when a URL is configured, else polling
+    return "webhook" if TELEGRAM_WEBHOOK_URL else "polling"
+PLIVO_AUTH_ID = os.getenv("PLIVO_AUTH_ID", "")
+PLIVO_AUTH_TOKEN = os.getenv("PLIVO_AUTH_TOKEN", "")
+PLIVO_PHONE_NUMBER = os.getenv("PLIVO_PHONE_NUMBER", "")
 
 
 # ── Validation ─────────────────────────────────────────────

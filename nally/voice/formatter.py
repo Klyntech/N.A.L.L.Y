@@ -31,7 +31,7 @@ class VoiceConfig:
 
 
 class VoiceFormatter:
-    """Formats text for TTS — strips markdown, converts structures, applies SSML-lite."""
+    """Formats text for TTS — strips markdown, converts structures for speech."""
 
     # Patterns to strip/convert for speech
     CODE_BLOCK_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
@@ -49,11 +49,6 @@ class VoiceFormatter:
     LIST_ITEM_RE = re.compile(r"^[\s]*[-*+]\s+(.+)$", re.MULTILINE)
     ORDERED_LIST_RE = re.compile(r"^[\s]*\d+\.\s+(.+)$", re.MULTILINE)
     CHECKBOX_RE = re.compile(r"^[\s]*[-*+]\s+\[[ xX]\]\s+(.+)$", re.MULTILINE)
-
-    # SSML-lite conversions
-    PAUSE_SHORT = "<break time='200ms'/>"
-    PAUSE_MEDIUM = "<break time='500ms'/>"
-    PAUSE_LONG = "<break time='800ms'/>"
 
     def __init__(self, config: VoiceConfig | None = None):
         self.config = config or VoiceConfig()
@@ -93,7 +88,7 @@ class VoiceFormatter:
         text = self.TABLE_SEP_RE.sub("", text)
 
         # Headers → spoken with pause
-        text = self.HEADER_RE.sub(f"{self.PAUSE_MEDIUM}\\1{self.PAUSE_SHORT}", text)
+        text = self.HEADER_RE.sub("\\1. ", text)
 
         # Bold/italic/strikethrough → plain
         text = self.BOLD_RE.sub(r"\1", text)
@@ -107,10 +102,10 @@ class VoiceFormatter:
         text = self.IMAGE_RE.sub(r"[image: \1]", text)
 
         # Blockquotes
-        text = self.BLOCKQUOTE_RE.sub(f"{self.PAUSE_SHORT}Quote: \\1{self.PAUSE_SHORT}", text)
+        text = self.BLOCKQUOTE_RE.sub("Quote: \\1. ", text)
 
         # Horizontal rules
-        text = self.HR_RE.sub(self.PAUSE_LONG, text)
+        text = self.HR_RE.sub(". ", text)
 
         # Checkboxes
         text = self.CHECKBOX_RE.sub(r"\1", text)
@@ -122,9 +117,6 @@ class VoiceFormatter:
         text = re.sub(r"\n{3,}", "\n\n", text)
         text = re.sub(r"[ \t]+", " ", text)
         text = text.strip()
-
-        # Apply SSML-lite for natural pauses
-        text = self._apply_ssml_lite(text)
 
         return text
 
@@ -176,28 +168,6 @@ class VoiceFormatter:
                 parts.append(f"Item {i+1}, {item}")
 
         return ". ".join(parts) + "."
-
-    def _apply_ssml_lite(self, text: str) -> str:
-        """Apply SSML-lite tags for natural prosody."""
-        # Sentence boundaries → medium pause
-        text = re.sub(r"\.\s+", f".{self.PAUSE_MEDIUM} ", text)
-        text = re.sub(r"\?\s+", f"?{self.PAUSE_MEDIUM} ", text)
-        text = re.sub(r"!\s+", f"!{self.PAUSE_MEDIUM} ", text)
-
-        # Commas → short pause
-        text = re.sub(r",\s+", f",{self.PAUSE_SHORT} ", text)
-
-        # Colons/semicolons → medium pause
-        text = re.sub(r":\s+", f":{self.PAUSE_MEDIUM} ", text)
-        text = re.sub(r";\s+", f";{self.PAUSE_MEDIUM} ", text)
-
-        # Numbers: "123" → "one two three" for clarity (optional)
-        # text = re.sub(r"\b(\d{2,})\b", lambda m: " ".join(m.group(1)), text)
-
-        # Abbreviations → spell out
-        text = re.sub(r"\b(etc|i\.e|e\.g|vs|mr|dr|st|rd|th)\b", r"\1", text, flags=re.IGNORECASE)
-
-        return text
 
     def _extract_summary(self, text: str) -> str:
         """Extract a reasonable summary from long text (fallback)."""

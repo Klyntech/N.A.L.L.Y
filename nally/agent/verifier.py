@@ -5,6 +5,9 @@ Detects:
   2. false_success: Agent claims success, but tool returned an error
   3. false_failure: Agent claims failure, but tool succeeded
   4. count_mismatch: Agent says "deleted 5 files" but receipt shows 1
+  5. tool_existence: Agent claims to have used a tool that doesn't exist in registry
+  6. fabricated_limits: Agent invents quota/limit/credit numbers not in any receipt
+  7. phone_hallucination: Agent claims phone call made/checked when no phone tool was called
 
 Every finding is deterministic — no LLM in the hot path.
 """
@@ -61,6 +64,22 @@ _ACTION_CLAIMS = [
     (r"(?:I |we )?(?:searched|looked up|found)\s+(?:the\s+)?(?:info|results|answer)", "web_search", "search"),
     # Memory
     (r"(?:I |we )?(?:saved|stored|remembered)", "remember", "store"),
+    # Phone calls
+    (r"(?:I |we )?(?:made|placed|initiated|started|dialed)\s+(?:a\s+)?(?:call|phone call)", "make_call", "call"),
+    (r"(?:I |we )?(?:checked|looked up|got)\s+(?:the\s+)?(?:call status|status of)", "get_call_status", "status"),
+    (r"(?:I |we )?(?:ended|hung up|terminated)\s+(?:the\s+)?call", "hangup_call", "hangup"),
+    (r"(?:I |we )?(?:listed|fetched|retrieved)\s+(?:the\s+)?(?:call log|recent calls|call history)", "list_calls", "list"),
+    # Image generation
+    (r"(?:I |we )?(?:generated|created|made)\s+(?:an?\s+)?(?:image|picture|photo|illustration)", "generate_image", "image_gen"),
+]
+
+# Patterns for fabricated limits/quotas/credits (agent inventing numbers)
+_FABRICATED_LIMITS = [
+    r"(?:only |just )?\d+\s*(?:free |remaining )?(?:minutes?|calls?|credits?|tries|attempts)",
+    r"(?:you(?:'ve| have| already))? (?:used|exceeded|consumed|reached).{0,20}\d+",
+    r"(?:quota|limit|allowance|balance)\s+(?:of\s+)?\d+",
+    r"(?:trial|free tier).{0,30}\d+\s*(?:minutes?|calls?|credits?)",
+    r"\d+\s*(?:of|out of|\/)\s*\d+\s*(?:free |remaining )?(?:minutes?|calls?|credits?)",
 ]
 
 # Success/failure claim patterns
@@ -123,7 +142,7 @@ class ClaimVerifier:
     def __init__(self, store: Optional[ReceiptStore] = None):
         self._store = store
 
-    def verify(self, llm_response: str, receipts: List[Receipt]) -> VerificationResult:
+    def verify(self, llm_response: str, receipts: List[Receipt], registered_tools: Optional[set] = None) -> VerificationResult:
         """Verify all claims in an LLM response against receipts."""
         result = VerificationResult()
 
@@ -149,6 +168,21 @@ class ClaimVerifier:
                 result.backed_count += 1
             elif f.verdict == Verdict.CONTRADICTED:
                 result.contradicted_count += 1
+
+        # Check for fabricated limits/quotas
+        limit_findings = self._verify_fabricated_limits(llm_response, receipts)
+        for f in limit_findings:
+            result.findings.append(f)
+            if f.verdict == Verdict.CONTRADICTED:
+                result.contradicted_count += 1
+
+        # Check for tool existence claims (agent claims tool X but X doesn't exist)
+        if registered_tools:
+            existence_findings = self._verify_tool_existence(llm_response, registered_tools)
+            for f in existence_findings:
+                result.findings.append(f)
+                if f.verdict == Verdict.UNSUPPORTED:
+                    result.unsupported_count += 1
 
         return result
 
@@ -235,6 +269,69 @@ class ClaimVerifier:
                     evidence="Agent claims failure but all tools succeeded",
                 )
             )
+
+        return findings
+
+    def _verify_fabricated_limits(self, text: str, receipts: List[Receipt]) -> List[ClaimFinding]:
+        """Detect agent inventing quota/limit/credit numbers not backed by receipts."""
+        findings = []
+        text_lower = text.lower()
+
+        for pattern in _FABRICATED_LIMITS:
+            matches = re.finditer(pattern, text_lower)
+            for match in matches:
+                # Get the full match and surrounding context
+                start = max(0, match.start() - 30)
+                end = min(len(text), match.end() + 30)
+                context = text[start:end].strip()
+
+                # Check if any receipt contains this number or a contradicting number
+                backed = False
+                for r in receipts:
+                    if r.result and match.group() in r.result:
+                        backed = True
+                        break
+
+                if not backed:
+                    findings.append(
+                        ClaimFinding(
+                            claim=f"Agent claims: '{context}'",
+                            verdict=Verdict.CONTRADICTED,
+                            evidence="No receipt supports this quota/limit/credit number — likely hallucinated",
+                        )
+                    )
+
+        return findings
+
+    def _verify_tool_existence(self, text: str, registered_tools: set) -> List[ClaimFinding]:
+        """Detect agent claiming to use a tool that doesn't exist in the registry."""
+        findings = []
+        text_lower = text.lower()
+
+        # Patterns where agent claims tool usage in first person
+        tool_claim_patterns = [
+            r"(?:I |we )?(?:used|called|invoked|ran)\s+(?:the\s+)?(\w+)\s+tool",
+            r"(?:I |we )?(?:used|called|invoked|ran)\s+(\w+)",
+            r"using\s+(\w+)\s+tool",
+            r"using\s+(\w+)",
+        ]
+
+        for pattern in tool_claim_patterns:
+            matches = re.finditer(pattern, text_lower)
+            for match in matches:
+                tool_name = match.group(1)
+                # Skip common non-tool words
+                if tool_name in {"the", "a", "an", "this", "that", "my", "your", "it", "them", "to", "for", "and", "or", "but", "so"}:
+                    continue
+                if tool_name not in registered_tools:
+                    findings.append(
+                        ClaimFinding(
+                            claim=f"Agent claims to have used '{tool_name}' tool",
+                            verdict=Verdict.UNSUPPORTED,
+                            evidence=f"Tool '{tool_name}' does not exist in the registry — hallucinated tool name",
+                            tool=tool_name,
+                        )
+                    )
 
         return findings
 

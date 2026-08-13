@@ -79,16 +79,30 @@ def md_to_telegram_html(text: str) -> str:
     # 1. Convert tables AFTER escaping (tables add <pre> tags safely)
     text = _convert_tables(text)
 
-    # 2. Code blocks (```...```) — must come before inline code
-    text = re.sub(
-        r"```(\w*)\n?(.*?)```",
-        r"<pre><code class=\"language-\1\">\2</code></pre>",
-        text,
-        flags=re.DOTALL,
-    )
+    # 2. Code blocks (```...```) — must come before inline code.
+    #    Replace with placeholders first so the bold/italic/header regexes
+    #    below never mutate content inside the code block, then restore at
+    #    the end. Telegram's HTML parser rejects attributes on tags other than
+    #    <a>, so we must NOT emit class="language-...".
+    code_blocks = []
+    def _capture_code(m):
+        lang = m.group(1)
+        body = m.group(2).strip("\n")
+        if lang:
+            body = f"{lang}\n{body}"
+        code_blocks.append(body)
+        return f"\x00CODE{len(code_blocks) - 1}\x00"
 
-    # 3. Inline code (`...`)
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"```(\w*)\n?(.*?)```", _capture_code, text, flags=re.DOTALL)
+
+    # 3. Inline code (`...`) — also stash with placeholders so bold/italic
+    #    regexes don't match * or ** inside inline code.
+    inline_codes = []
+    def _capture_inline(m):
+        inline_codes.append(m.group(1))
+        return f"\x00INLINE{len(inline_codes) - 1}\x00"
+
+    text = re.sub(r"`([^`]+)`", _capture_inline, text)
 
     # 4. Bold (**...**)
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
@@ -104,5 +118,19 @@ def md_to_telegram_html(text: str) -> str:
 
     # 8. Horizontal rules (--- or ***) → line
     text = re.sub(r"^[-*_]{3,}\s*$", "──────────", text, flags=re.MULTILINE)
+
+    # 9. Restore code blocks (already escaped by step 0)
+    def _restore_code(m):
+        body = code_blocks[int(m.group(1))]
+        return f"<pre><code>{body}</code></pre>"
+
+    text = re.sub(r"\x00CODE(\d+)\x00", _restore_code, text)
+
+    # 10. Restore inline code
+    def _restore_inline(m):
+        body = inline_codes[int(m.group(1))]
+        return f"<code>{body}</code>"
+
+    text = re.sub(r"\x00INLINE(\d+)\x00", _restore_inline, text)
 
     return text

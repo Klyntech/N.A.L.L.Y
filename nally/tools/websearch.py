@@ -7,6 +7,7 @@ and falls back to DuckDuckGo when the Parallel.ai quota is exhausted.
 import logging
 import os
 import sqlite3
+import threading
 from datetime import datetime
 
 import httpx
@@ -21,6 +22,10 @@ logger = logging.getLogger("nally.tools.websearch")
 
 # Monthly limit for Parallel.ai free tier
 PARALLEL_MONTHLY_LIMIT = 5000
+
+# Serializes the quota check + increment so concurrent searches cannot both
+# pass the limit check (read-then-increment race).
+_quota_lock = threading.Lock()
 
 
 def _get_db_path() -> str:
@@ -84,9 +89,12 @@ def _search_parallel(query: str, num_results: int = 3) -> str | None:
     db_path = _get_db_path()
     _ensure_usage_table(db_path)
 
-    # Check monthly quota
+    # Hold the quota lock across the check AND the increment so concurrent
+    # searches cannot both pass the limit (audit Architecture Risk #4).
+    _quota_lock.acquire()
     count = _get_monthly_count(db_path, "parallel")
     if count >= PARALLEL_MONTHLY_LIMIT:
+        _quota_lock.release()
         logger.info(f"Parallel.ai monthly limit reached ({count}/{PARALLEL_MONTHLY_LIMIT}), using fallback")
         return None
 
@@ -113,11 +121,13 @@ def _search_parallel(query: str, num_results: int = 3) -> str | None:
         )
 
         if resp.status_code != 200:
+            _quota_lock.release()
             logger.warning(f"Parallel.ai search failed: {resp.status_code} {resp.text[:200]}")
             return None
 
         data = resp.json()
         _increment_monthly_count(db_path, "parallel")
+        _quota_lock.release()
 
         # Format results
         results = data.get("results", [])
@@ -135,6 +145,8 @@ def _search_parallel(query: str, num_results: int = 3) -> str | None:
         return "\n\n".join(parts)
 
     except Exception as e:
+        if _quota_lock.locked():
+            _quota_lock.release()
         logger.error(f"Parallel.ai search error: {type(e).__name__}: {e}")
         return None
 

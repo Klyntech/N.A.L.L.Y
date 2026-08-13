@@ -256,3 +256,21 @@ def test_malformed_string_rule_falls_back_to_ask(gate_from_tmp):
     config = {"some_tool": "bogus_value"}
     g = gate_from_tmp(config)
     assert g.check("some_tool", {}) == PermissionDecision.ASK
+
+
+# ── SQLite Approval Persistence ───────────────────────────
+
+
+def test_resolve_approval_sqlite_persistence():
+    """Test that approval status persists to SQLite and resolves even when not in memory."""
+    from nally.agent.graph import _get_approval_status, _save_pending_approval, resolve_approval
+
+    test_tc_id = "test_persistence_call_123"
+    _save_pending_approval(test_tc_id, "pending")
+    assert _get_approval_status(test_tc_id) == "pending"
+
+    # Simulating button click resolving approval via DB when not in memory
+    res = resolve_approval(test_tc_id, True)
+    assert res is True
+    assert _get_approval_status(test_tc_id) == "approved"
+

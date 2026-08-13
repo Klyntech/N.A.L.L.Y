@@ -24,15 +24,23 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from ..config import (
+    ACTIVE_MODEL,
+    APPROVAL_TIMEOUT,
+    CONTEXT_MAX_TOKENS,
+    DATA_DIR,
     DATABASE_URL,
     DUPLICATE_TOOL_THRESHOLD,
     MAX_AGENT_WALL_TIME,
     MAX_TOOL_CALLS,
     PLAN_ENABLED,
     RECURSION_LIMIT,
+    SESSION_ID,
+    TOKEN_WARN_THRESHOLD,
+    TOOL_RETRY_LIMIT,
     ensure_data_dir,
 )
 from ..core.errors import LLMError
+from ..core.tracing import tracer
 from ..tools.permissions import gate as permission_gate
 from ..tools.registry import registry
 from ..utils.logger import logger
@@ -194,6 +202,58 @@ MAX_CONSECUTIVE_ERRORS = 5
 _MAX_RETRIES = 3
 _RETRYABLE_CODES = {"500", "502", "503", "429"}
 
+# ── Tool retry / idempotency ──────────────────────────────
+# Tools whose side effects are NOT safe to repeat get no automatic retry.
+# Retries only fire on transient-looking failures (timeouts, 5xx, rate limits),
+# so a definitive "file not found" / "permission denied" returns immediately.
+_NON_RETRYABLE_TOOLS = {"run_command", "run_code"}
+_RETRYABLE_ERROR_HINTS = (
+    "timeout", "timed out", "429", "503", "502", "500",
+    "temporarily", "connection reset", "try again", "rate limit",
+    "overloaded", "socket", "econn", "temporary failure", "gateway",
+)
+
+
+def _tool_is_destructive(tool_name: str, tool_args: dict) -> bool:
+    if tool_name in _NON_RETRYABLE_TOOLS:
+        return True
+    if tool_name == "file_ops" and tool_args.get("action") in ("delete", "move", "copy"):
+        return True
+    return False
+
+
+def _is_transient_error(result: str) -> bool:
+    r = (result or "").lower()
+    return any(hint in r for hint in _RETRYABLE_ERROR_HINTS)
+
+
+def _execute_tool_with_retry(tool_name: str, tool_args: dict, tool_id: str) -> tuple:
+    """Execute a tool, retrying transient failures up to TOOL_RETRY_LIMIT.
+
+    Destructive tools are never retried (a failed shell command should not be
+    re-run blindly). After the limit is exhausted the exact last error is
+    returned so the agent can report it to the user verbatim.
+    """
+    if _tool_is_destructive(tool_name, tool_args):
+        return registry.execute(tool_name, tool_args)
+
+    last_result, last_success = "", False
+    for attempt in range(1, TOOL_RETRY_LIMIT + 1):
+        result, success = registry.execute(tool_name, tool_args)
+        last_result, last_success = result, success
+        if success or not _is_transient_error(result):
+            return result, success
+        logger.warning(
+            f"Tool '{tool_name}' transient failure (attempt {attempt}/{TOOL_RETRY_LIMIT}), retrying: {result[:80]}"
+        )
+        if attempt < TOOL_RETRY_LIMIT:
+            time.sleep(min(2 ** attempt, 8))
+
+    if not last_success:
+        logger.error(f"Tool '{tool_name}' failed after {TOOL_RETRY_LIMIT} attempts: {last_result[:200]}")
+    return last_result, last_success
+
+
 # ── Thread-local state ────────────────────────────────────
 _tlocal = threading.local()
 
@@ -206,9 +266,89 @@ def _set_emit(emit):
     _tlocal.emit = emit
 
 
+def _ensure_tracer_store():
+    """Bind the memory store to the tracer once. Best-effort; never raises."""
+    try:
+        if tracer._store is None:
+            from ..memory import memory_store
+
+            tracer.set_store(memory_store)
+    except Exception:
+        pass
+
+
 # ── Approval gate ─────────────────────────────────────────
 _approval_events: Dict[str, threading.Event] = {}
 _approval_results: Dict[str, bool] = {}
+# Approvals that arrived before the gate registered its event. Maps tc_id ->
+# (approved, timestamp). Prevents the "approval lost in the race between DB
+# write and event registration" bug (audit Broken #4).
+_early_approvals: Dict[str, tuple] = {}
+_approval_lock = threading.Lock()
+
+# Stale early-approval entries are pruned after APPROVAL_TIMEOUT + 60s.
+_APPROVAL_TTL_SLACK = 60
+
+
+def _prune_early_approvals(now: float = None):
+    """Remove expired entries from _early_approvals. Caller must hold _approval_lock."""
+    if now is None:
+        now = time.time()
+    ttl = (APPROVAL_TIMEOUT or 1800) + _APPROVAL_TTL_SLACK
+    stale = [k for k, (_, ts) in _early_approvals.items() if now - ts > ttl]
+    for k in stale:
+        _early_approvals.pop(k, None)
+
+
+def _pop_approval_state(tc_id: str) -> tuple:
+    """Thread-safe: pop both event and result for a tc_id. Returns (event, result)."""
+    with _approval_lock:
+        event = _approval_events.pop(tc_id, None)
+        result = _approval_results.pop(tc_id, False)
+        return event, result
+
+
+def _get_approval_db():
+    import sqlite3
+    db_path = DATA_DIR / "nally.db"
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pending_approvals (
+            tool_call_id TEXT PRIMARY KEY,
+            status TEXT,
+            created_at REAL,
+            updated_at REAL
+        )
+    """)
+    return conn
+
+
+def _save_pending_approval(tool_call_id: str, status: str = "pending"):
+    try:
+        conn = _get_approval_db()
+        now = time.time()
+        conn.execute("""
+            INSERT OR REPLACE INTO pending_approvals (tool_call_id, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+        """, (tool_call_id, status, now, now))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.debug(f"Failed to save pending approval: {e}")
+
+
+def _get_approval_status(tool_call_id: str) -> Optional[str]:
+    try:
+        conn = _get_approval_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM pending_approvals WHERE tool_call_id = ?", (tool_call_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception as e:
+        logger.debug(f"Failed to get approval status: {e}")
+        return None
 
 
 # ── Abort checkpoint ──────────────────────────────────────
@@ -291,6 +431,17 @@ def _convert_to_openai(messages: List[BaseMessage]) -> List[dict]:
     return openai_messages
 
 
+def _safe_parse_tool_args(arguments: str) -> dict:
+    """Parse tool call arguments JSON, returning empty dict on malformed input."""
+    if not arguments:
+        return {}
+    try:
+        return json.loads(arguments)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning(f"Malformed tool call arguments (len={len(arguments)}), using empty args: {arguments[:80]!r}...")
+        return {}
+
+
 def _stream_with_emit(llm_client, openai_messages, tools, cache_key, emit):
     """Stream LLM response and emit chunks. Returns ChatCompletion-like object."""
     from openai.types.chat import ChatCompletion, ChatCompletionMessage
@@ -347,16 +498,27 @@ def _stream_with_emit(llm_client, openai_messages, tools, cache_key, emit):
     )
 
 
+_RATE_LIMIT_RETRIES = 6  # more retries for rate limits (needs longer waits)
+_RATE_LIMIT_BASE_WAIT = 30  # seconds — free tier limits typically reset in ~60s
+
+
 def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit, model=None):
     """Call LLM with streaming + retry. Raises LLMError on failure.
+
+    On 429 rate limit, rotates to the next API key. After all keys are
+    exhausted, waits longer for the rate limit window to reset before
+    cycling through keys again.
 
     Args:
         model: Optional model override (bypasses routing, used by sub-agents).
             When set, streaming is skipped (chat_with_model doesn't support it)
             but retries still apply on transient errors.
     """
+    max_retries = _RATE_LIMIT_RETRIES if not model else _MAX_RETRIES
     last_error = None
-    for attempt in range(_MAX_RETRIES):
+    keys_exhausted_count = 0
+
+    for attempt in range(max_retries):
         try:
             if emit and not model:
                 try:
@@ -377,10 +539,27 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit, mo
             last_error = e
             error_str = str(e).lower()
             is_retryable = any(code in error_str for code in _RETRYABLE_CODES)
-            if attempt < _MAX_RETRIES - 1 and is_retryable:
-                wait = min(2 ** (attempt + 1), 15)
+            is_rate_limit = "429" in error_str or "rate" in error_str
+
+            if attempt < max_retries - 1 and is_retryable:
+                if is_rate_limit:
+                    rotated = llm_client.rotate_key()
+                    if rotated:
+                        # Key rotated — short wait, try new key fast
+                        wait = 2
+                    else:
+                        # All keys exhausted — wait longer for rate limit reset
+                        keys_exhausted_count += 1
+                        wait = min(_RATE_LIMIT_BASE_WAIT * keys_exhausted_count, 120)
+                        logger.warning(
+                            f"All {len(llm_client._keys)} keys rate limited, "
+                            f"waiting {wait}s for limit reset (cycle {keys_exhausted_count})"
+                        )
+                else:
+                    wait = min(2 ** (attempt + 1), 15)
+
                 logger.warning(
-                    f"LLM call failed (attempt {attempt + 1}/{_MAX_RETRIES}), retrying in {wait}s: {str(e)[:80]}"
+                    f"LLM call failed (attempt {attempt + 1}/{max_retries}), retrying in {wait}s: {str(e)[:80]}"
                 )
                 time.sleep(wait)
             else:
@@ -418,7 +597,11 @@ def llm_call(state: AgentState) -> AgentState:
     if error_count >= MAX_CONSECUTIVE_ERRORS:
         logger.warning(f"Circuit breaker: {error_count} consecutive errors, stopping agent")
         fallback = AIMessage(
-            content="I've encountered repeated errors and need to stop. Please try again or rephrase your request."
+            content=(
+                f"Execution halted: hit {error_count} consecutive errors. "
+                f"Here is the partial data I gathered before stopping "
+                f"({tool_calls_total} tool calls made). Please try again or rephrase your request."
+            )
         )
         return {"messages": [fallback], "iteration": iteration + 1, "error_count": 0}
 
@@ -439,12 +622,16 @@ def llm_call(state: AgentState) -> AgentState:
             ]
             response = llm.chat(summary_msgs, tools=None, cache_key=cache_key)
             summary = (
-                response.choices[0].message.content or "I've reached the tool call limit. Here's what I found so far."
+                response.choices[0].message.content
+                or "I've reached the tool call limit. Here's what I found so far."
             )
         except Exception as e:
             logger.warning(f"Circuit breaker summary call failed: {e}")
             summary = "I've reached the maximum number of tool calls. Please try again or rephrase your request."
-        fallback = AIMessage(content=summary)
+        fallback = AIMessage(
+            content=f"Execution halted: reached the maximum of {MAX_TOOL_CALLS} tool calls. "
+            f"Here is the partial data I gathered before stopping:\n\n{summary}"
+        )
         return {"messages": [fallback], "iteration": iteration + 1}
 
     emit = _get_emit()
@@ -458,6 +645,44 @@ def llm_call(state: AgentState) -> AgentState:
 
     openai_messages = _convert_to_openai(messages)
 
+    # ── Token budget early-warning ──────────────────────────
+    # Proactively warn (and instruct concision) before we blow the context
+    # window — this is what prevents the silent token-exhaustion crash.
+    try:
+        from ..agent.context import context_manager
+
+        est_tokens = context_manager.estimate_tokens(openai_messages)
+        if est_tokens >= TOKEN_WARN_THRESHOLD * CONTEXT_MAX_TOKENS:
+            logger.warning(
+                f"Token budget warning: ~{est_tokens} tokens (>= {int(TOKEN_WARN_THRESHOLD * 100)}% of {CONTEXT_MAX_TOKENS})"
+            )
+            emit = _get_emit()
+            if emit:
+                try:
+                    emit(
+                        "system_notice",
+                        {
+                            "text": (
+                                "I'm approaching my token limit. I'll save key findings to memory and "
+                                "summarize before we continue — say 'continue' when you want me to pick back up."
+                            )
+                        },
+                    )
+                except Exception:
+                    pass
+            openai_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "TOKEN WARNING: context is near the limit. Be concise. If the remaining work is "
+                        "large, persist findings to memory now and give a compact summary instead of "
+                        "continuing at length."
+                    ),
+                }
+            )
+    except Exception as e:
+        logger.debug(f"Token budget check skipped: {e}")
+
     # Inject recent tool execution receipts (trust grounding)
     try:
         from ..tools.receipts import receipt_store
@@ -470,9 +695,17 @@ def llm_call(state: AgentState) -> AgentState:
         logger.warning(f"Failed to inject receipts into context: {e}")
 
     model_override = state.get("model_override")
+
+    llm_span = tracer.start_span("llm_call", {
+        "model": model_override or ACTIVE_MODEL,
+        "messages_count": len(openai_messages),
+        "tools_count": len(tools) if tools else 0,
+    })
+
     try:
         response = _call_llm_with_retry(llm, openai_messages, tools, cache_key, emit, model=model_override)
     except LLMError as e:
+        tracer.end_span(llm_span.span_id, error=e.message)
         new_error_count = error_count + 1
         logger.error(f"LLM error ({new_error_count}/{MAX_CONSECUTIVE_ERRORS}): {e.message}")
         fallback = AIMessage(content=e.to_llm_format())
@@ -484,6 +717,12 @@ def llm_call(state: AgentState) -> AgentState:
         }
 
     assistant_msg = response.choices[0].message
+
+    # End llm_span on success
+    tracer.end_span(llm_span.span_id, output={
+        "content_preview": (assistant_msg.content or "")[:300],
+        "tool_calls": [{"name": tc.function.name} for tc in (assistant_msg.tool_calls or [])],
+    })
 
     if not assistant_msg.tool_calls and assistant_msg.content:
         cleaned_text, text_tool_calls = _parse_text_tool_calls(assistant_msg.content)
@@ -507,7 +746,7 @@ def llm_call(state: AgentState) -> AgentState:
             {
                 "id": tc.id,
                 "name": tc.function.name,
-                "args": json.loads(tc.function.arguments) if tc.function.arguments else {},
+                "args": _safe_parse_tool_args(tc.function.arguments),
             }
             for tc in (assistant_msg.tool_calls or [])
         ]
@@ -519,16 +758,44 @@ def llm_call(state: AgentState) -> AgentState:
     if ai_message.content and not ai_message.tool_calls:
         try:
             from ..tools.receipts import receipt_store
+            from ..tools.registry import registry
             from .verifier import claim_verifier
 
             recent = receipt_store.get_recent(limit=20)
+            registered_tools = set(registry.tools.keys())
             if recent:
-                vresult = claim_verifier.verify(ai_message.content, recent)
+                vresult = claim_verifier.verify(ai_message.content, recent, registered_tools)
                 if not vresult.is_honest:
                     logger.warning(
                         f"Claim verification: {vresult.unsupported_count} unsupported, "
                         f"{vresult.contradicted_count} contradicted"
                     )
+                    # Feed verification failure back to LLM for self-correction
+                    correction_prompt = (
+                        "VERIFICATION FAILED — your last response contained unsupported claims:\n"
+                    )
+                    for f in vresult.findings:
+                        if f.verdict.value in ("unsupported", "contradicted"):
+                            correction_prompt += f"- [{f.verdict.value}] {f.claim}: {f.evidence}\n"
+                    correction_prompt += (
+                        "\nRewrite your response. Remove or correct any claims not backed by receipts. "
+                        "If you did not call a tool, do not claim you did. "
+                        "If a tool failed, say it failed. Do not invent numbers or limits."
+                    )
+                    try:
+                        from .llm import call_llm
+                        corrected = call_llm(
+                            messages=[
+                                {"role": "system", "content": "You are Nally. Fix your previous response based on the verification feedback. Output ONLY the corrected response, no preamble."},
+                                {"role": "user", "content": correction_prompt},
+                            ],
+                            temperature=0.1,
+                        )
+                        if corrected and not corrected.startswith("Error"):
+                            ai_message.content = corrected
+                            logger.info("LLM self-corrected after verification failure")
+                    except Exception as correction_err:
+                        logger.warning(f"Self-correction call failed: {correction_err}")
                     if emit:
                         try:
                             emit("verification", vresult.to_dict())
@@ -569,6 +836,9 @@ def tool_executor(state: AgentState) -> AgentState:
     tool_calls_total = state.get("tool_calls_total", 0)
     thread_id = state.get("thread_id", "default")
 
+    if emit is None:
+        logger.warning("tool_executor: emit is None — approval buttons won't work")
+
     # Abort checkpoint — stop immediately if user requested abort
     if _check_abort(thread_id):
         _clear_abort(thread_id)
@@ -583,60 +853,150 @@ def tool_executor(state: AgentState) -> AgentState:
     if not last_ai_msg:
         return {"messages": [], "tool_calls_total": tool_calls_total}
 
+    # Capture current tracing context BEFORE dispatching to pool threads
+    # (thread-local span stack does not propagate into ThreadPoolExecutor).
+    _trace_parent = tracer.get_current_span()
+    _trace_parent_id = _trace_parent.span_id if _trace_parent else None
+    _trace_run_id = _trace_parent.run_id if _trace_parent else None
+
     def _execute_single(tc):
         tool_name = tc["name"]
         tool_args = tc["args"]
         tool_id = tc["id"]
 
+        # ── Idempotency (task_id) ───────────────────────────
+        # If the model supplied a task_id, skip re-execution when that task was
+        # already completed in this session. Makes tools safe to retry/duplicate.
+        task_id = tool_args.get("task_id") if isinstance(tool_args, dict) else None
+        if task_id:
+            try:
+                from ..tools.receipts import receipt_store
+
+                cached = receipt_store.get_idempotent(str(task_id), SESSION_ID)
+                if cached is not None:
+                    logger.info(f"Idempotent skip: task_id={task_id} already processed — returning cached result")
+                    _finish(True, "idempotent skip")
+                    return ToolMessage(content=cached, tool_call_id=tool_id)
+            except Exception as e:
+                logger.debug(f"Idempotency check skipped: {e}")
+
+        tool_span = None
+        try:
+            tool_span = tracer.start_span(
+                f"tool:{tool_name}",
+                {"name": tool_name, "args": tool_args, "tool_call_id": tool_id},
+                parent_span_id=_trace_parent_id,
+                run_id=_trace_run_id,
+            )
+        except Exception:
+            tool_span = None
+
+        def _finish(success_flag, result_str, error_str=None):
+            if tool_span is not None:
+                try:
+                    tracer.end_span(
+                        tool_span.span_id,
+                        output={"success": success_flag, "result": result_str},
+                        error=error_str,
+                    )
+                except Exception:
+                    pass
+
         decision = permission_gate.check(tool_name, tool_args)
 
         if decision.value == "deny":
             logger.info(f"Permission denied: '{tool_name}' {tool_args}")
+            _finish(False, "denied by permission config")
             return ToolMessage(
                 content=f"Blocked: '{tool_name}' is denied by permission config.",
                 tool_call_id=tool_id,
             )
 
         if decision.value == "ask":
-            approval_event = threading.Event()
-            _approval_events[tool_id] = approval_event
+            existing_status = _get_approval_status(tool_id)
+            if existing_status == "approved":
+                logger.info(f"Approval gate: '{tool_name}' pre-approved via DB")
+                approved = True
+                result_approved = True
+            elif existing_status == "denied":
+                logger.info(f"Approval gate: '{tool_name}' pre-denied via DB")
+                approved = False
+                result_approved = False
+            else:
+                # Register the in-memory event BEFORE persisting pending so a
+                # fast approval (web/ws/telegram) can never arrive before the
+                # gate is registered — the approval-race fix (audit Broken #4).
+                approval_event = threading.Event()
+                with _approval_lock:
+                    _approval_events[tool_id] = approval_event
+                    _approval_results[tool_id] = False
+                    _prune_early_approvals()
+                    early = _early_approvals.pop(tool_id, None)
+                    if early is not None:
+                        _approval_results[tool_id] = early[0]
+                        approval_event.set()
+                        logger.info(
+                            f"approval_gate: early resolution '{early[0]}' applied for tc_id={tool_id}"
+                        )
+                _save_pending_approval(tool_id, "pending")
 
-            # Compute diff preview for file write operations
-            diff = _compute_file_diff(tool_args)
+                # Compute diff preview for file write operations
+                diff = _compute_file_diff(tool_args)
 
-            if emit:
-                try:
-                    payload = {
-                        "tool_call_id": tool_id,
-                        "name": tool_name,
-                        "args": tool_args,
-                        "permission": "ask",
-                    }
-                    if diff:
-                        payload["diff"] = diff
-                        payload["file_path"] = tool_args.get("file_path", "")
-                    emit("confirmation_required", payload)
-                except Exception:
-                    pass
+                if emit:
+                    try:
+                        payload = {
+                            "tool_call_id": tool_id,
+                            "name": tool_name,
+                            "args": tool_args,
+                            "permission": "ask",
+                        }
+                        if diff:
+                            payload["diff"] = diff
+                            payload["file_path"] = tool_args.get("file_path", "")
+                        logger.info(f"approval_gate: emitting confirmation_required for '{tool_name}' tc_id={tool_id}")
+                        emit("confirmation_required", payload)
+                        logger.info(f"approval_gate: emit sent successfully for tc_id={tool_id}")
+                    except Exception as e:
+                        logger.error(f"approval_gate: emit failed for tc_id={tool_id}: {e}")
+                else:
+                    logger.warning(f"approval_gate: emit is None for '{tool_name}' — approval buttons won't appear")
 
-            logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}'")
-            approved = approval_event.wait(timeout=120)
+                logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}' (timeout: {APPROVAL_TIMEOUT}s)")
 
-            # Abort check during approval gate
-            if _check_abort(thread_id):
-                _approval_events.pop(tool_id, None)
-                _approval_results.pop(tool_id, None)
-                return ToolMessage(content="Aborted by user.", tool_call_id=tool_id)
+                # Wait on the event instead of sleep-polling: Event.wait(timeout)
+                # wakes immediately when resolve_approval sets the event and
+                # burns no CPU while waiting (audit Architecture Risk #1). Abort
+                # is still checked each iteration so a user abort breaks the
+                # wait immediately.
+                _poll_interval = 2
+                _polls = (APPROVAL_TIMEOUT or 1800) // _poll_interval
+                for _i in range(_polls):
+                    if approval_event.is_set():
+                        break
+                    if _check_abort(thread_id):
+                        _pop_approval_state(tool_id)
+                        _save_pending_approval(tool_id, "aborted")
+                        _finish(False, "aborted by user")
+                        return ToolMessage(content="Aborted by user.", tool_call_id=tool_id)
+                    approval_event.wait(_poll_interval)
 
-            _approval_events.pop(tool_id, None)
-            result_approved = _approval_results.pop(tool_id, False)
+                approved = approval_event.is_set()
+                _, result_approved = _pop_approval_state(tool_id)
+
+                if not result_approved:
+                    result_approved = (_get_approval_status(tool_id) == "approved")
 
             if not approved or not result_approved:
+                _save_pending_approval(tool_id, "denied")
                 logger.info(f"Approval gate: user denied or timed out for '{tool_name}'")
+                _finish(False, "declined or timed out")
                 return ToolMessage(
                     content=f"Action '{tool_name}' was declined or timed out.",
                     tool_call_id=tool_id,
                 )
+
+            _save_pending_approval(tool_id, "approved")
 
             logger.info(f"Approval gate: user approved '{tool_name}'")
 
@@ -653,7 +1013,7 @@ def tool_executor(state: AgentState) -> AgentState:
 
         start = time.time()
         try:
-            result, success = registry.execute(tool_name, tool_args)
+            result, success = _execute_tool_with_retry(tool_name, tool_args, tool_id)
         except Exception as e:
             result = f"Error executing {tool_name}: {e!s}"
             success = False
@@ -661,6 +1021,15 @@ def tool_executor(state: AgentState) -> AgentState:
 
         duration = (time.time() - start) * 1000
         logger.tool_call(tool_name, tool_args, result)
+
+        # Persist idempotency result so the same task_id is never re-run.
+        if success and task_id:
+            try:
+                from ..tools.receipts import receipt_store
+
+                receipt_store.record_idempotent(str(task_id), SESSION_ID, str(result))
+            except Exception as e:
+                logger.debug(f"Idempotency record skipped: {e}")
 
         # Generate execution receipt (trust system)
         try:
@@ -709,11 +1078,25 @@ def tool_executor(state: AgentState) -> AgentState:
             except Exception:
                 pass
 
+        _finish(success, str(result)[:2000])
         return ToolMessage(content=str(result)[:2000], tool_call_id=tool_id)
 
     tool_messages = []
+    waits = []
+
+    # Capture current tracing context BEFORE dispatching to pool threads
+    # (thread-local span stack does not propagate into ThreadPoolExecutor).
+    _trace_parent = tracer.get_current_span()
+    _trace_parent_id = _trace_parent.span_id if _trace_parent else None
+    _trace_run_id = _trace_parent.run_id if _trace_parent else None
+
+    # Capture the current context (incl. SUBAGENT_DEPTH) so worker threads see
+    # the same nesting depth — required for correct sub-agent depth limiting.
+    import contextvars
+
+    ctx = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=min(len(last_ai_msg.tool_calls), 5)) as executor:
-        futures = {executor.submit(_execute_single, tc): tc for tc in last_ai_msg.tool_calls}
+        futures = {executor.submit(ctx.run, _execute_single, tc): tc for tc in last_ai_msg.tool_calls}
         for future in as_completed(futures):
             try:
                 tool_messages.append(future.result())
@@ -734,9 +1117,25 @@ def should_continue(state: AgentState) -> str:
     max_iterations = state.get("max_iterations", 10)
     thread_id = state.get("thread_id", "default")
 
+    # Trace the exit reason for every "end" path
+    _current_run_id = None
+    _span = tracer.get_current_span()
+    if _span:
+        _current_run_id = _span.run_id
+
+    def _record_exit(reason):
+        try:
+            tracer.end_span(
+                tracer.start_span("loop_exit", {"reason": reason}, run_id=_current_run_id).span_id,
+                output={"reason": reason, "iteration": iteration},
+            )
+        except Exception:
+            pass
+
     # Abort checkpoint — stop at next decision point
     if _check_abort(thread_id):
         _clear_abort(thread_id)
+        _record_exit("aborted")
         return "end"
 
     # Wall-clock budget
@@ -746,9 +1145,10 @@ def should_continue(state: AgentState) -> str:
         emit = _get_emit()
         if emit:
             try:
-                emit("system_notice", {"text": f"Hit my {MAX_AGENT_WALL_TIME}s time budget for this turn — say 'continue' if you want me to keep going."})
+                emit("system_notice", {"text": f"Execution halted: hit my {MAX_AGENT_WALL_TIME}s time budget for this turn — say 'continue' if you want me to keep going."})
             except Exception:
                 pass
+        _record_exit("wall_clock")
         return "end"
 
     if iteration >= max_iterations:
@@ -756,9 +1156,10 @@ def should_continue(state: AgentState) -> str:
         emit = _get_emit()
         if emit:
             try:
-                emit("system_notice", {"text": "Hit my step limit for this turn — say 'continue' to proceed."})
+                emit("system_notice", {"text": "Execution halted: hit my step limit for this turn — say 'continue' to proceed."})
             except Exception:
                 pass
+        _record_exit("max_iterations")
         return "end"
 
     # Duplicate tool call detection (doom loop)
@@ -767,9 +1168,10 @@ def should_continue(state: AgentState) -> str:
         emit = _get_emit()
         if emit:
             try:
-                emit("system_notice", {"text": "I noticed I was repeating the same action and stopped — let me know how you'd like to proceed."})
+                emit("system_notice", {"text": "Execution halted: I noticed I was repeating the same action and stopped — let me know how you'd like to proceed."})
             except Exception:
                 pass
+        _record_exit("doom_loop")
         return "end"
 
     last_ai_msg = None
@@ -779,6 +1181,7 @@ def should_continue(state: AgentState) -> str:
             break
 
     if not last_ai_msg or not last_ai_msg.tool_calls:
+        _record_exit("natural")
         return "end"
 
     return "tools"
@@ -910,8 +1313,39 @@ def run_agent(
     max_iterations: int = 10,
     thread_id: str = "default",
     model: Optional[str] = None,
+    _parent_span_id: Optional[str] = None,
+    _run_id: Optional[str] = None,
 ) -> str:
     """Run the agent graph and return the final response."""
+    _ensure_tracer_store()
+    entry_depth = tracer.stack_depth()
+    root_span = None
+    try:
+        root_span = tracer.start_span(
+            "agent_run",
+            {
+                "messages": messages,
+                "tools": [t.get("function", {}).get("name") if isinstance(t, dict) else t for t in tools],
+                "model": model,
+                "thread_id": thread_id,
+            },
+            parent_span_id=_parent_span_id,
+            run_id=_run_id,
+        )
+        # Surface the run_id to the frontend so it can link messages to traces.
+        if emit and root_span is not None:
+            try:
+                emit("run_id", {"run_id": root_span.run_id})
+            except Exception:
+                pass
+    except Exception:
+        root_span = None
+        try:
+            tracer.truncate_to(entry_depth)
+        except Exception:
+            pass
+
+    chain_response = None
     lc_messages = []
     for msg in messages:
         role = msg.get("role", "user")
@@ -936,6 +1370,13 @@ def run_agent(
 
     fresh_thread = f"{thread_id}-{uuid.uuid4().hex[:8]}"
     config = {"configurable": {"thread_id": fresh_thread}, "recursion_limit": RECURSION_LIMIT}
+
+    # Bridge the transient fresh_thread back to the stable session id so abort
+    # flags set via set_abort(session_id) are seen by graph checkpoints that
+    # key on state["thread_id"] (audit Broken #5).
+    from ..core.abort import clear_alias, register_alias
+
+    register_alias(fresh_thread, thread_id)
 
     initial_state = {
         "messages": lc_messages,
@@ -962,22 +1403,65 @@ def run_agent(
         final_messages = result["messages"]
         for msg in reversed(final_messages):
             if isinstance(msg, AIMessage) and msg.content:
-                return msg.content
+                chain_response = msg.content
+                break
 
-        return "Done."
+        chain_response = chain_response or "Done."
 
     except Exception as e:
         _set_emit(None)
+        clear_alias(fresh_thread)
         logger.error(f"Agent graph failed: {e}")
+        if root_span is not None:
+            try:
+                tracer.end_span_exc(root_span.span_id, e)
+            except Exception:
+                pass
+        try:
+            tracer.truncate_to(entry_depth)
+        except Exception:
+            pass
         raise
 
+    if root_span is not None:
+        try:
+            tracer.end_span(
+                root_span.span_id,
+                output={"response": chain_response, "reason": "completed"},
+            )
+        except Exception:
+            pass
+    try:
+        tracer.truncate_to(entry_depth)
+    except Exception:
+        pass
+    clear_alias(fresh_thread)
+    return chain_response
 
-def resolve_approval(tool_call_id: str, approved: bool):
-    """Resolve a pending approval request from the frontend."""
-    event = _approval_events.get(tool_call_id)
-    if event:
-        _approval_results[tool_call_id] = approved
-        event.set()
-        logger.info(f"Approval resolved: tool_call_id={tool_call_id}, approved={approved}")
-    else:
-        logger.warning(f"Approval resolved for unknown tool_call_id: {tool_call_id}")
+
+def resolve_approval(tool_call_id: str, approved: bool) -> bool:
+    """Resolve a pending approval request from the frontend or Telegram inline button.
+
+    Persists decision to SQLite so approvals survive server restarts. Returns True if
+    the approval request was found (either in-memory or persisted in DB).
+    """
+    status_str = "approved" if approved else "denied"
+    _save_pending_approval(tool_call_id, status_str)
+    logger.info(f"resolve_approval: tc_id={tool_call_id}, approved={approved}, status saved to DB")
+
+    # Thread-safe: check and signal
+    with _approval_lock:
+        _prune_early_approvals()
+        event = _approval_events.get(tool_call_id)
+        if event:
+            _approval_results[tool_call_id] = approved
+            event.set()
+            logger.info(f"resolve_approval: event set for tc_id={tool_call_id}")
+            return True
+        # Approval arrived before the gate registered its event. Cache it so
+        # the gate applies it as soon as it registers (audit Broken #4).
+        _early_approvals[tool_call_id] = (approved, time.time())
+        logger.info(
+            f"resolve_approval: no event yet for tc_id={tool_call_id}, cached early result ({approved})"
+        )
+        return True

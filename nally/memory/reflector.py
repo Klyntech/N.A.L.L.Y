@@ -68,6 +68,24 @@ Output JSON: {{
 }}
 Output ONLY the JSON."""
 
+_FACTS_PROMPT = """Extract factual information about the user from this conversation.
+
+Look for:
+- Project names and descriptions (e.g., "built Lexi, a legal AI bot")
+- People mentioned (names, roles)
+- Tools, languages, frameworks used
+- Goals, plans, or intentions
+- Preferences (likes, dislikes, choices)
+- Location, occupation, or personal details
+
+Conversation:
+{conversation}
+
+Output a JSON array of facts. Each fact: {{"key": "short_label", "value": "concise description", "category": "project|person|tool|goal|preference|personal"}}
+
+Only include facts that are clearly stated. If no facts found, output [].
+Output ONLY the JSON array."""
+
 
 # ── Reflector Class ───────────────────────────────────────
 
@@ -216,8 +234,25 @@ class Reflector:
                 if pattern:
                     memory_store.add_semantic(pattern)
 
+        # 4. Extract user facts (projects, people, goals, etc.)
+        facts = self._extract_facts(llm, convo_text)
+        if facts:
+            results["facts"] = facts
+            for fact in facts:
+                try:
+                    existing = memory_store.recall(key=fact["key"])
+                    if not existing:
+                        memory_store.remember(
+                            key=fact["key"],
+                            value=fact["value"],
+                            category=fact.get("category", "auto_fact"),
+                            confidence=0.8,
+                        )
+                except Exception:
+                    pass
+
         logger.info(
-            f"Conversation reflection: summary={bool(summary)}, episode={bool(episode)}, patterns={len(patterns or [])}"
+            f"Conversation reflection: summary={bool(summary)}, episode={bool(episode)}, patterns={len(patterns or [])}, facts={len(facts or [])}"
         )
         return results
 
@@ -301,6 +336,37 @@ class Reflector:
                 topics.extend(w.lower().strip("?.!,") for w in words if len(w) > 3)
                 break
         return topics[:3] if topics else ["general"]
+
+    def _extract_facts(self, llm, convo_text: str) -> Optional[List[Dict[str, str]]]:
+        """Extract user facts (projects, people, goals) via LLM."""
+        try:
+            prompt = _FACTS_PROMPT.format(conversation=convo_text)
+            response = llm.simple_chat(
+                user_message=prompt,
+                system_prompt="You extract user facts. Output only a JSON array.",
+            )
+
+            start = response.find("[")
+            end = response.rfind("]") + 1
+            if start == -1 or end <= start:
+                return None
+
+            data = json.loads(response[start:end])
+            if isinstance(data, list):
+                valid = []
+                for f in data:
+                    if isinstance(f, dict) and f.get("key") and f.get("value"):
+                        valid.append({
+                            "key": str(f["key"])[:100],
+                            "value": str(f["value"])[:500],
+                            "category": str(f.get("category", "auto_fact"))[:50],
+                        })
+                return valid[:10]  # Cap at 10 facts per conversation
+            return None
+
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Fact extraction failed: {e}")
+            return None
 
 
 # ── Module Singleton ──────────────────────────────────────

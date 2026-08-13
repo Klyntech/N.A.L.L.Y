@@ -7,6 +7,7 @@ window.NALLY = window.NALLY || {};
   // Create orb
   NALLY.orb = NALLY.createOrb({ size: 312, state: 'idle', activated: true });
   document.getElementById('orb-mount').appendChild(NALLY.orb.el);
+  NALLY.orb.el.addEventListener('click', function() { NALLY.toggleDrawer(); });
 
   // Init all modules
   NALLY.initDrawer();

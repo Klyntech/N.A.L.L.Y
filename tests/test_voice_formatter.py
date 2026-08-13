@@ -14,10 +14,10 @@ class TestVoiceFormatter:
     # ── Basic formatting ─────────────────────────────────────
 
     def test_simple_text(self):
-        """Simple text passes through with SSML pauses."""
+        """Simple text passes through clean."""
         result = self.formatter.format("Hello world. How are you?", mode=VoiceMode.FULL)
         assert "Hello world." in result
-        assert "<break time='500ms'/>" in result
+        assert "How are you?" in result
 
     def test_code_block_stripped(self):
         """Code blocks replaced with placeholder."""
@@ -39,10 +39,10 @@ class TestVoiceFormatter:
         assert "[table shown on screen]" in result
 
     def test_headers_converted(self):
-        """Headers get pause markers."""
+        """Headers get a pause after them."""
         result = self.formatter.format("# Header\nContent", mode=VoiceMode.FULL)
         assert "Header" in result
-        assert "<break time='500ms'/>" in result
+        assert "Content" in result
 
     def test_bold_italic_stripped(self):
         """Markdown emphasis stripped."""
@@ -125,22 +125,23 @@ class TestVoiceFormatter:
         result = self.formatter.format(long_text, mode=VoiceMode.SMART)
         assert "Details on screen." in result
 
-    # ── SSML-lite ────────────────────────────────────────────
+    # ── Natural punctuation ────────────────────────────────────
 
-    def test_comma_pause(self):
-        """Commas get short pauses."""
+    def test_comma_preserved(self):
+        """Commas preserved for natural TTS pauses."""
         result = self.formatter.format("One, two, three.", mode=VoiceMode.FULL)
-        assert "<break time='200ms'/>" in result
+        assert "One, two, three." in result
 
-    def test_sentence_pause(self):
-        """Sentences get medium pauses."""
+    def test_sentence_preserved(self):
+        """Sentence punctuation preserved for natural pauses."""
         result = self.formatter.format("Hello. World.", mode=VoiceMode.FULL)
-        assert "<break time='500ms'/>" in result
+        assert "Hello." in result
+        assert "World." in result
 
-    def test_colon_pause(self):
-        """Colons get medium pauses."""
+    def test_colon_preserved(self):
+        """Colons preserved for natural pauses."""
         result = self.formatter.format("Items: one, two.", mode=VoiceMode.FULL)
-        assert "<break time='500ms'/>" in result
+        assert "Items: one, two." in result
 
     # ── VoiceConfig from agent ──────────────────────────────
 

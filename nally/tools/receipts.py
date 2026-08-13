@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -77,10 +78,19 @@ class ReceiptStore:
     MAX_ROTATED_FILES = 5  # Keep up to 5 rotated files
 
     def __init__(self, store_path: Optional[Path] = None, secret_key: Optional[str] = None):
-        self.store_path = store_path or Path("data/receipts.jsonl")
+        if store_path is None:
+            from ..config import DATA_DIR
+
+            store_path = DATA_DIR / "receipts.jsonl"
+        self.store_path = store_path
         self._key_path = self.store_path.parent / ".receipt_key"
         self._secret_key = self._load_or_create_key(secret_key)
         self._by_tool_call_id: Dict[str, Receipt] = {}
+        # Idempotency cache: (session_id, task_id) -> result string
+        self._idempotent: Dict[str, str] = {}
+        # Guards the in-memory dicts, which are shared across tool-executor
+        # worker threads (record/get_recent/get_idempotent).
+        self._lock = threading.Lock()
         self._load_existing()
 
     def _load_or_create_key(self, provided_key: Optional[str]) -> bytes:
@@ -193,7 +203,8 @@ class ReceiptStore:
         receipt.hmac = self._compute_hmac(receipt)
 
         # In-memory index
-        self._by_tool_call_id[tool_call_id] = receipt
+        with self._lock:
+            self._by_tool_call_id[tool_call_id] = receipt
 
         # Append to disk (with rotation check)
         try:
@@ -208,17 +219,20 @@ class ReceiptStore:
 
     def get(self, tool_call_id: str) -> Optional[Receipt]:
         """Get receipt by tool_call_id."""
-        return self._by_tool_call_id.get(tool_call_id)
+        with self._lock:
+            return self._by_tool_call_id.get(tool_call_id)
 
     def get_by_tool(self, tool_name: str, limit: int = 50) -> List[Receipt]:
         """Get recent receipts for a specific tool."""
-        results = [r for r in self._by_tool_call_id.values() if r.tool == tool_name]
+        with self._lock:
+            results = [r for r in self._by_tool_call_id.values() if r.tool == tool_name]
         results.sort(key=lambda r: r.timestamp, reverse=True)
         return results[:limit]
 
     def get_recent(self, limit: int = 50) -> List[Receipt]:
         """Get most recent receipts across all tools."""
-        results = list(self._by_tool_call_id.values())
+        with self._lock:
+            results = list(self._by_tool_call_id.values())
         results.sort(key=lambda r: r.timestamp, reverse=True)
         return results[:limit]
 
@@ -229,6 +243,21 @@ class ReceiptStore:
             return False
         expected_hmac = self._compute_hmac(receipt)
         return hmac.compare_digest(receipt.hmac, expected_hmac)
+
+    # ── Idempotency ────────────────────────────────────────
+    # Tools that accept a caller-supplied task_id can be made safe to retry:
+    # once a task_id completes in a session, the same call returns the cached
+    # result instead of re-executing the side effect.
+
+    def record_idempotent(self, task_id: str, session_id: str, result: str) -> None:
+        """Record a completed task result keyed by (session_id, task_id)."""
+        with self._lock:
+            self._idempotent[f"{session_id}:{task_id}"] = result
+
+    def get_idempotent(self, task_id: str, session_id: str) -> Optional[str]:
+        """Return the cached result for a previously completed task, or None."""
+        with self._lock:
+            return self._idempotent.get(f"{session_id}:{task_id}")
 
     def format_for_context(self, receipts: List[Receipt]) -> str:
         """Format receipts as a human-readable summary for LLM context injection."""

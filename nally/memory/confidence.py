@@ -37,8 +37,3 @@ def days_since(iso_timestamp: str) -> float:
         return delta.total_seconds() / 86400
     except (ValueError, TypeError):
         return 0.0
-
-
-def initial_confidence() -> float:
-    """Starting confidence for a new memory."""
-    return 0.5

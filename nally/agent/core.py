@@ -92,7 +92,11 @@ class NallyAgent:
     def __init__(self, session_id: Optional[str] = None):
         self.messages: List[dict] = []
         self._session_id = session_id or SESSION_ID
-        self._thread_id = f"nally-main-{self._session_id}"
+        # Stable abort key. Must equal the session id used by set_abort()
+        # (web/ws handlers) so abort flags match the graph's checks. The
+        # graph appends a uuid suffix and registers it as an alias back to
+        # this value in core/abort.py.
+        self._thread_id = self._session_id
         self._lock = threading.Lock()
         self._init_conversation()
         self._load_history()
@@ -128,6 +132,16 @@ class NallyAgent:
                     user_context = convo_summaries
         except Exception as e:
             logger.debug(f"Failed to load conversation summaries: {e}")
+
+        try:
+            episodes_text = memory_store.get_recent_episodes_text(3)
+            if episodes_text:
+                if user_context:
+                    user_context += f"\n\n{episodes_text}"
+                else:
+                    user_context = episodes_text
+        except Exception as e:
+            logger.debug(f"Failed to load recent episodes: {e}")
 
         system_content = get_system_prompt(user_context=user_context, interface=self._session_id)
 
@@ -373,6 +387,7 @@ class NallyAgent:
 
             self._save_history()
             self._maybe_create_episode(user_input, final_response)
+            self._maybe_extract_facts(user_input)
 
             # Periodic auto-save summary every 20 messages
             if len(self.messages) % 20 == 0 and len(self.messages) > 10:
@@ -427,6 +442,41 @@ class NallyAgent:
             )
         except Exception as e:
             logger.debug(f"Episode creation failed: {e}")
+
+    _ENTITY_PATTERNS = [
+        (r"(?:built|created|made|developed|designed|built)\s+(?:a\s+|an\s+|the\s+)?(.+?)(?:\s+called|\s+named|\s+for|\s+that|\s+which|\s*[,.]|$)", "project"),
+        (r"(?:my|the)\s+(project|app|bot|tool|site|platform|system)\s+(?:is\s+)?(.+?)(?:\s*[,.]|$)", "project"),
+        (r"(?:working on|building|developing)\s+(?:a\s+|an\s+|the\s+)?(.+?)(?:\s+[,.]|$)", "project"),
+    ]
+
+    def _maybe_extract_facts(self, user_input: str):
+        """Lightweight per-turn fact extraction — no LLM call, just regex."""
+        if not user_input or len(user_input) < 10:
+            return
+        try:
+            import re
+            text = user_input.lower()
+            # Only trigger on entity-mention keywords
+            trigger_words = ("built", "created", "made", "project", "app", "bot", "tool", "site",
+                             "working on", "building", "developing", "launched", "renamed", "called")
+            if not any(w in text for w in trigger_words):
+                return
+
+            for pattern, category in self._ENTITY_PATTERNS:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    groups = [g.strip() for g in match.groups() if g and len(g.strip()) > 2]
+                    if groups:
+                        key = groups[0][:80]
+                        value = " ".join(groups)[:200]
+                        # Don't duplicate if already stored
+                        existing = memory_store.recall(key=key)
+                        if not existing:
+                            memory_store.remember(key=key, value=value, category=category, confidence=0.7)
+                            logger.debug(f"Auto-stored fact: {key} = {value}")
+                        break
+        except Exception as e:
+            logger.debug(f"Fact extraction failed: {e}")
 
     def _auto_save_summary(self):
         """Periodically save conversation summary without clearing."""

@@ -157,29 +157,39 @@ class FileOps(Tool):
     def __init__(self):
         super().__init__(
             name="file_ops",
-            description="Create, write, or read files. Use action=write with file_path and content to write a file.",
+            description="Create, write, read, move, or copy files. Use action=write with file_path and content to write a file.",
             permission="destructive",
             parameters={
                 "action": {
                     "type": "string",
-                    "enum": ["write", "list", "mkdir", "delete"],
-                    "description": "write = create/overwrite file, list = list directory, mkdir = create folder, delete = remove file or directory (recursive)",
+                    "enum": ["write", "list", "mkdir", "delete", "move", "copy"],
+                    "description": "write = create/overwrite, list = list dir, mkdir = create folder, delete = remove, move = move/rename, copy = duplicate",
                     "required": True,
                 },
                 "file_path": {
                     "type": "string",
                     "description": "Path to file or directory",
                 },
+                "destination": {
+                    "type": "string",
+                    "description": "Target path (for move/copy only)",
+                },
                 "content": {
                     "type": "string",
                     "description": "Content to write (only for action=write)",
                 },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional idempotency key. If provided, the same task_id will not be re-executed within the session (safe to retry).",
+                },
             },
         )
 
-    def execute(self, action: str = "", file_path: str = ".", content: str = "", **kwargs) -> str:
+    def execute(self, action: str = "", file_path: str = "", content: str = "", path: str = "", destination: str = "", **kwargs) -> str:
         if not action:
             return 'Error: action is required. Send: {"action": "write", "file_path": "path", "content": "text"}'
+        # Accept `path` as an alias for `file_path` (model sometimes sends `path`)
+        file_path = file_path or path
         try:
             if action == "write":
                 if not file_path:
@@ -241,7 +251,53 @@ class FileOps(Tool):
                     path.unlink()
                     return f"Deleted file: {file_path}"
 
+            elif action == "move":
+                if not file_path:
+                    return "Error: file_path is required for move"
+                if not destination:
+                    return "Error: destination is required for move"
+                src = Path(file_path)
+                dst = Path(destination)
+                if not _is_safe_write_path(src):
+                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    return f"Error: source path outside allowed directories. Write to: {allowed}"
+                if not _is_safe_write_path(dst):
+                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    return f"Error: destination path outside allowed directories. Write to: {allowed}"
+                if not src.exists():
+                    return f"Error: source not found: {file_path}"
+                if dst.exists():
+                    return f"Error: destination already exists: {destination}"
+                import shutil
+                shutil.move(str(src), str(dst))
+                return f"Moved {file_path} -> {destination}"
+
+            elif action == "copy":
+                if not file_path:
+                    return "Error: file_path is required for copy"
+                if not destination:
+                    return "Error: destination is required for copy"
+                src = Path(file_path)
+                dst = Path(destination)
+                if not _is_safe_write_path(src):
+                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    return f"Error: source path outside allowed directories. Write to: {allowed}"
+                if not _is_safe_write_path(dst):
+                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    return f"Error: destination path outside allowed directories. Write to: {allowed}"
+                if not src.exists():
+                    return f"Error: source not found: {file_path}"
+                if dst.exists():
+                    return f"Error: destination already exists: {destination}"
+                import shutil
+                if src.is_dir():
+                    shutil.copytree(str(src), str(dst))
+                else:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src), str(dst))
+                return f"Copied {file_path} -> {destination}"
+
             else:
-                return f"Unknown action: {action}. Use write, list, mkdir, or delete."
+                return f"Unknown action: {action}. Use write, list, mkdir, delete, move, or copy."
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"

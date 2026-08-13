@@ -147,6 +147,10 @@ NALLY.initWebSocket = function() {
   s.ws.on('confirmation_required', function(data) {
     NALLY.buildApprovalCard(data);
   });
+
+  s.ws.on('run_id', function(data) {
+    s.currentRunId = data.run_id || null;
+  });
   
   s.ws.connect();
 };

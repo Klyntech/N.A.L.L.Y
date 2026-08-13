@@ -6,12 +6,30 @@ All MCP tools default to permission="write" (approval required) unless overridde
 """
 
 import asyncio
+import concurrent.futures
 import logging
 
 from ..config import DATA_DIR, MCP_SERVERS
+from ..core.tracing import tracer
 from ..tools.registry import Tool, registry
 
 logger = logging.getLogger("nally.mcp")
+
+
+def _run_coro_safely(coro):
+    """Run a coroutine from a sync context without crashing on a live loop.
+
+    If the caller thread already has a running event loop, offload to a fresh
+    worker thread; otherwise run a fresh loop on the current thread. Mirrors
+    the guard used by tools/gmail.py so MCP tools never raise
+    "asyncio.run() cannot be called from a running event loop".
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="mcp-coro") as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 class MCPTool(Tool):
@@ -23,10 +41,31 @@ class MCPTool(Tool):
 
     def execute(self, **kwargs) -> str:
         """Call the MCP tool by spawning a fresh connection."""
+        span = None
         try:
-            result = asyncio.run(self._call_mcp(kwargs))
+            cur = tracer.get_current_span()
+            span = tracer.start_span(
+                f"mcp:{self.name}",
+                {"arguments": kwargs, "server": self._server_config.get("name")},
+                parent_span_id=cur.span_id if cur else None,
+                run_id=cur.run_id if cur else None,
+            )
+        except Exception:
+            span = None
+        try:
+            result = _run_coro_safely(self._call_mcp(kwargs))
+            if span is not None:
+                try:
+                    tracer.end_span(span.span_id, output={"result": result})
+                except Exception:
+                    pass
             return result
         except Exception as e:
+            if span is not None:
+                try:
+                    tracer.end_span_exc(span.span_id, e)
+                except Exception:
+                    pass
             return f"MCP tool error: {type(e).__name__}: {e}"
 
     async def _call_mcp(self, arguments: dict) -> str:
@@ -218,17 +257,26 @@ def _clean_error(e: Exception) -> str:
     return msg
 
 
-def connect_mcp_servers(reg):
-    """Connect to all configured MCP servers and register their tools.
+def connect_mcp_servers(reg, timeout: float = 15.0):
+    """Connect to all configured MCP servers in parallel.
 
     Returns list of {name, status, tools, message} dicts for startup display.
-    Stdio servers: connects with timeout, fetches tools.
-    HTTP servers: tries reconnecting if tokens exist, otherwise awaits user connection.
-    API key servers: tries reconnecting if env var set, otherwise awaits user connection.
+    Servers that need credentials but lack them are marked 'awaiting' instantly.
+    Servers that need actual connection run in parallel with per-server timeout.
+
+    Args:
+        reg: Tool registry to register MCP tools into.
+        timeout: Overall budget in seconds for all connections (default 15s).
     """
-    results = []
+    import concurrent.futures
+    import os
+
     if not MCP_SERVERS:
-        return results
+        return []
+
+    # Phase 1: Fast categorization — check credentials synchronously (no network)
+    needs_connect = []   # (server_config, transport, permission) — need actual connection
+    instant_results = [] # result dicts for servers that skip immediately
 
     for server_config in MCP_SERVERS:
         name = server_config.get("name", "unknown")
@@ -237,32 +285,101 @@ def connect_mcp_servers(reg):
         auth_mode = server_config.get("auth_mode", "")
 
         if transport == "http":
-            # Try reconnecting if tokens already stored
-            if _try_reconnect_http(server_config, reg):
-                count = len([t for t in reg.tools.values() if t.name.startswith(f"mcp_{name}_")])
-                results.append({"name": name, "status": "ok", "tools": count})
+            # Check if we have stored tokens
+            db = str(DATA_DIR / "nally.db")
+            try:
+                tokens = _get_existing_tokens_sync(name, db)
+            except Exception:
+                tokens = None
+            if not tokens:
+                instant_results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting OAuth connection"})
                 continue
-            results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting OAuth connection"})
-            continue
+            needs_connect.append((server_config, "http", permission))
 
-        if auth_mode == "api_key":
-            # Try reconnecting if env var is set
-            if _try_reconnect_stdio_token(server_config, reg):
-                count = len([t for t in reg.tools.values() if t.name.startswith(f"mcp_{name}_")])
-                results.append({"name": name, "status": "ok", "tools": count})
+        elif auth_mode == "api_key":
+            env_key = server_config.get("env_key", "")
+            if not env_key or not os.getenv(env_key):
+                instant_results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting API key"})
                 continue
-            results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting API key"})
-            continue
+            needs_connect.append((server_config, "stdio_token", permission))
+
+        else:
+            # stdio without auth — always attempt connection
+            needs_connect.append((server_config, "stdio", permission))
+
+    if not needs_connect:
+        return instant_results
+
+    # Phase 2: Parallel connection — each server gets a thread with per-server timeout
+    per_server_timeout = min(10.0, timeout)  # cap individual server at 10s
+    results = list(instant_results)
+    futures_map = {}
+
+    def _connect_one(server_config, conn_type, permission):
+        name = server_config.get("name", "unknown")
+        prefix = f"mcp_{name}_"
+
+        # Snapshot tools before attempt — clean up on failure
+        tools_before = set(reg.tools.keys())
+
+        def _cleanup_on_failure():
+            """Remove any tools registered during a failed attempt."""
+            tools_after = set(reg.tools.keys())
+            new_tools = tools_after - tools_before
+            for tool_name in new_tools:
+                reg.tools.pop(tool_name, None)
 
         try:
-            _connect_stdio_server(reg, server_config, permission)
-            count = len([t for t in reg.tools.values() if t.name.startswith(f"mcp_{name}_")])
-            results.append({"name": name, "status": "ok", "tools": count})
+            if conn_type == "http":
+                success = _try_reconnect_http(server_config, reg, timeout=per_server_timeout)
+                if success:
+                    count = len([t for t in reg.tools.values() if t.name.startswith(prefix)])
+                    return {"name": name, "status": "ok", "tools": count}
+                _cleanup_on_failure()
+                return {"name": name, "status": "awaiting", "tools": 0, "message": "reconnect failed, awaiting OAuth"}
+
+            elif conn_type == "stdio_token":
+                count = connect_stdio_with_token(server_config, reg)
+                if count and count > 0:
+                    return {"name": name, "status": "ok", "tools": count}
+                _cleanup_on_failure()
+                return {"name": name, "status": "awaiting", "tools": 0, "message": "reconnect failed, awaiting API key"}
+
+            else:  # stdio
+                _connect_stdio_server(reg, server_config, permission, timeout=per_server_timeout)
+                count = len([t for t in reg.tools.values() if t.name.startswith(prefix)])
+                return {"name": name, "status": "ok", "tools": count}
+
         except TimeoutError:
-            results.append({"name": name, "status": "timeout", "tools": 0, "message": "connection timed out"})
+            _cleanup_on_failure()
+            return {"name": name, "status": "timeout", "tools": 0, "message": f"timed out ({per_server_timeout:.0f}s)"}
         except Exception as e:
+            _cleanup_on_failure()
             msg = _clean_error(e)
-            results.append({"name": name, "status": "error", "tools": 0, "message": msg})
+            return {"name": name, "status": "error", "tools": 0, "message": msg}
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=min(len(needs_connect), 10))
+    try:
+        for server_config, conn_type, permission in needs_connect:
+            future = pool.submit(_connect_one, server_config, conn_type, permission)
+            futures_map[future] = server_config.get("name", "unknown")
+
+        # Wait for all with overall timeout budget
+        done, not_done = concurrent.futures.wait(futures_map, timeout=timeout)
+
+        for future in done:
+            try:
+                results.append(future.result(timeout=0))
+            except Exception as e:
+                name = futures_map[future]
+                results.append({"name": name, "status": "error", "tools": 0, "message": _clean_error(e)})
+
+        for future in not_done:
+            name = futures_map[future]
+            results.append({"name": name, "status": "timeout", "tools": 0, "message": f"exceeded budget ({timeout:.0f}s)"})
+            future.cancel()
+    finally:
+        pool.shutdown(wait=False)
 
     return results
 
@@ -296,39 +413,34 @@ def _get_existing_tokens_sync(service: str, db_path: str):
         return None
 
 
-def _run_connect_http(server_config: dict, reg) -> int:
+def _run_connect_http(server_config: dict, reg, timeout: float = 10.0) -> int:
     """Run connect_http_server in a new event loop (safe for thread pools)."""
     import asyncio
 
     loop = asyncio.new_event_loop()
     try:
-        loop.run_until_complete(connect_http_server(server_config, reg))
+        loop.run_until_complete(
+            asyncio.wait_for(connect_http_server(server_config, reg), timeout=timeout)
+        )
+    except asyncio.TimeoutError:
+        name = server_config.get("name", "unknown")
+        raise TimeoutError(f"MCP HTTP server '{name}' timed out after {timeout}s")
     finally:
         loop.close()
     name = server_config.get("name", "unknown")
     return len([t for t in (reg or registry).tools.values() if t.name.startswith(f"mcp_{name}_")])
 
 
-def _try_reconnect_http(server_config: dict, reg) -> bool:
-    """Try to reconnect to an HTTP MCP server if tokens exist. Returns True if tools loaded."""
-    import concurrent.futures
+def _try_reconnect_http(server_config: dict, reg, timeout: float = 10.0) -> bool:
+    """Try to reconnect to an HTTP MCP server if tokens exist. Returns True if tools loaded.
 
+    Note: This function blocks. Call from a thread (already done by connect_mcp_servers).
+    """
     name = server_config.get("name", "unknown")
-    db = str(DATA_DIR / "nally.db")
-
-    # Check tokens synchronously to avoid asyncio.run() inside running event loop
-    try:
-        tokens = _get_existing_tokens_sync(name, db)
-    except Exception:
-        return False
-
-    if not tokens:
-        return False
 
     logger.info(f"MCP server '{name}': tokens found, reconnecting...")
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            count = pool.submit(_run_connect_http, server_config, reg).result(timeout=30)
+        count = _run_connect_http(server_config, reg, timeout=timeout)
         if count and count > 0:
             logger.info(f"MCP server '{name}': reconnected with {count} tools")
             return True
@@ -361,16 +473,17 @@ def _try_reconnect_stdio_token(server_config: dict, reg) -> bool:
         return False
 
 
-def _connect_stdio_server(reg, server_config: dict, default_permission: str):
-    """Connect to a stdio MCP server, fetch tools, register them."""
-    import concurrent.futures
+def _connect_stdio_server(reg, server_config: dict, default_permission: str, timeout: float = 10.0):
+    """Connect to a stdio MCP server, fetch tools, register them.
+
+    Note: This function blocks. Call from a thread (already done by connect_mcp_servers).
+    """
     import logging
     import os
 
     name = server_config.get("name", "unknown")
 
-    # Suppress noisy MCP SDK parse errors during connection (e.g. telegram server
-    # prints non-JSON startup message that triggers a harmless traceback)
+    # Suppress noisy MCP SDK parse errors during connection
     mcp_logger = logging.getLogger("mcp.client.stdio")
     prev_level = mcp_logger.level
     mcp_logger.setLevel(logging.CRITICAL)
@@ -400,12 +513,13 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str):
                 return result.tools
 
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            tools = pool.submit(asyncio.run, asyncio.wait_for(_fetch_tools(), timeout=30.0)).result(timeout=45)
+        tools = _run_coro_safely(asyncio.wait_for(_fetch_tools(), timeout=timeout))
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"MCP server '{name}' timed out after {timeout}s")
     finally:
         mcp_logger.setLevel(prev_level)
-    count = 0
 
+    count = 0
     for tool_info in tools:
         tool_name = f"mcp_{name}_{tool_info.name}"
         params = _wrap_mcp_schema(tool_info)

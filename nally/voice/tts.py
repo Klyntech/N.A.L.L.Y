@@ -154,8 +154,10 @@ class ElevenLabsBackend(TTSBackend):
                 "text": text,
                 "model_id": model,
                 "voice_settings": {
-                    "stability": 0.5,
-                    "similarity_boost": 0.75,
+                    "stability": 0.65,
+                    "similarity_boost": 0.80,
+                    "style": 0.35,
+                    "use_speaker_boost": True,
                 },
             }
 
@@ -335,8 +337,8 @@ def _mp3_to_ogg(mp3_bytes: bytes) -> bytes | None:
                 "ffmpeg", "-y",
                 "-i", tmp_in_path,
                 "-c:a", "libopus",
-                "-b:a", "64k",
-                "-application", "voip",
+                "-b:a", "96k",
+                "-application", "audio",
                 tmp_out_path,
             ],
             capture_output=True,
@@ -355,6 +357,36 @@ def _mp3_to_ogg(mp3_bytes: bytes) -> bytes | None:
                 Path(p).unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _strip_markdown(text: str) -> str:
+    """Light preprocessing: only strip markdown formatting.
+
+    Used for ElevenLabs which handles pronunciation and normalization natively.
+    The full preprocess_for_speech pipeline (pronunciation map, number expansion,
+    etc.) corrupts ElevenLabs output — it knows how to say "Python" correctly.
+    """
+    if not text:
+        return ""
+    import re
+    # Strip code blocks
+    text = re.sub(r"```[\s\S]*?```", "", text)
+    # Strip inline code
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    # Strip bold/italic/strikethrough
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"\*([^*]+)\*", r"\1", text)
+    text = re.sub(r"~~([^~]+)~~", r"\1", text)
+    # Strip headers
+    text = re.sub(r"#{1,6}\s+", "", text)
+    # Strip list bullets
+    text = re.sub(r"[-*]\s+", "", text)
+    # Links → text only
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    # Clean residual markdown
+    text = re.sub(r"[#*_~`|<>]", "", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
 
 
 # ── Public API ────────────────────────────────────────────
@@ -395,29 +427,36 @@ def get_backend() -> TTSBackend:
 def speak(text: str) -> None:
     """Speak text aloud through the active TTS backend.
 
-    Automatically preprocesses text through the speech pipeline:
-    - Expands abbreviations (API → "A.P.I.")
-    - Normalizes URLs, emails, dates, numbers
-    - Applies pronunciation dictionary
+    Preprocessing is backend-aware:
+    - Piper: full pipeline (pronunciation map, normalization)
+    - ElevenLabs: markdown strip only (it handles pronunciation natively)
     """
     from .speech_pipeline import preprocess_for_speech
 
     if not text or not text.strip():
         return
 
-    processed = preprocess_for_speech(text)
-    get_backend().speak(processed)
+    backend = get_backend()
+    if backend.name == "elevenlabs":
+        processed = _strip_markdown(text)
+    else:
+        processed = preprocess_for_speech(text)
+    backend.speak(processed)
 
 
 def synthesize_to_wav(text: str) -> bytes | None:
     """Synthesize text to WAV bytes (16-bit PCM, mono).
 
-    Automatically preprocesses text through the speech pipeline.
+    Preprocessing is backend-aware (same as speak()).
     """
     from .speech_pipeline import preprocess_for_speech
 
     if not text or not text.strip():
         return None
 
-    processed = preprocess_for_speech(text)
-    return get_backend().synthesize_to_wav(processed)
+    backend = get_backend()
+    if backend.name == "elevenlabs":
+        processed = _strip_markdown(text)
+    else:
+        processed = preprocess_for_speech(text)
+    return backend.synthesize_to_wav(processed)
