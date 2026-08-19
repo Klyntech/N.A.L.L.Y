@@ -1,0 +1,104 @@
+/* ============================================================
+   NALLYMAKES — Cinematic Scrollytelling Layer
+   ------------------------------------------------------------
+   Additive. Does NOT modify existing styles.
+   Safe without JS: all hidden states are gated behind
+   html.nl-scrolly (added by scrollytelling.js at runtime),
+   so if JS fails the site renders exactly as before.
+   ------------------------------------------------------------
+   BRAND ACCENT: change --nl-accent / --nl-accent-2 below to
+   match your NALLYMAKES palette (one line each).
+   ============================================================ */
+
+:root {
+  --nl-accent: #00e5ff;
+  --nl-accent-2: #7c4dff;
+  --nl-bar-h: 4px;
+}
+
+/* ---------- 1. Film progress bar (playback indicator) ---------- */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--nl-bar-h);
+  background: linear-gradient(90deg, var(--nl-accent), var(--nl-accent-2));
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  z-index: 9999;
+  box-shadow: 0 0 12px var(--nl-accent), 0 0 26px var(--nl-accent-2);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* ---------- 2. Hero parallax base (drifts slower than scroll) ---------- */
+.nl-scrolly .hero-bg {
+  will-change: transform;
+}
+
+/* ---------- 3. Scene cut reveals (gated behind nl-scrolly) ---------- */
+.nl-scrolly section.scene-reveal {
+  opacity: 0;
+  transform: translateY(52px);
+  transition: opacity 1s cubic-bezier(.16, 1, .3, 1),
+              transform 1s cubic-bezier(.16, 1, .3, 1);
+  will-change: opacity, transform;
+}
+.nl-scrolly section.scene-reveal.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---------- 4. Scroll-velocity glow (motion-reactive) ---------- */
+.nl-scrolly body.scrolling-fast .hero-badge,
+.nl-scrolly body.scrolling-fast .btn,
+.nl-scrolly body.scrolling-fast h1,
+.nl-scrolly body.scrolling-fast h2,
+.nl-scrolly body.scrolling-fast .nl-glow {
+  text-shadow: 0 0 18px var(--nl-accent);
+  filter: drop-shadow(0 0 10px var(--nl-accent-2));
+  transition: text-shadow .25s ease, filter .25s ease;
+}
+
+/* ---------- 5. Hero intro title-card (staggered, film opening) ---------- */
+.nl-scrolly .hero-content > * {
+  opacity: 0;
+  transform: translateY(30px);
+  filter: blur(6px);
+  transition: opacity .8s ease,
+              transform .8s cubic-bezier(.16, 1, .3, 1),
+              filter .8s ease;
+}
+.nl-scrolly.hero-ready .hero-content > * {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+.nl-scrolly.hero-ready .hero-content > *:nth-child(1) { transition-delay: .15s; }
+.nl-scrolly.hero-ready .hero-content > *:nth-child(2) { transition-delay: .35s; }
+.nl-scrolly.hero-ready .hero-content > *:nth-child(3) { transition-delay: .55s; }
+.nl-scrolly.hero-ready .hero-content > *:nth-child(4) { transition-delay: .75s; }
+.nl-scrolly.hero-ready .hero-content > *:nth-child(5) { transition-delay: .95s; }
+
+/* ---------- 6. Optional deep parallax hook ----------
+   Add class "nl-parallax" + attribute data-speed="0.2"
+   to any element for extra movie depth. Higher = drifts more.
+   Example: <div class="nl-parallax" data-speed="0.25"></div>
+*/
+.nl-scrolly .nl-parallax {
+  will-change: transform;
+}
+
+/* ---------- 7. Reduced motion: show everything statically ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .scroll-progress { display: none; }
+  .nl-scrolly section.scene-reveal,
+  .nl-scrolly .hero-content > * {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+  .nl-scrolly .hero-bg { transform: none !important; }
+}

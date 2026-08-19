@@ -28,7 +28,9 @@ it runs on the **LiveKit Cloud free tier** with a SIP Inbound Trunk.
    - Copy the **API Secret**.
    - Copy the **WebSocket URL** (`wss://<project>.livekit.cloud`).
 4. Optionally set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in
-   your `.env`. If unset, the agent reads them from your environment.
+   your `.env`. If unset, the agent reads them from your environment. These are
+   read **directly by the LiveKit SDK / `nally/voice/livekit_agent.py`** — they
+   are not defined in `nally/config.py`.
 
 ## 2. Enable SIP Ingress
 
@@ -97,3 +99,6 @@ the caller, and the conversation starts.
 - **TTS**: Piper is fully local and free; ElevenLabs has a free tier.
 
 No Twilio SDK is used anywhere in this project.
+
+> **Note**: `nally/tools/phone.py` is a **separate** Plivo outbound-call tool
+> (uses `PLIVO_*` env vars) and is unrelated to this LiveKit SIP setup.

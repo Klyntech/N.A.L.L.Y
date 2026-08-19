@@ -19,11 +19,15 @@ def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
     parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
     parser.add_argument("--voice", action="store_true", help="Run in voice mode (push-to-talk)")
-    parser.add_argument("--telegram", action="store_true", help="Run web server + Telegram bot (same as default)")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     parser.add_argument("--port", type=int, default=5000, help="Web server port (default: 5000)")
     parser.add_argument("--provider", choices=["groq", "opencode"], help="Override LLM provider")
     parser.add_argument("--verbose", action="store_true", help="Show full MCP server tree during startup")
+    parser.add_argument(
+        "--engineer",
+        metavar="TASK",
+        help="Run the autonomous engineering loop on TASK (opt-in build mode).",
+    )
     args = parser.parse_args()
 
     if args.port < 1024 or args.port > 65535:
@@ -54,6 +58,20 @@ def main():
         if mcp_status:
             display.mcp_summary(mcp_status, verbose=args.verbose)
 
+    # Opt-in autonomous engineering mode (does not affect normal chat startup).
+    if args.engineer:
+        from nally.engineering import run_engineering
+
+        result = run_engineering(args.engineer, verbose=True)
+        print(f"\nEngineering build: {result.task}")
+        print(f"Status: {'SUCCESS' if result.success else 'COMPLETED WITH ISSUES'}")
+        if result.chosen_approach:
+            print(f"Approach: {result.chosen_approach.title}")
+        print(f"Output dir: {result.readme_path}")
+        for cmd in result.run_commands:
+            print(f"  {cmd}")
+        return
+
     if args.cli:
         run_cli()
     elif args.voice:
@@ -61,10 +79,10 @@ def main():
     elif args.telegram_only:
         run_telegram(polling=True)
     else:
-        # Default and --telegram both run the web server. The Telegram bot
-        # owner is decided by resolve_telegram_mode(): polling mode spawns a
-        # separate bot process, webhook mode is owned by the web server's
-        # lifespan. Exactly one owner per token.
+        # Default mode runs the web server. The Telegram bot owner is decided
+        # by resolve_telegram_mode(): polling mode spawns a separate bot
+        # process, webhook mode is owned by the web server's lifespan. Exactly
+        # one owner per token.
         run_web(port=args.port)
 
 
@@ -155,7 +173,7 @@ def run_web(port=5000):
     # via its own Application (started in the FastAPI lifespan), so spawning a
     # second poller here would cause a Telegram 409 conflict on the same token.
     bot_proc = None
-    from nally.config import resolve_telegram_mode
+    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID
 
     telegram_mode = resolve_telegram_mode()
     if telegram_mode == "polling":
@@ -178,7 +196,30 @@ def run_web(port=5000):
             except Exception:
                 bot_proc.kill()
 
+    def _kill_tg_user():
+        if tg_user_proc is not None and tg_user_proc.poll() is None:
+            tg_user_proc.terminate()
+            try:
+                tg_user_proc.wait(timeout=5)
+            except Exception:
+                tg_user_proc.kill()
+
     atexit.register(_kill_bot)
+    atexit.register(_kill_tg_user)
+
+    # Start Telegram user account (Telethon) as a separate process
+    # Voice calls are handled inside user.py (same process, same Telethon client)
+    tg_user_proc = None
+    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID
+
+    if TELEGRAM_USER_ID:
+        tg_user_proc = subprocess.Popen(
+            [sys.executable, "run_tg_user.py"],
+            cwd=str(Path(__file__).parent),
+        )
+        print("Telegram user account launched as a separate process (run_tg_user.py).")
+    else:
+        print("[warn] TELEGRAM_USER_ID not set — Telegram user account not started.")
 
     import uvicorn
 
@@ -188,6 +229,7 @@ def run_web(port=5000):
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
     finally:
         _kill_bot()
+        _kill_tg_user()
 
 
 def run_telegram(polling=True, webhook_url=None):

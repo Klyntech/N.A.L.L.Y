@@ -16,6 +16,20 @@ if sys.platform == "win32" and hasattr(sys.stdout, "buffer") and not isinstance(
         pass  # Already wrapped or not available
 
 
+class _StructuredFormatter(logging.Formatter):
+    """Formatter that appends extra fields as key=value pairs."""
+
+    def format(self, record):
+        msg = super().format(record)
+        extras = {k: v for k, v in record.__dict__.items()
+                  if k not in logging.LogRecord("", 0, "", 0, "", (), None).__dict__
+                  and k not in ("message", "asctime")}
+        if extras:
+            pairs = " ".join(f"{k}={v}" for k, v in extras.items())
+            return f"{msg} | {pairs}"
+        return msg
+
+
 class NallyLogger:
     """Centralized logger for Nally"""
 
@@ -43,23 +57,23 @@ class NallyLogger:
                 logfile, maxBytes=1_000_000, backupCount=7, encoding="utf-8"
             )
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)-8s | %(message)s"))
+            file_handler.setFormatter(_StructuredFormatter("%(asctime)s | %(levelname)-8s | %(message)s"))
             self.logger.addHandler(file_handler)
         except Exception:
             # Log to console only if file logging fails
             self.logger.warning("Could not create log file, logging to console only")
 
-    def debug(self, msg: str):
-        self.logger.debug(msg)
+    def debug(self, msg: str, **kwargs):
+        self.logger.debug(msg, **kwargs)
 
-    def info(self, msg: str):
-        self.logger.info(msg)
+    def info(self, msg: str, **kwargs):
+        self.logger.info(msg, **kwargs)
 
-    def warning(self, msg: str):
-        self.logger.warning(msg)
+    def warning(self, msg: str, **kwargs):
+        self.logger.warning(msg, **kwargs)
 
-    def error(self, msg: str, exc_info: bool = False):
-        self.logger.error(msg, exc_info=exc_info)
+    def error(self, msg: str, exc_info: bool = False, **kwargs):
+        self.logger.error(msg, exc_info=exc_info, **kwargs)
 
     def tool_call(self, tool_name: str, args: dict, result: str):
         """Log a tool call"""

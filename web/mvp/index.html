@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NALLY — Face Avatar MVP</title>
+  <link rel="stylesheet" href="/mvp/static/css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/mvp/static/vendor/three.module.js",
+      "three/addons/": "/mvp/static/vendor/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Loading…</p>
+  </div>
+  <div id="error-toast"></div>
+  <canvas id="avatar-canvas"></canvas>
+  <div id="status">IDLE</div>
+  <div id="log" style="position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#0f0;font:11px monospace;padding:8px;border-radius:6px;max-width:420px;max-height:200px;overflow:auto;display:none"></div>
+
+  <div id="cam-preview">
+    <video id="webcam-video" autoplay playsinline muted></video>
+  </div>
+
+  <div id="controls">
+    <h3>Face Avatar MVP</h3>
+    <button class="ctrl-btn" id="btn-camera" onclick="window._app.toggleCamera()">
+      <span class="dot"></span> Camera Tracking
+    </button>
+    <button class="ctrl-btn" id="btn-mic" onclick="window._app.toggleMic()">
+      <span class="dot"></span> Mic Lip-Sync
+    </button>
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:4px 0">
+    <button class="ctrl-btn" onclick="window._app.setState('idle')">Idle</button>
+    <button class="ctrl-btn" onclick="window._app.setState('listening')">Listening</button>
+    <button class="ctrl-btn" onclick="window._app.setState('thinking')">Thinking</button>
+    <button class="ctrl-btn" onclick="window._app.setState('speaking')">Speaking</button>
+
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:4px 0">
+
+    <label style="font-size:11px;color:#999;display:block;margin-bottom:2px">Skin Tone</label>
+    <div style="display:flex;gap:4px;margin-bottom:6px">
+      <input type="range" id="skin-hue" min="0" max="360" value="22" style="flex:1" oninput="window._app.setSkinTone()">
+      <input type="range" id="skin-light" min="20" max="95" value="38" style="flex:1" oninput="window._app.setSkinTone()">
+    </div>
+
+    <label style="font-size:11px;color:#999;display:block;margin-bottom:2px">Pupil Size</label>
+    <input type="range" id="pupil-size" min="10" max="100" value="45" style="width:100%;margin-bottom:4px" oninput="window._app.setPupils()">
+
+    <label style="font-size:11px;color:#999;display:block;margin-bottom:2px">Iris Color</label>
+    <input type="color" id="iris-color" value="#2b1504" onchange="window._app.setPupils()" style="width:100%;height:28px;border:1px solid rgba(255,255,255,0.15);border-radius:6px;background:transparent;cursor:pointer">
+  </div>
+
+  <script src="/mvp/static/js/face-tracker.js"></script>
+  <script src="/mvp/static/js/lipsync.js"></script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+    import { MeshoptDecoder } from 'three/addons/libs/meshopt/meshopt_decoder.module.js';
+
+    const logEl = document.getElementById('log');
+    function log(msg) {
+      console.log('[MVP]', msg);
+      logEl.style.display = 'block';
+      logEl.textContent += msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    log('THREE revision: ' + THREE.REVISION);
+    log('GLTFLoader imported: ' + (typeof GLTFLoader === 'function'));
+
+    let cameraActive = false;
+    let micActive = false;
+    let faceTrackerReady = false;
+    let scene, camera, renderer, clock;
+    let currentModel = null;
+    let morphDict = {};
+    let morphTargets = {};
+    let headBone = null;
+    let running = false;
+    let idleTime = 0;
+    let currentState = 'idle';
+    const headRotation = { x: 0, y: 0, z: 0 };
+    const targetHeadRotation = { x: 0, y: 0, z: 0 };
+
+    const NAME_MAP = {
+      browDownLeft:'browDown_L', browDownRight:'browDown_R',
+      browOuterUpLeft:'browOuterUp_L', browOuterUpRight:'browOuterUp_R',
+      eyeLookUpLeft:'eyeLookUp_L', eyeLookUpRight:'eyeLookUp_R',
+      eyeLookDownLeft:'eyeLookDown_L', eyeLookDownRight:'eyeLookDown_R',
+      eyeLookInLeft:'eyeLookIn_L', eyeLookInRight:'eyeLookIn_R',
+      eyeLookOutLeft:'eyeLookOut_L', eyeLookOutRight:'eyeLookOut_R',
+      eyeBlinkLeft:'eyeBlink_L', eyeBlinkRight:'eyeBlink_R',
+      eyeSquintLeft:'eyeSquint_L', eyeSquintRight:'eyeSquint_R',
+      eyeWideLeft:'eyeWide_L', eyeWideRight:'eyeWide_R',
+      cheekSquintLeft:'cheekSquint_L', cheekSquintRight:'cheekSquint_R',
+      noseSneerLeft:'noseSneer_L', noseSneerRight:'noseSneer_R',
+      mouthSmileLeft:'mouthSmile_L', mouthSmileRight:'mouthSmile_R',
+      mouthFrownLeft:'mouthFrown_L', mouthFrownRight:'mouthFrown_R',
+      mouthDimpleLeft:'mouthDimple_L', mouthDimpleRight:'mouthDimple_R',
+      mouthUpperUpLeft:'mouthUpperUp_L', mouthUpperUpRight:'mouthUpperUp_R',
+      mouthLowerDownLeft:'mouthLowerDown_L', mouthLowerDownRight:'mouthLowerDown_R',
+      mouthPressLeft:'mouthPress_L', mouthPressRight:'mouthPress_R',
+      mouthStretchLeft:'mouthStretch_L', mouthStretchRight:'mouthStretch_R',
+    };
+
+    function mapName(n) { return NAME_MAP[n] || n; }
+
+    let ktx2Loader = null;
+    let faceMeshMaterial = null;
+    let eyeLeftMesh = null;
+    let eyeRightMesh = null;
+    let pupilLeft = null;
+    let pupilRight = null;
+    let irisLeft = null;
+    let irisRight = null;
+
+    function initThree() {
+      clock = new THREE.Clock();
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 0, 6.0);
+
+      renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('avatar-canvas'), alpha: true, antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
+
+      ktx2Loader = new KTX2Loader()
+        .setTranscoderPath('/mvp/static/vendor/libs/basis/')
+        .detectSupport(renderer);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+      dir.position.set(1, 1.5, 2);
+      scene.add(dir);
+      const rim = new THREE.DirectionalLight(0x88aaff, 0.4);
+      rim.position.set(-1, 0.5, -1);
+      scene.add(rim);
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    }
+
+    function loadModel(url) {
+      return new Promise((resolve, reject) => {
+        log('Loading: ' + url);
+        const loader = new GLTFLoader();
+        if (ktx2Loader) loader.setKTX2Loader(ktx2Loader);
+        loader.setMeshoptDecoder(MeshoptDecoder);
+        loader.load(url, (gltf) => {
+          log('GLB loaded! Scenes: ' + gltf.scenes.length);
+
+          if (currentModel) {
+            scene.remove(currentModel);
+            morphDict = {};
+            morphTargets = {};
+          }
+
+          currentModel = gltf.scene;
+          currentModel.position.set(0, -0.3, 0);
+          scene.add(currentModel);
+
+          morphDict = {};
+          morphTargets = {};
+          headBone = null;
+
+          let morphMesh = null;
+          currentModel.traverse((node) => {
+            if (node.isMesh && node.morphTargetDictionary) {
+              const keys = Object.keys(node.morphTargetDictionary);
+              log('Mesh "' + node.name + '": ' + keys.length + ' morphs');
+              if (keys.length > 10) {
+                morphMesh = node;
+                keys.forEach((name) => {
+                  morphDict[name] = { mesh: node, index: node.morphTargetDictionary[name] };
+                  morphTargets[name] = 0;
+                });
+              }
+            }
+            if (node.name && node.name.toLowerCase().includes('head')) {
+              headBone = node;
+            }
+          });
+
+          if (!headBone && morphMesh) {
+            headBone = morphMesh.parent || morphMesh;
+          }
+
+          log('Morph targets: ' + Object.keys(morphDict).length);
+
+          faceMeshMaterial = null;
+          eyeLeftMesh = null;
+          eyeRightMesh = null;
+          currentModel.traverse((node) => {
+            if (node.isMesh && node.morphTargetDictionary && Object.keys(node.morphTargetDictionary).length > 10) {
+              faceMeshMaterial = node.material;
+              log('Face material found: ' + (node.material.name || 'unnamed'));
+            }
+          });
+
+          // Find eye meshes and create pupil/iris overlays
+          currentModel.traverse((node) => {
+            if (node.name === 'eyeLeft' && node.children[0] && node.children[0].isMesh) {
+              eyeLeftMesh = node.children[0];
+            }
+            if (node.name === 'eyeRight' && node.children[0] && node.children[0].isMesh) {
+              eyeRightMesh = node.children[0];
+            }
+          });
+
+          // Remove old overlays
+          if (pupilLeft) { currentModel.remove(pupilLeft); pupilLeft = null; }
+          if (pupilRight) { currentModel.remove(pupilRight); pupilRight = null; }
+          if (irisLeft) { currentModel.remove(irisLeft); irisLeft = null; }
+          if (irisRight) { currentModel.remove(irisRight); irisRight = null; }
+
+          // Create iris + pupil overlays as children of model (move with head)
+          const eyeL = [-3.29, 2.38, -2.61];
+          const eyeR = [3.29, 2.38, -2.61];
+          const frontOffset = -0.5;
+
+          const irisGeo = new THREE.CircleGeometry(1, 32);
+          const pupilGeo = new THREE.CircleGeometry(1, 32);
+
+          const irisMat = new THREE.MeshBasicMaterial({ color: 0x2b1504, side: THREE.DoubleSide });
+          const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+
+          irisLeft = new THREE.Mesh(irisGeo, irisMat);
+          irisLeft.position.set(eyeL[0], eyeL[1], eyeL[2] + frontOffset);
+          irisLeft.scale.set(0.022, 0.022, 1);
+          currentModel.add(irisLeft);
+
+          irisRight = new THREE.Mesh(irisGeo, irisMat.clone());
+          irisRight.position.set(eyeR[0], eyeR[1], eyeR[2] + frontOffset);
+          irisRight.scale.set(0.022, 0.022, 1);
+          currentModel.add(irisRight);
+
+          pupilLeft = new THREE.Mesh(pupilGeo, pupilMat);
+          pupilLeft.position.set(eyeL[0], eyeL[1], eyeL[2] + frontOffset - 0.001);
+          pupilLeft.scale.set(0.01, 0.01, 1);
+          currentModel.add(pupilLeft);
+
+          pupilRight = new THREE.Mesh(pupilGeo, pupilMat.clone());
+          pupilRight.position.set(eyeR[0], eyeR[1], eyeR[2] + frontOffset - 0.001);
+          pupilRight.scale.set(0.01, 0.01, 1);
+          currentModel.add(pupilRight);
+
+          log('Eye overlays created');
+          window._app.setPupils();
+          window._app.setSkinTone();
+
+          resolve();
+        }, undefined, (err) => {
+          log('LOAD ERROR: ' + (err.message || err));
+          reject(err);
+        });
+      });
+    }
+
+    function setBlendshapes(blendshapes) {
+      for (const name in blendshapes) {
+        const mapped = mapName(name);
+        if (morphDict[mapped]) morphTargets[mapped] = blendshapes[name];
+        else if (morphDict[name]) morphTargets[name] = blendshapes[name];
+      }
+    }
+
+    function setLipSyncWeights(weights, volume) {
+      for (const name in weights) {
+        const mapped = mapName(name);
+        const key = morphDict[mapped] ? mapped : (morphDict[name] ? name : null);
+        if (key) morphTargets[key] = Math.max(morphTargets[key] || 0, weights[name] * volume);
+      }
+    }
+
+    function updateIdle(delta) {
+      if (!currentModel) return;
+      idleTime += delta;
+
+      if (morphDict['mouthClose']) {
+        const breath = Math.sin(idleTime * 0.8 * Math.PI);
+        morphTargets['mouthClose'] = Math.max(morphTargets['mouthClose'] || 0, breath * 0.02);
+      }
+
+      if (currentState === 'thinking') {
+        targetHeadRotation.x = -0.08 + Math.sin(idleTime * 0.3) * 0.03;
+        targetHeadRotation.y = 0.1 + Math.sin(idleTime * 0.2) * 0.05;
+      } else if (currentState === 'listening') {
+        targetHeadRotation.y = Math.sin(idleTime * 0.5) * 0.03;
+      } else {
+        targetHeadRotation.x = Math.sin(idleTime * 0.4) * 0.02;
+        targetHeadRotation.y = Math.sin(idleTime * 0.3) * 0.03;
+        targetHeadRotation.z = Math.sin(idleTime * 0.25) * 0.01;
+      }
+
+      headRotation.x += (targetHeadRotation.x - headRotation.x) * delta * 3;
+      headRotation.y += (targetHeadRotation.y - headRotation.y) * delta * 3;
+      headRotation.z += (targetHeadRotation.z - headRotation.z) * delta * 3;
+
+      if (headBone && headBone !== currentModel) {
+        headBone.rotation.x = headRotation.x;
+        headBone.rotation.y = headRotation.y;
+        headBone.rotation.z = headRotation.z;
+      }
+    }
+
+    function applyMorphs(delta) {
+      if (!currentModel) return;
+      for (const name in morphTargets) {
+        if (!morphDict[name]) continue;
+        const m = morphDict[name].mesh;
+        const i = morphDict[name].index;
+        if (!m.morphTargetInfluences) continue;
+        const cur = m.morphTargetInfluences[i] || 0;
+        const tgt = morphTargets[name];
+        const speed = name.includes('blink') || name.includes('Blink') ? 15 : 8;
+        m.morphTargetInfluences[i] = cur + (tgt - cur) * Math.min(delta * speed, 1);
+      }
+    }
+
+    function decayMorphs(delta) {
+      for (const name in morphTargets) {
+        if (name.includes('Close') || name.includes('close')) continue;
+        morphTargets[name] *= (1 - delta * 2.5);
+        if (morphTargets[name] < 0.001) morphTargets[name] = 0;
+      }
+    }
+
+    function animate() {
+      if (!running) return;
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      updateIdle(delta);
+      decayMorphs(delta);
+      applyMorphs(delta);
+      renderer.render(scene, camera);
+    }
+
+    function setStatus(text) {
+      const el = document.getElementById('status');
+      el.textContent = text;
+      el.className = '';
+      if (text === 'TRACKING') el.className = 'tracking';
+      if (text === 'SPEAKING') el.className = 'speaking';
+    }
+
+    function showLoading(msg) {
+      const el = document.getElementById('loading');
+      el.querySelector('p').textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').classList.add('hidden');
+    }
+
+    function showError(msg) {
+      log('ERROR: ' + msg);
+      const el = document.getElementById('error-toast');
+      el.textContent = msg;
+      el.classList.add('visible');
+      setTimeout(() => el.classList.remove('visible'), 4000);
+    }
+
+    window._app = {
+      async toggleCamera() {
+        const btn = document.getElementById('btn-camera');
+        const preview = document.getElementById('cam-preview');
+        const video = document.getElementById('webcam-video');
+
+        if (cameraActive) {
+          cameraActive = false;
+          window.FaceTracker.stop();
+          btn.classList.remove('active');
+          preview.classList.remove('visible');
+          if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+          setStatus('IDLE');
+          return;
+        }
+        if (!faceTrackerReady) { showError('Face tracker still loading…'); return; }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
+          video.srcObject = stream;
+          await video.play();
+          cameraActive = true;
+          btn.classList.add('active');
+          preview.classList.add('visible');
+          window.FaceTracker.start(video);
+          setStatus('TRACKING');
+        } catch (e) { showError('Camera access denied'); }
+      },
+
+      async toggleMic() {
+        const btn = document.getElementById('btn-mic');
+        if (micActive) {
+          micActive = false;
+          window.LipSync.stop();
+          btn.classList.remove('active');
+          setStatus(cameraActive ? 'TRACKING' : 'IDLE');
+          return;
+        }
+        try {
+          await window.LipSync.startFromMic();
+          micActive = true;
+          btn.classList.add('active');
+          const lipSyncLoop = () => {
+            if (!micActive) return;
+            requestAnimationFrame(lipSyncLoop);
+            const result = window.LipSync.analyze();
+            if (result.volume > 0.01) {
+              setLipSyncWeights(result.weights, result.volume);
+              setStatus(result.volume > 0.15 ? 'SPEAKING' : 'LISTENING');
+            } else {
+              setStatus(cameraActive ? 'TRACKING' : 'IDLE');
+            }
+          };
+          lipSyncLoop();
+        } catch (e) { showError('Mic access denied'); }
+      },
+
+      setState(state) {
+        currentState = state;
+        setStatus(state.toUpperCase());
+      },
+
+      setSkinTone() {
+        if (!faceMeshMaterial) return;
+        const hue = parseInt(document.getElementById('skin-hue').value);
+        const light = parseInt(document.getElementById('skin-light').value);
+        const color = new THREE.Color();
+        color.setHSL(hue / 360, 0.45, light / 100);
+        faceMeshMaterial.color.copy(color);
+        faceMeshMaterial.needsUpdate = true;
+      },
+
+      setPupils() {
+        const size = parseInt(document.getElementById('pupil-size').value) / 100;
+        const irisColor = document.getElementById('iris-color').value;
+
+        if (pupilLeft) {
+          const pSize = 0.005 + size * 0.012;
+          pupilLeft.scale.setScalar(pSize);
+          pupilRight.scale.setScalar(pSize);
+        }
+        if (irisLeft) {
+          const iSize = 0.008 + size * 0.025;
+          irisLeft.scale.setScalar(iSize);
+          irisRight.scale.setScalar(iSize);
+          irisLeft.material.color.set(irisColor);
+          irisRight.material.color.set(irisColor);
+        }
+      }
+    };
+
+    async function boot() {
+      log('Booting…');
+      initThree();
+
+      showLoading('Loading 3D model…');
+      try {
+        await loadModel('/mvp/static/models/facecap.glb');
+        running = true;
+        clock.start();
+        animate();
+        hideLoading();
+        setStatus('IDLE');
+        log('Avatar ready!');
+      } catch (e) {
+        hideLoading();
+        showError('Failed to load model: ' + e.message);
+        return;
+      }
+
+      try {
+        await window.FaceTracker.init((blendshapes) => {
+          if (cameraActive) setBlendshapes(blendshapes);
+        });
+        faceTrackerReady = true;
+        log('Face tracker ready');
+      } catch (e) { log('Face tracker init failed: ' + e.message); }
+
+      window.LipSync.init();
+      log('LipSync ready');
+    }
+
+    window.addEventListener('DOMContentLoaded', boot);
+  </script>
+</body>
+</html>

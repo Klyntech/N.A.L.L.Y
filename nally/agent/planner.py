@@ -2,7 +2,8 @@
 
 Plan-and-Execute pattern (matching LangGraph's official tutorial):
     classify -> (planner | llm)
-    planner -> execute_step -> replan -> (execute_step | planner | synthesize | llm)
+    planner -> critique -> (execute_step | planner)
+    execute_step -> replan -> (execute_step | planner | synthesize | llm)
     synthesize -> END
 
 Flat step list, no dependency DAG. Single execution path via mini ReAct loop.
@@ -99,7 +100,7 @@ class PlanStep:
 
 
 class Plan:
-    __slots__ = ("created_at", "goal", "revision_count", "status", "steps", "summary")
+    __slots__ = ("created_at", "critique", "goal", "revision_count", "status", "steps", "summary")
 
     def __init__(self, goal: str, steps: Optional[List[PlanStep]] = None):
         self.goal = goal
@@ -108,6 +109,7 @@ class Plan:
         self.revision_count = 0
         self.created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         self.summary: Optional[str] = None
+        self.critique: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -117,6 +119,7 @@ class Plan:
             "revision_count": self.revision_count,
             "created_at": self.created_at,
             "summary": self.summary,
+            "critique": self.critique,
         }
 
 
@@ -129,6 +132,8 @@ _PLAN_SIGNALS = [
     (r"\b(from scratch|entire|full stack|complete)\b", "large_scope"),
     (r"\b(research|analyze|compare|evaluate)\b.{10,}\b(and|then)\b.{10,}", "research_then_act"),
     (r"\b(test|lint|verify|deploy)\b.{10,}\b(and|then)\b.{10,}\b(test|lint|verify|deploy)\b", "multi_stage"),
+    # Comma-separated action lists: "build X, deploy Y, configure Z"
+    (r"\b(build|create|deploy|migrate|set up|configure|install)\b.{5,}[,;].{5,}\b(build|create|deploy|migrate|set up|configure|install)\b", "comma_actions"),
 ]
 
 _SIMPLE_SIGNALS = [
@@ -143,13 +148,24 @@ _SIMPLE_SIGNALS = [
 def classify_by_patterns(text: str) -> str:
     """Fast regex classification. Returns 'plan' or 'simple'.
 
-    Requires 2+ plan signals to trigger planning.
+    Cost guard: short queries (<50 words) without action keywords are always
+    classified as 'simple' to avoid wasting LLM calls on trivial multi-clause
+    queries like "weather and time in Lagos".
     """
     text_lower = text.lower()
 
     for pattern in _SIMPLE_SIGNALS:
         if re.search(pattern, text_lower):
             return "simple"
+
+    # Cost guard: short queries without action keywords → force simple.
+    # Also allow through if3+ sentences (multi-clause regardless of keywords).
+    word_count = len(text.split())
+    _ACTION_KEYWORDS = ("build", "create", "deploy", "migrate", "set up", "setup", "configure", "install")
+    sentence_count_check = text.count(".") + text.count("!") + text.count("?")
+    has_action = any(kw in text_lower for kw in _ACTION_KEYWORDS)
+    if word_count < 50 and not has_action and sentence_count_check < 3:
+        return "simple"
 
     plan_score = 0
     for pattern, _label in _PLAN_SIGNALS:
@@ -188,6 +204,19 @@ RULES:
 - Max 10 steps
 - Each step should be atomic and testable
 - Output ONLY the JSON object. No explanation, no markdown."""
+
+
+CRITIQUE_SYSTEM_PROMPT = """You are reviewing a plan before it executes. You will be given
+the user's original goal and a proposed step list. Judge only whether the steps, as a set,
+are necessary and sufficient to achieve the goal — not how they will be implemented.
+
+Output ONLY a JSON object, no markdown, no explanation outside the JSON:
+{"verdict": "approve"}
+or
+{"verdict": "revise", "reason": "<one or two sentences: what's missing, redundant, or wrong>"}
+
+Approve unless there is a clear, specific defect (missing necessary step, redundant step,
+step that doesn't serve the stated goal, wrong order/dependency). Do not revise for style."""
 
 
 # ── Parsing ───────────────────────────────────────────────
@@ -323,7 +352,16 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # Build planning prompt
     is_revision = existing_plan and existing_plan.status == PlanStatus.REVISING
 
-    if is_revision:
+    if is_revision and existing_plan.critique:
+        prompt = (
+            f"The plan for '{user_text}' was reviewed and needs revision:\n"
+            f"{existing_plan.critique}\n\n"
+            f"Previous plan steps:\n"
+            + "\n".join(f"  {s.id}: {s.goal}" for s in existing_plan.steps)
+            + "\n\nRevise the plan to address this feedback."
+        )
+        existing_plan.critique = None
+    elif is_revision:
         failed_steps = [s for s in existing_plan.steps if s.status == StepStatus.FAILED]
         failure_context = "\n".join(f"  Step '{s.id}' ({s.goal}) failed: {s.error}" for s in failed_steps)
         prompt = (
@@ -392,6 +430,69 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Plan generation failed: {e}")
         return {**state, "plan_status": "none", "plan": None}
+
+
+def critique_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Review a freshly generated plan against the user's goal before execution.
+
+    Fails open: any error, timeout, or unparseable response approves the plan rather
+    than blocking execution. Bounded by PLAN_MAX_REVISIONS (shared with replan's
+    failure-repair revisions via plan.revision_count).
+    """
+    from .llm import llm
+
+    from ..events.bus import event_bus
+
+    plan = state.get("plan")
+    if not plan:
+        return {**state, "plan_status": "none"}
+
+    if plan.revision_count >= PLAN_MAX_REVISIONS:
+        logger.warning("Critique skipped: revision limit reached, approving plan as-is")
+        return {**state, "plan_status": "executing"}
+
+    span = _span("plan_critique", {"goal": plan.goal, "step_count": len(plan.steps)})
+    try:
+        prompt = (
+            f"User's goal: {plan.goal}\n\nProposed steps:\n"
+            + "\n".join(f"  {s.id}: {s.goal}" for s in plan.steps)
+        )
+        response = _call_with_timeout(
+            lambda: llm.simple_chat(user_message=prompt, system_prompt=CRITIQUE_SYSTEM_PROMPT),
+            timeout=30,
+        )
+        verdict = json.loads(response.strip())
+
+        if span is not None:
+            try:
+                tracer.end_span(span.span_id, output={"verdict": verdict.get("verdict")})
+            except Exception:
+                pass
+
+        if verdict.get("verdict") == "revise" and verdict.get("reason"):
+            plan.status = PlanStatus.REVISING
+            plan.critique = verdict["reason"]
+            event_bus.publish("plan_critiqued", {"verdict": "revise", "reason": plan.critique})
+            return {**state, "plan_status": "critique_revising", "plan": plan}
+
+        event_bus.publish("plan_critiqued", {"verdict": "approve"})
+        return {**state, "plan_status": "executing"}
+
+    except Exception as e:
+        logger.warning(f"Plan critique failed ({e}), approving plan as-is")
+        if span is not None:
+            try:
+                tracer.end_span(span.span_id, error=str(e))
+            except Exception:
+                pass
+        return {**state, "plan_status": "executing"}
+
+
+def route_after_critique(state: Dict[str, Any]) -> str:
+    """Route after plan critique: revise or proceed to execution."""
+    if state.get("plan_status") == "critique_revising":
+        return "planner"
+    return "execute_step"
 
 
 def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:

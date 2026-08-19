@@ -12,7 +12,7 @@ class McpStatus(Tool):
     def __init__(self):
         super().__init__(
             name="mcp_status",
-            description="List all configured MCP servers, their transport, auth mode, and connection status",
+            description="List all configured MCP servers, their transport, permission level, and connection status",
             permission="safe",
         )
 

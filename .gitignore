@@ -51,3 +51,14 @@ npm-debug.log*
 # Docker
 Dockerfile
 docker-compose.yml
+
+# Stray runtime artifacts
+_bot.err
+_bot.log
+_web.err
+_web.log
+server.log
+server_err.log
+test_chat.json
+test_file.txt
+test_write.txt

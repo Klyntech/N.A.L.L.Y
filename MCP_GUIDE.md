@@ -9,37 +9,44 @@ MCP is a standard protocol for AI assistants to interact with external tools and
 | Transport | How It Works | Use Case |
 |-----------|-------------|----------|
 | `stdio` | Spawn a local subprocess | CLI tools, local servers |
-| `http` | Connect to remote HTTP server | Cloud services, OAuth APIs |
+| `http` | Connect to remote HTTP server. The client tries **streamable HTTP** first, then falls back to **SSE** (`/sse`), then a raw **stateless `POST`** | Cloud services, OAuth APIs |
+| `stdio` + `api_key` | Local subprocess with a token injected into its env | Token-gated local servers |
 | `http` + `oauth` | HTTP with browser OAuth flow | User-authorized services |
 
 ## Configured Services
 
-### OAuth Services (Browser Redirect)
+The default `MCP_SERVERS` list in `nally/config.py` registers only three servers.
+The other services below exist as OAuth flows / examples but are **not** auto-loaded until
+you add them to `MCP_SERVERS` manually.
 
-These require the user to authorize via browser:
+### Default Servers (registered in `MCP_SERVERS`)
 
 | Service | Name | What It Does |
 |---------|------|-------------|
+| GitHub | `github` | Repos, issues, PRs, code search |
 | Notion | `notion` | Pages, databases, content |
 | Google Gmail | `gmail` | Read, search, compose emails |
+
+### OAuth-Only (add manually)
+
+OAuth flows and callback endpoints exist, but are **not** registered servers by default.
+Add them to `MCP_SERVERS` (`auth_mode: "oauth"`) to use them.
+
+| Service | Name | What It Does |
+|---------|------|-------------|
 | Google Drive | `gdrive` | Files, folders, search |
 | Google Calendar | `gcalendar` | Events, scheduling |
 | Higgsfield | `higgsfield` | AI video generation (Kling, Sora, Veo, Seedance) |
 
-### Token-Based Services (Manual Token)
+### npm Packages (add manually)
 
-These require pasting an API token:
+These are meant to be added as `stdio` MCP servers by uncommenting/adding entries.
 
-| Service | Name | Token Source |
+| Service | Name | What It Does |
 |---------|------|-------------|
-| GitHub | `github` | NALLY_ACCESS_TOKEN (auto) |
-| Telegram | `telegram` | `TELEGRAM_BOT_TOKEN` env var |
-
-### stdio Services (Local Process)
-
-| Service | Name | Command |
-|---------|------|---------|
-| Fetch | `fetch` | `python -m mcp_server_fetch` |
+| Telegram | `telegram` | Telegram MCP server (`telegram-bot-mcp-server`) |
+| Context7 | `context7` | Library/doc context for code agents |
+| Meta | `meta` | Meta's MCP server(s) |
 
 ## Connecting a Service
 
@@ -51,6 +58,12 @@ These require pasting an API token:
 4. Authorize Nally
 5. Redirect back to `/api/oauth/{service}/callback`
 6. Token is encrypted and stored in SQLite
+
+> **Redirect URI note**: the code uses `http://127.0.0.1:5000/api/oauth/github/callback`
+> for GitHub but `http://localhost:5000/...` for the other services. When you
+> register the callback in your GitHub OAuth app, use the `127.0.0.1` URI to match
+> what the code sends (`.env.example` lists `localhost` — that only matters if you
+> change the code or register both).
 
 ### Token Flow
 
@@ -141,6 +154,11 @@ Status values:
 | `timeout` | Connection timed out |
 | `error` | Connection failed |
 
+These statuses come from the `/api/mcp/services` list built by
+`connect_mcp_servers`. Note that the **`mcp_status` tool** (in the agent) uses a
+different vocabulary: `Connected`, `Ready`, `Token stored (tools not loaded)`,
+`Token set (not connected)`, `Disconnected`, `Unknown`.
+
 ## OAuth Internals
 
 ### Providers
@@ -148,13 +166,16 @@ Status values:
 - **Notion**: RFC 9470/8414 discovery → Dynamic Client Registration (DCR) → PKCE (S256) → token exchange
 - **Google**: Manual client credentials → PKCE → shared token across Gmail/Drive/Calendar
 - **Higgsfield**: DCR → PKCE → token exchange
+- **GitHub**: Static OAuth flow (no DCR) — reads `GITHUB_CLIENT_ID` /
+  `GITHUB_CLIENT_SECRET` from env → PKCE (S256) → token exchange
 
 ### Token Storage
 
 - Encrypted with Fernet (AES-128-CBC) using `NALLY_CRED_KEY`
 - Stored in SQLite `mcp_oauth` table
 - PKCE state persisted to survive server restarts
-- Plaintext fallback if no encryption key is set
+- **Plaintext fallback**: if `NALLY_CRED_KEY` is unset (or the `cryptography`
+  package is missing), tokens are stored in **plaintext** until a key is set
 
 ## Troubleshooting
 

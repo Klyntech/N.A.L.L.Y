@@ -1,4 +1,4 @@
-"""Tests for nally.agent.graph — retry logic and should_continue emit behavior."""
+"""Tests for nally.agent.graph — retry logic, should_continue emit behavior, and topology."""
 
 import time
 from unittest.mock import MagicMock, patch
@@ -222,3 +222,39 @@ class TestHasDuplicateToolCalls:
             AIMessage(content="", tool_calls=[{"id": "tc3", "name": "run_command", "args": {"command": "whoami"}}]),
         ]
         assert _has_duplicate_tool_calls(msgs) is False
+
+
+# ── Graph topology tests ──────────────────────────────────
+
+
+class TestGraphTopology:
+    """Test that the graph topology is correct when PLAN_ENABLED is on/off."""
+
+    def test_plan_enabled_has_critique_node(self):
+        """When PLAN_ENABLED=true, the graph should contain a 'critique' node."""
+        with patch("nally.agent.graph.PLAN_ENABLED", True):
+            from langgraph.checkpoint.memory import MemorySaver
+
+            with patch("nally.agent.graph._create_checkpointer", return_value=MemorySaver()):
+                from nally.agent.graph import create_agent_graph
+
+                graph = create_agent_graph()
+                compiled = graph.get_graph()
+                node_names = set(compiled.nodes.keys())
+                assert "critique" in node_names
+                assert "planner" in node_names
+                assert "execute_step" in node_names
+
+    def test_plan_disabled_no_critique_node(self):
+        """When PLAN_ENABLED=false, no critique node should exist."""
+        with patch("nally.agent.graph.PLAN_ENABLED", False):
+            from langgraph.checkpoint.memory import MemorySaver
+
+            with patch("nally.agent.graph._create_checkpointer", return_value=MemorySaver()):
+                from nally.agent.graph import create_agent_graph
+
+                graph = create_agent_graph()
+                compiled = graph.get_graph()
+                node_names = set(compiled.nodes.keys())
+                assert "critique" not in node_names
+                assert "planner" not in node_names

@@ -29,22 +29,25 @@ PERSONALITIES = {
 |-------|---------|
 | `name` | Display name |
 | `tone` | Short description of speaking style |
-| `style` | Full system prompt template (supports `{{USER_CONTEXT}}` placeholder) |
+| `style` | Full system prompt template (base text — user facts are appended, not substituted) |
 | `greeting` | First message shown to users |
 
-## Template Variables
+## User Context Injection
 
-The `style` field supports runtime template injection:
+Known user facts are NOT substituted into `style` at a `{{USER_CONTEXT}}` placeholder — the built-in `nally` template ships with **no** such placeholder. Instead, `get_system_prompt()` in `nally/config.py` appends any available user facts as a separate trailing block:
 
-| Variable | Replaced With |
-|----------|--------------|
-| `{{USER_CONTEXT}}` | Known user facts from memory (name, goals, preferences) |
+```
+KNOWN USER FACTS:
+<user_context>
+```
 
-Additional context is appended automatically:
+This block is appended only when `user_context` is passed (e.g. facts pulled from memory). If no context is available, nothing is appended.
+
+Additional context is appended automatically after the user-facts block, in this order:
+- **Skill manifest**: Available skill names + descriptions (Level 1 manifest)
+- **Current date**: Timestamp for time-aware responses — "CURRENT TIME CONTEXT: Thursday, ... (WAT)"
 - **Platform info**: OS, shell, available tools (from `nally/agent/platform.py`)
-- **Interface label**: Which channel (web, telegram, CLI)
-- **Skill manifest**: Available skill names + descriptions
-- **Current date**: Today's date for time-aware responses
+- **Interface label**: Which channel (web, telegram, CLI) — only when an interface is provided
 
 ## Creating a Custom Personality
 
@@ -58,7 +61,7 @@ PERSONALITIES = {
     "jarvis": {
         "name": "J.A.R.V.I.S",
         "tone": "formal, precise, British, witty",
-        """You are J.A.R.V.I.S — Just A Rather Very Intelligent System.
+        "style": """You are J.A.R.V.I.S — Just A Rather Very Intelligent System.
 
 - You speak with British formality and precision
 - You address the user as "sir" or "madam"
@@ -71,8 +74,6 @@ IDENTITY:
 - You have full access to tools, files, and system control
 - You were created by the user to be their digital right hand
 
-{{USER_CONTEXT}}
-
 AVAILABLE TOOLS:
 - You have 40+ tools at your disposal
 - Use them proactively — don't wait to be asked
@@ -83,10 +84,12 @@ RULES:
 - Be concise — every word must earn its place
 - If you don't know, say so directly
 - You are not a chatbot — you are an intelligent system""",
-        "Good evening. How may I be of service?",
+        "greeting": "Good evening. How may I be of service?",
     },
 }
 ```
+
+Note: unlike the old inline-substitution model, you don't add a `{{USER_CONTEXT}}` placeholder in `style`. Known user facts are appended automatically by `get_system_prompt()` as a trailing `KNOWN USER FACTS:` block whenever they're available.
 
 ### 2. Activate It
 
@@ -102,14 +105,16 @@ python main.py
 
 ## System Prompt Construction
 
-The final system prompt is built in this order:
+The final system prompt is built in this order (`nally/config.py` → `get_system_prompt()`):
 
 1. **Personality style** — base template from `PERSONALITIES`
-2. **User context** — `{{USER_CONTEXT}}` replaced with known user facts
-3. **Platform info** — OS, shell, available tools
-4. **Interface label** — "You are chatting via web/telegram/CLI"
-5. **Skill manifest** — list of available skills
-6. **Current date** — "Today is 2026-01-15"
+2. **User context** — appended as a trailing `KNOWN USER FACTS:` block (when user facts are passed)
+3. **Skill manifest** — list of available skill names + descriptions
+4. **Current date** — "CURRENT TIME CONTEXT: <date> (WAT)"
+5. **Platform info** — OS, shell, available tools
+6. **Interface label** — "You are chatting via web/telegram/CLI" (only when an interface is given)
+7. **Trust & honesty rules** — always appended
+8. **Voice capabilities** — appended only when `NALLY_VOICE_CALLS_ENABLED` is true
 
 ## Code Style
 

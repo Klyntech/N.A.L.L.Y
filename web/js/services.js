@@ -1,7 +1,7 @@
 window.NALLY = window.NALLY || {};
 
 NALLY.SERVICES = [
-  { id:'github',    name:'GitHub',        auth:'token',  desc:'Repos, issues, PRs', mcp:true, tokenLabel:'Personal Access Token' },
+  { id:'github',    name:'GitHub',        auth:'oauth',  desc:'Repos, issues, PRs', mcp:true },
   { id:'notion',    name:'Notion',        auth:'oauth',  desc:'Notes & databases', lightIcon:true, mcp:true },
   { id:'gmail',     name:'Gmail',         auth:'oauth',  desc:'Email management', mcp:true },
   { id:'gdrive',    name:'Google Drive',  auth:'oauth',  desc:'File storage', mcp:true },

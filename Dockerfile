@@ -26,7 +26,6 @@ COPY --from=builder /install /usr/local
 COPY nally/ ./nally/
 COPY web/ ./web/
 COPY main.py .
-COPY wsgi.py .
 
 # Create data directory
 RUN mkdir -p data logs && chown -R nally:nally /app

@@ -2,6 +2,7 @@
 
 import importlib
 import logging
+import re
 import threading
 from typing import Dict, List, Optional
 
@@ -104,8 +105,7 @@ class ToolRegistry:
             result = str(result)
             if len(result) > MAX_TOOL_OUTPUT:
                 result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
-            # Success = no exception. Also check prefix as secondary signal.
-            success = not result.startswith("Error")
+            success = _result_is_success(name, result)
             return result, success
         except Exception as e:
             logger.error(f"Tool '{name}' execution failed: {type(e).__name__}: {e}")
@@ -139,6 +139,30 @@ class ToolRegistry:
                     logger.debug(f"Plugin {plugin_file.name} has no register_tools()")
             except Exception as e:
                 logger.error(f"Error loading plugin {plugin_file.name}: {type(e).__name__}: {e}")
+
+
+def _result_is_success(tool_name: str, result: str) -> bool:
+    """Decide success from the tool result string.
+
+    Contract: a result that begins with "Error" (case-insensitive) is a
+    failure. For run_command we additionally trust the process exit code
+    encoded as a trailing "Exit code: N" line, since commands can emit
+    error-like text on stdout while still succeeding (and vice versa).
+
+    This is the authoritative success signal consumed by the agent graph;
+    the post-execution validation in graph.py only acts as a defense-in-depth
+    net for unmistakable crash signals.
+    """
+    r = (result or "").strip()
+    if not r:
+        return True
+    if r[:5].lower() == "error":
+        return False
+    if tool_name == "run_command":
+        m = re.search(r"Exit code:\s*(\d+)\s*$", r)
+        if m and int(m.group(1)) != 0:
+            return False
+    return True
 
 
 registry = ToolRegistry()

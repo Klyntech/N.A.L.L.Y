@@ -111,7 +111,7 @@ class CodeAnalysis(Tool):
     def __init__(self):
         super().__init__(
             name="code_analysis",
-            description="Run tests or analyze code",
+            description="Run tests or lint code",
             parameters={
                 "action": {
                     "type": "string",

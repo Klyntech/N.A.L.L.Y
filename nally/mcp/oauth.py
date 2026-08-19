@@ -758,3 +758,111 @@ async def exchange_higgsfield_code(code: str, db_path: str) -> bool:
 
     logger.info("Higgsfield OAuth successful — token stored")
     return True
+
+
+# ── GitHub OAuth (static client — no DCR) ─────────────────
+
+GITHUB_AUTH_ENDPOINT = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"
+GITHUB_REDIRECT_URI = "http://127.0.0.1:5000/api/oauth/github/callback"
+
+
+def _get_github_credentials() -> tuple[str, str] | None:
+    """Read GitHub client_id and client_secret from env. Returns None if missing."""
+    client_id = os.getenv("GITHUB_CLIENT_ID", "")
+    client_secret = os.getenv("GITHUB_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        return None
+    return client_id, client_secret
+
+
+async def start_github_oauth(db_path: str) -> str:
+    """Start GitHub OAuth: build auth URL with PKCE → return it for browser redirect."""
+
+    creds = _get_github_credentials()
+    if not creds:
+        raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in .env")
+    client_id, _ = creds
+
+    code_verifier, code_challenge = generate_pkce()
+    state = secrets.token_urlsafe(16)
+
+    # Store state
+    _pending_pkce["github"] = {
+        "code_verifier": code_verifier,
+        "client_id": client_id,
+        "state": state,
+        "token_endpoint": GITHUB_TOKEN_ENDPOINT,
+        "auth_endpoint": GITHUB_AUTH_ENDPOINT,
+    }
+    save_oauth_state(db_path, "github", code_verifier, client_id, state, GITHUB_TOKEN_ENDPOINT, GITHUB_AUTH_ENDPOINT)
+
+    from urllib.parse import urlencode
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": GITHUB_REDIRECT_URI,
+        "scope": "repo",
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    return f"{GITHUB_AUTH_ENDPOINT}?{urlencode(params)}"
+
+
+async def exchange_github_code(code: str, db_path: str) -> bool:
+    """Exchange GitHub authorization code for tokens. Returns True on success."""
+
+    creds = _get_github_credentials()
+    if not creds:
+        return False
+    _, client_secret = creds
+
+    state_data = _pending_pkce.pop("github", None)
+    if not state_data:
+        state_data = load_oauth_state(db_path, "github")
+        if state_data:
+            logger.debug("Loaded GitHub OAuth state from SQLite")
+        else:
+            logger.warning("No pending GitHub OAuth state (memory or SQLite)")
+            return False
+
+    token_endpoint = state_data.get("token_endpoint", GITHUB_TOKEN_ENDPOINT)
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            token_endpoint,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": state_data["client_id"],
+                "client_secret": client_secret,
+                "redirect_uri": GITHUB_REDIRECT_URI,
+                "code_verifier": state_data["code_verifier"],
+            },
+            headers={"Accept": "application/json"},
+            timeout=15.0,
+        )
+
+        if resp.status_code != 200:
+            logger.error(f"GitHub token exchange failed: {resp.status_code} {resp.text[:500]}")
+            return False
+
+        token_data = resp.json()
+
+    token = OAuthToken(
+        access_token=token_data["access_token"],
+        token_type=token_data.get("token_type", "bearer"),
+        expires_in=token_data.get("expires_in"),
+        refresh_token=token_data.get("refresh_token"),
+    )
+
+    storage = SQLiteTokenStorage(db_path, "github")
+    await storage.set_tokens(token)
+
+    # Clean up persisted state
+    clear_oauth_state(db_path, "github")
+
+    logger.info("GitHub OAuth successful — token stored")
+    return True

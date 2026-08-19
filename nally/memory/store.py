@@ -8,8 +8,9 @@ Supports SQLite (default) and Turso/LibSQL via DATABASE_URL.
 
 import json
 import sqlite3
+import time as _time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -53,11 +54,13 @@ CREATE TABLE IF NOT EXISTS memories (
     mention_count INTEGER DEFAULT 1,
     created TEXT NOT NULL,
     last_confirmed TEXT NOT NULL,
-    deleted INTEGER DEFAULT 0
+    deleted INTEGER DEFAULT 0,
+    expires_at TEXT DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key);
 CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
 CREATE INDEX IF NOT EXISTS idx_memories_deleted ON memories(deleted);
+CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at);
 
 CREATE TABLE IF NOT EXISTS episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,6 +136,17 @@ END;
 """
 
 
+def _backfill_expires_at_column(conn: sqlite3.Connection):
+    """Add expires_at column to memories table if missing."""
+    try:
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(memories)").fetchall()]
+        if "expires_at" not in cols:
+            conn.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT DEFAULT NULL")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at)")
+    except Exception:
+        pass
+
+
 class MemoryRepository:
     """SQLite-backed memory with connection-per-operation.
 
@@ -171,6 +185,7 @@ class MemoryRepository:
     def _ensure_schema(self, conn: sqlite3.Connection):
         """Create tables if they don't exist. Runs once per connection."""
         if not self._schema_initialized:
+            self._backfill_expires_at(conn)
             conn.executescript(_SCHEMA)
             self._schema_initialized = True
             self._backfill_fts(conn)
@@ -213,8 +228,12 @@ class MemoryRepository:
 
     # ── Long-term Memory ──────────────────────────────────────
 
-    def remember(self, key: str, value: str, category: str = "general", confidence: float = 0.5) -> str:
-        """Store a fact. Boosts confidence if key already exists."""
+    def remember(self, key: str, value: str, category: str = "general", confidence: float = 0.5, ttl_days: Optional[int] = None) -> str:
+        """Store a fact. Boosts confidence if key already exists.
+
+        Args:
+            ttl_days: If set, memory auto-expires after this many days.
+        """
         # Warn when storing profile facts with unrecognized keys
         if category == "profile" and key not in RECOGNIZED_PROFILE_KEYS:
             import logging
@@ -224,6 +243,9 @@ class MemoryRepository:
                 f"Recognized keys: {', '.join(sorted(RECOGNIZED_PROFILE_KEYS))}"
             )
         now = self._now()
+        expires_at = None
+        if ttl_days is not None:
+            expires_at = (datetime.now() + timedelta(days=ttl_days)).isoformat()
         with self._connection() as conn:
             existing = conn.execute(
                 "SELECT id, confidence, mention_count FROM memories WHERE key = ? AND deleted = 0",
@@ -233,15 +255,21 @@ class MemoryRepository:
             if existing:
                 new_confidence = boost_confidence(existing["confidence"], 0.1)
                 new_count = existing["mention_count"] + 1
-                conn.execute(
-                    "UPDATE memories SET value = ?, category = ?, confidence = ?, mention_count = ?, last_confirmed = ? WHERE id = ?",
-                    (value, category, new_confidence, new_count, now, existing["id"]),
-                )
+                if expires_at:
+                    conn.execute(
+                        "UPDATE memories SET value = ?, category = ?, confidence = ?, mention_count = ?, last_confirmed = ?, expires_at = ? WHERE id = ?",
+                        (value, category, new_confidence, new_count, now, expires_at, existing["id"]),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE memories SET value = ?, category = ?, confidence = ?, mention_count = ?, last_confirmed = ? WHERE id = ?",
+                        (value, category, new_confidence, new_count, now, existing["id"]),
+                    )
                 return f"Updated: {key} = {value} (confidence: {new_confidence:.1f}, mentions: {new_count})"
             else:
                 conn.execute(
-                    "INSERT INTO memories (key, value, category, confidence, mention_count, created, last_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (key, value, category, confidence, 1, now, now),
+                    "INSERT INTO memories (key, value, category, confidence, mention_count, created, last_confirmed, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (key, value, category, confidence, 1, now, now, expires_at),
                 )
                 return f"Remembered: {key} = {value}"
 
@@ -252,11 +280,22 @@ class MemoryRepository:
         search: Optional[str] = None,
         min_confidence: float = 0.0,
         limit: int = 20,
+        include_expired: bool = False,
     ) -> Any:
-        """Recall memories with confidence filtering."""
+        """Recall memories with confidence filtering.
+
+        Args:
+            include_expired: If False (default), skip memories past expires_at.
+        """
+        expired_clause = "" if include_expired else "AND (expires_at IS NULL OR expires_at > ?)"
+        now_iso = self._now()
+
         with self._connection() as conn:
             if key:
-                row = conn.execute("SELECT * FROM memories WHERE key = ? AND deleted = 0", (key,)).fetchone()
+                row = conn.execute(
+                    f"SELECT * FROM memories WHERE key = ? AND deleted = 0 {expired_clause}",
+                    (key, now_iso) if not include_expired else (key,),
+                ).fetchone()
                 if row:
                     # Boost confidence on recall
                     conn.execute(
@@ -268,8 +307,8 @@ class MemoryRepository:
 
             if category:
                 rows = conn.execute(
-                    "SELECT * FROM memories WHERE category = ? AND deleted = 0 AND confidence >= ? ORDER BY confidence DESC, last_confirmed DESC LIMIT ?",
-                    (category, min_confidence, limit),
+                    f"SELECT * FROM memories WHERE category = ? AND deleted = 0 AND confidence >= ? {expired_clause} ORDER BY confidence DESC, last_confirmed DESC LIMIT ?",
+                    (category, min_confidence, now_iso, limit) if not include_expired else (category, min_confidence, limit),
                 ).fetchall()
                 return {row["key"]: row["value"] for row in rows}
 
@@ -281,15 +320,15 @@ class MemoryRepository:
                 # Fallback to LIKE if FTS unavailable or empty
                 like_pattern = f"%{search}%"
                 rows = conn.execute(
-                    "SELECT * FROM memories WHERE deleted = 0 AND confidence >= ? AND (key LIKE ? OR value LIKE ? OR category LIKE ?) ORDER BY confidence DESC LIMIT ?",
-                    (min_confidence, like_pattern, like_pattern, like_pattern, limit),
+                    f"SELECT * FROM memories WHERE deleted = 0 AND confidence >= ? AND (key LIKE ? OR value LIKE ? OR category LIKE ?) {expired_clause} ORDER BY confidence DESC LIMIT ?",
+                    (min_confidence, like_pattern, like_pattern, like_pattern, now_iso, limit) if not include_expired else (min_confidence, like_pattern, like_pattern, like_pattern, limit),
                 ).fetchall()
                 return {row["key"]: row["value"] for row in rows}
 
             # Return all high-confidence memories
             rows = conn.execute(
-                "SELECT * FROM memories WHERE deleted = 0 AND confidence >= ? ORDER BY confidence DESC, last_confirmed DESC LIMIT ?",
-                (min_confidence, limit),
+                f"SELECT * FROM memories WHERE deleted = 0 AND confidence >= ? {expired_clause} ORDER BY confidence DESC, last_confirmed DESC LIMIT ?",
+                (min_confidence, now_iso, limit) if not include_expired else (min_confidence, limit),
             ).fetchall()
             return {row["key"]: row["value"] for row in rows}
 
@@ -345,6 +384,20 @@ class MemoryRepository:
                     "UPDATE memories SET confidence = confidence * ? WHERE id = ?",
                     updates,
                 )
+
+    def prune_expired(self) -> int:
+        """Soft-delete memories past their expires_at date. Returns count pruned."""
+        now = datetime.now().isoformat()
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "UPDATE memories SET deleted = 1 WHERE deleted = 0 AND expires_at IS NOT NULL AND expires_at < ?",
+                (now,),
+            )
+            return cursor.rowcount
+
+    def _backfill_expires_at(self, conn: sqlite3.Connection):
+        """Add expires_at column if missing (backward compat for existing DBs)."""
+        _backfill_expires_at_column(conn)
 
     # ── Episodic Memory ───────────────────────────────────────
 
@@ -723,21 +776,21 @@ MEMORY_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "remember",
-            "description": "Store a fact or record an episode. Use type=fact for preferences, facts, people. Use type=episode for experiences, debugging sessions, lessons learned.",
+            "description": "Store a fact or record an episode. Use type=fact for preferences, facts, people (requires key+value). Use type=episode for experiences, debugging sessions, lessons learned (requires topic+what_happened).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "key": {
                         "type": "string",
-                        "description": "A short label (e.g. 'favorite_color', 'deploy_fix')",
+                        "description": "A short label — required for type=fact only (e.g. 'favorite_color'). Ignored for type=episode.",
                     },
                     "value": {
                         "type": "string",
-                        "description": "The information to remember (for type=fact)",
+                        "description": "The information to remember — required for type=fact only. Ignored for type=episode.",
                     },
                     "category": {
                         "type": "string",
-                        "description": "Category for organization",
+                        "description": "Category for organization — type=fact only. Ignored for type=episode.",
                         "enum": ["general", "preference", "task", "people", "project", "goal", "habit", "fact"],
                     },
                     "type": {
@@ -747,24 +800,24 @@ MEMORY_TOOL_SCHEMAS = [
                     },
                     "topic": {
                         "type": "string",
-                        "description": "Short topic label for episodes (e.g. 'Render deployment fix')",
+                        "description": "Short topic label — required for type=episode only (e.g. 'Render deployment fix'). Ignored for type=fact.",
                     },
                     "what_happened": {
                         "type": "string",
-                        "description": "What happened (for type=episode)",
+                        "description": "What happened — required for type=episode only. Ignored for type=fact.",
                     },
                     "outcome": {
                         "type": "string",
-                        "description": "What was the result (for type=episode)",
+                        "description": "What was the result — type=episode only. Ignored for type=fact.",
                     },
                     "solution": {
                         "type": "string",
-                        "description": "How it was resolved (for type=episode)",
+                        "description": "How it was resolved — type=episode only. Ignored for type=fact.",
                     },
                     "tags": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Tags for search (for type=episode)",
+                        "description": "Tags for search — type=episode only. Ignored for type=fact.",
                     },
                 },
                 "required": ["key", "value"],
@@ -775,21 +828,21 @@ MEMORY_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "recall",
-            "description": "Retrieve facts or episodes from memory. Use type=fact for preferences/facts, type=episode for past experiences.",
+            "description": "Retrieve facts or episodes from memory. Use type=fact for preferences/facts (use key or search). Use type=episode for past experiences (use topic or search).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "key": {
                         "type": "string",
-                        "description": "The exact key to look up",
+                        "description": "The exact key to look up — type=fact only. Ignored for type=episode.",
                     },
                     "category": {
                         "type": "string",
-                        "description": "Filter by category",
+                        "description": "Filter by category — type=fact only. Ignored for type=episode.",
                     },
                     "search": {
                         "type": "string",
-                        "description": "Search across all memories by keyword",
+                        "description": "Search across memories by keyword (works for both fact and episode types)",
                     },
                     "type": {
                         "type": "string",
@@ -798,7 +851,7 @@ MEMORY_TOOL_SCHEMAS = [
                     },
                     "topic": {
                         "type": "string",
-                        "description": "Filter episodes by topic",
+                        "description": "Filter by topic — type=episode only. Ignored for type=fact.",
                     },
                 },
             },
@@ -808,13 +861,13 @@ MEMORY_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "forget",
-            "description": "Remove something from memory",
+            "description": "Soft-delete a fact from memory (hidden from queries but recoverable from DB). Only works on facts — cannot delete episodes, conversations, or semantic patterns.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "key": {
                         "type": "string",
-                        "description": "The key to forget",
+                        "description": "The fact key to forget",
                     },
                 },
                 "required": ["key"],

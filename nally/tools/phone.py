@@ -43,17 +43,13 @@ class MakeCall(Tool):
             name="make_call",
             description=(
                 "Make an outbound phone call via Plivo. Supports Nigerian numbers (+234) "
-                "and 200+ countries. Free trial: $10 credit."
+                "and 200+ countries. Free trial: $10 credit. The callee hears a generic greeting."
             ),
             parameters={
                 "to": {
                     "type": "string",
                     "description": "Phone number in E.164 format (e.g. +2349120500686, +14155551234)",
                     "required": True,
-                },
-                "message": {
-                    "type": "string",
-                    "description": "What to say when the call connects (TTS)",
                 },
             },
             permission="destructive",

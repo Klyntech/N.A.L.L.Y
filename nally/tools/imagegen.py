@@ -493,7 +493,7 @@ class ImageGen(Tool):
     def __init__(self):
         super().__init__(
             name="generate_image",
-            description="Generate an image from a text description. NALLY generates, SEES the result, critiques it, and regenerates until quality is good. Supports upscaling and img2img refinement.",
+            description="Generate an image from a text description. NALLY generates, SEES the result, critiques it, and regenerates until quality is good. Supports upscaling.",
             permission="safe",
             parameters={
                 "prompt": {
@@ -513,7 +513,7 @@ class ImageGen(Tool):
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model: auto (default, picks best for content) or flux",
+                    "description": "Model: auto (default, picks best for content) or any model name (flux, gpt-image-2, gptimage-large, zimage, etc.)",
                     "default": "auto",
                 },
                 "upscale": {

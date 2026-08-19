@@ -214,7 +214,7 @@ class NallyLLM:
         logger.error(f"All OpenCode free models rate-limited (last: {last_exc})")
         raise last_exc
 
-    def chat(self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default") -> dict:
+    def chat(self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default", max_tokens: int = 4096) -> dict:
         client = self._get_active_client()
 
         # Route to best model for this task
@@ -226,7 +226,7 @@ class NallyLLM:
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "extra_body": {
                 "prompt_cache_key": cache_key,
                 "prompt_cache_retention": "24h",
@@ -268,6 +268,8 @@ class NallyLLM:
         )
 
         for chunk in response:
+            if not chunk or not chunk.choices:
+                continue
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
 
@@ -383,3 +385,13 @@ class NallyLLM:
 
 
 llm = NallyLLM()
+
+
+def call_llm(messages: list, temperature: float = 0.7) -> str:
+    """Back-compat shim used by the post-response self-correction path.
+
+    graph.py imports `call_llm` and expects it to accept an OpenAI-style
+    `messages` list plus `temperature` and return the assistant text. The
+    real client is the `llm` singleton above.
+    """
+    return llm.chat(messages=messages, temperature=temperature).choices[0].message.content

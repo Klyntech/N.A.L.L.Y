@@ -79,7 +79,7 @@ Note: Even when streaming fails, Nally falls back to non-streaming — you'll st
 - Check logs for CUDA errors if using GPU
 
 ### TTS not speaking
-- **Piper**: Requires model download on first run. Check `data/piper/` directory exists
+- **Piper**: Requires model download on first run. Check `data/voice/` directory exists
 - **ElevenLabs**: Verify `ELEVENLABS_API_KEY` is set and valid
 
 ## Telegram Bot Issues
@@ -94,7 +94,7 @@ Note: Even when streaming fails, Nally falls back to non-streaming — you'll st
 - Check `nally/telegram/voice.py` can find ffmpeg
 
 ### Polling vs Webhook
-- Use polling for development: `python main.py --telegram`
+- Use polling for development: `python main.py --telegram-only`
 - Use webhook for production (requires HTTPS URL)
 
 ## MCP Connection Issues

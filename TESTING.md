@@ -1,6 +1,6 @@
 # Testing
 
-Nally uses **pytest** with 19 test files covering tools, agent logic, MCP, permissions, and more.
+Nally uses **pytest** with 30 test files (29 in `tests/` + 1 in `tests/harness_eval/`) covering tools, agent logic, MCP, permissions, engineering loop, and more.
 
 ## Run Tests
 
@@ -31,24 +31,40 @@ pytest -m "not integration"
 
 ```
 tests/
-├── conftest.py              # Shared fixtures (tmp_dir, sample_text, etc.)
-├── test_event_bus.py        # Event bus pub/sub
-├── test_graph.py            # LangGraph agent loop, retry, doom detection
-├── test_imagegen_router.py  # Image content-type routing
-├── test_mcp_client.py       # MCP server connection
-├── test_mcp_oauth.py        # OAuth flows (Notion, Google, Higgsfield)
-├── test_permissions.py      # Permission gate (allow/ask/deny)
-├── test_planner.py          # Plan-and-Execute pipeline
-├── test_plugin_system.py    # Plugin loading
-├── test_profile_migration.py # User profile DB migration
-├── test_receipts.py         # HMAC-signed tool receipts
-├── test_speech_pipeline.py  # Speech pipeline end-to-end
-├── test_subagent_model.py   # Sub-agent spawning
-├── test_tool_executor.py    # Tool execution + parallel runs
-├── test_tool_filter.py      # Keyword-based tool selection
-├── test_verifier.py         # Claim verifier (hallucination detection)
-├── test_voice_formatter.py  # Text→speech formatting
-└── test_websearch.py        # Web search (Parallel.ai + DuckDuckGo)
+├── conftest.py                            # Shared fixtures (tmp_dir, sample_text, etc.)
+├── test_curiosity.py                      # Proactive idle-cycle learning
+├── test_el_ws.py                          # Engineering-loop WebSocket endpoint
+├── test_engineering_intake.py             # Engineering task intake
+├── test_engineering_loop.py               # Autonomous engineering loop
+├── test_engineering_loop_retry.py         # Engineering loop retry logic
+├── test_engineering_plan.py               # Engineering planning
+├── test_engineering_review.py             # Engineering review
+├── test_engineering_scoring.py            # Engineering scoring
+├── test_event_bus.py                      # Event bus pub/sub
+├── test_graph.py                          # LangGraph agent loop, retry, doom detection
+├── test_harness.py                        # Harness intent classification / pipeline routing
+├── test_imagegen_router.py                # Image content-type routing
+├── test_mcp_client.py                     # MCP server connection
+├── test_mcp_oauth.py                      # OAuth flows (Notion, Google, Higgsfield)
+├── test_permissions.py                    # Permission gate (allow/ask/deny)
+├── test_planner.py                        # Plan-and-Execute pipeline
+├── test_planner_classify.py               # Planner intent classification
+├── test_plugin_system.py                  # Plugin loading
+├── test_profile_migration.py              # User profile DB migration
+├── test_receipts.py                       # HMAC-signed tool receipts
+├── test_speech_pipeline.py                # Speech pipeline end-to-end
+├── test_subagent_model.py                 # Sub-agent spawning
+├── test_success_detection.py              # Tool success detection ((result, success) tuples)
+├── test_tool_executor.py                  # Tool execution + parallel runs
+├── test_tool_filter.py                    # Keyword-based tool selection
+├── test_verifier.py                       # Claim verifier (hallucination detection)
+├── test_voice_formatter.py                # Text→speech formatting
+├── test_voice_pipeline.py                 # Voice interaction pipeline
+└── test_websearch.py                      # Web search (Parallel.ai + DuckDuckGo)
+
+tests/harness_eval/
+├── runner.py                              # Harness classifier eval runner
+└── test_eval.py                           # Harness eval tests
 ```
 
 ## Test Configuration

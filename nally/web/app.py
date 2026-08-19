@@ -229,11 +229,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         reflector_status[0] = f"[red]failed: {e}[/]"
 
+    # Start curiosity scanner
+    _curiosity_status = "[dim]skipped[/]"
+    try:
+        from ..curiosity.scanner import curiosity_scanner
+
+        curiosity_scanner.start()
+        _curiosity_status = "[green]active[/]"
+    except Exception as e:
+        _curiosity_status = f"[red]failed: {e}[/]"
+
     # Wait for agent pre-warm (brief, don't block server)
     agent_thread.join(timeout=5)
 
     display.phase("Agent", agent_status[0])
     display.phase("Reflector", reflector_status[0])
+    display.phase("Curiosity", _curiosity_status)
 
     # Start Telegram bot — non-blocking via create_task
     # Single-owner enforcement (Path B): the standalone bot subprocess owns
@@ -280,11 +291,17 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: stop reflector, telegram bot, and save all active sessions
+    # Shutdown: stop reflector, curiosity scanner, telegram bot, and save all active sessions
     try:
         from ..memory.reflector import reflector
 
         reflector.stop()
+    except Exception:
+        pass
+    try:
+        from ..curiosity.scanner import curiosity_scanner
+
+        curiosity_scanner.stop()
     except Exception:
         pass
     try:
@@ -381,6 +398,17 @@ app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
 # Serve generated images
 app.mount("/generated", StaticFiles(directory=str(_gen_dir)), name="generated")
 
+# ── Face Avatar MVP ───────────────────────────────────────
+_mvp_dir = _web_dir / "mvp"
+
+
+@app.get("/mvp")
+async def mvp():
+    return FileResponse(str(_mvp_dir / "index.html"))
+
+
+app.mount("/mvp/static", StaticFiles(directory=str(_mvp_dir)), name="mvp-static")
+
 
 @app.get("/web/")
 async def web_root():
@@ -476,6 +504,15 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
     message = request.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="No message provided")
+
+    # Intercept "call me" on web UI — redirect to Telegram
+    if message.lower() in ("call me", "call nally"):
+        from ..config import NALLY_VOICE_CALLS_ENABLED
+        if NALLY_VOICE_CALLS_ENABLED:
+            async def voice_redirect():
+                yield 'data: {"type": "response", "text": "Voice calls only work on Telegram. Send me \\"call me\\" there and I\'ll set up a voice chat for you."}\n\n'
+                yield 'data: {"event": "done"}\n\n'
+            return StreamingResponse(voice_redirect(), media_type="text/event-stream")
 
     session_id = request.session_id
     tab_id = request.tab_id
@@ -646,9 +683,10 @@ async def tg_message(request: Request):
     from ..agent.sessions import session_manager
     from ..telegram.bot import _make_emit_standalone
 
-    emit = _make_emit_standalone(data["chat_id"])
+    session_id = data["session_id"]
+    emit = _make_emit_standalone(data["chat_id"], session_id=session_id)
     response = await asyncio.to_thread(
-        session_manager.process, data["session_id"], data["text"], emit=emit
+        session_manager.process, session_id, data["text"], emit=emit
     )
     return {"response": response}
 
@@ -814,6 +852,14 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
             return {"status": "auth_required", "auth_url": auth_url, "service": service}
+        elif service == "github":
+            from nally.mcp.oauth import start_github_oauth
+
+            try:
+                auth_url = await start_github_oauth(db)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            return {"status": "auth_required", "auth_url": auth_url, "service": service}
         else:
             raise HTTPException(status_code=400, detail=f"OAuth not configured for {service}")
 
@@ -910,6 +956,35 @@ async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""
             pass
 
     html = REDIRECT_HTML.replace("SERVICE", "notion")
+    return HTMLResponse(content=html)
+
+
+@app.get("/api/oauth/github/callback")
+async def github_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """GitHub OAuth callback — exchanges code for tokens."""
+    if error:
+        return JSONResponse(status_code=400, content={"error": error})
+    if not code:
+        return JSONResponse(status_code=400, content={"error": "missing_code"})
+
+    from nally.config import DATA_DIR, MCP_SERVERS
+    from nally.mcp.client import connect_http_server
+    from nally.mcp.oauth import exchange_github_code
+
+    db = str(DATA_DIR / "nally.db")
+    success = await exchange_github_code(code, db)
+    if not success:
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+
+    # Connect and fetch tools
+    server_cfg = next((s for s in MCP_SERVERS if s["name"] == "github"), None)
+    if server_cfg:
+        try:
+            await connect_http_server(server_cfg)
+        except Exception:
+            pass
+
+    html = REDIRECT_HTML.replace("SERVICE", "github")
     return HTMLResponse(content=html)
 
 

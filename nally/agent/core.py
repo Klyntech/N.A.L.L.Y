@@ -3,6 +3,7 @@
 import re
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
 from ..config import CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS
@@ -229,7 +230,37 @@ class NallyAgent:
 
         start = time.time()
 
-        self.messages.append({"role": "user", "content": user_input})
+        # Prefix user message with temporal context (no extra messages accumulated)
+        now = datetime.now(timezone.utc)
+        ts_prefix = f"[Current time: {now.strftime('%Y-%m-%d %H:%M UTC')} | Day: {now.strftime('%A')}]\n\n"
+        self.messages.append({"role": "user", "content": ts_prefix + user_input})
+
+        # ── Harness v2: Intent Classification ──
+        _classification = None
+        _scratchpad = None
+        try:
+            from ..config import HARNESS_ENABLED, HARNESS_LOG_CLASSIFICATIONS, HARNESS_SCRATCHPAD_ENABLED
+            if HARNESS_ENABLED:
+                from .harness import classify_intent, get_pipeline_config
+                _classification = classify_intent(user_input)
+                if HARNESS_LOG_CLASSIFICATIONS:
+                    logger.info(
+                        f"Intent classified: {_classification.task_class.value} "
+                        f"(conf={_classification.confidence:.2f}, method={_classification.method})"
+                    )
+                self._last_classification = _classification
+
+                # Create scratchpad for complex/high-stakes tasks
+                if (
+                    HARNESS_SCRATCHPAD_ENABLED
+                    and _classification.task_class.value in ("COMPLEX", "CREATIVE", "HIGH_STAKES")
+                ):
+                    from .scratchpad import Scratchpad, scratchpad_store
+                    _scratchpad = Scratchpad(objective=user_input)
+                    scratchpad_store.save(_scratchpad)
+                    logger.info(f"Scratchpad created: {_scratchpad.id}")
+        except Exception as e:
+            logger.warning(f"Harness classification failed: {e}")
 
         # Skill activation (Level 2): check if a skill matches this request
         try:
@@ -362,13 +393,63 @@ class NallyAgent:
                 pass  # fallback to LLM's own knowledge
 
         try:
+            _intent_class = ""
+            _intent_confidence = 0.0
+            if _classification:
+                _intent_class = _classification.task_class.value
+                _intent_confidence = _classification.confidence
+
             final_response = run_agent(
                 messages=self.messages,
                 tools=tools,
                 emit=emit,
                 max_iterations=MAX_ITERATIONS_PER_TURN,
                 thread_id=self._thread_id,
+                intent_class=_intent_class,
+                intent_confidence=_intent_confidence,
             )
+
+            # ── Harness v2: Critique Pipeline (Phase 2) ──
+            try:
+                from ..config import HARNESS_ENABLED, HARNESS_CRITIQUE_ENABLED
+                if (
+                    HARNESS_ENABLED
+                    and HARNESS_CRITIQUE_ENABLED
+                    and _classification
+                    and _classification.task_class.value in ("COMPLEX", "CREATIVE")
+                ):
+                    from .harness import (
+                        TaskClass,
+                        run_critique_pipeline,
+                    )
+                    from .llm import llm as _harness_llm
+
+                    def _harness_llm_call(messages, temperature=0.7):
+                        return _harness_llm.simple_chat(
+                            user_message=messages[-1]["content"],
+                            system_prompt=messages[0]["content"] if messages[0]["role"] == "system" else None,
+                        )
+
+                    critique_result = run_critique_pipeline(
+                        user_request=user_input,
+                        task_class=_classification.task_class,
+                        llm_call_fn=_harness_llm_call,
+                        context_messages=self.messages[:-1],
+                    )
+                    if critique_result.was_revised:
+                        final_response = critique_result.response
+                        logger.info(
+                            f"Critique pipeline revised response "
+                            f"(stages={critique_result.stages_fired}, "
+                            f"latency={critique_result.cost_latency_ms:.0f}ms)"
+                        )
+                    if emit:
+                        try:
+                            emit("critique", critique_result.to_dict())
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning(f"Critique pipeline failed: {e}")
 
             final_response = _capitalize_sentences(_strip_emojis(final_response))
             self.messages.append({"role": "assistant", "content": final_response})
@@ -384,6 +465,32 @@ class NallyAgent:
             elapsed = (time.time() - start) * 1000
             logger.nally_response(final_response)
             logger.debug(f"Total response time: {elapsed:.0f}ms")
+
+            # ── Harness v2: Scratchpad Write-back (Phase 3) ──
+            if _scratchpad:
+                try:
+                    from .scratchpad import scratchpad_store
+                    _scratchpad.add_result(f"Task completed: {final_response[:200]}")
+                    _scratchpad.status = "completed"
+                    scratchpad_store.save(_scratchpad)
+
+                    # Deliberate write-back to long-term memory
+                    suggestions = _scratchpad.suggest_long_term_writes()
+                    for s in suggestions:
+                        try:
+                            from ..memory.store_v2 import memory_v2
+                            memory_v2.remember(
+                                key=s["key"],
+                                value=s["value"],
+                                category=s.get("category", "auto_fact"),
+                                confidence=0.6,
+                            )
+                        except Exception:
+                            pass
+                    if suggestions:
+                        logger.info(f"Scratchpad write-back: {len(suggestions)} items to long-term memory")
+                except Exception as e:
+                    logger.warning(f"Scratchpad write-back failed: {e}")
 
             self._save_history()
             self._maybe_create_episode(user_input, final_response)

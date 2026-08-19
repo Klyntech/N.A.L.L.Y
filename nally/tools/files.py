@@ -142,10 +142,10 @@ class ReadFile(Tool):
                 return f"Error: access denied for sensitive file: {file_path}"
 
             if not path.exists():
-                return f"File not found: {file_path}"
+                return f"Error: File not found: {file_path}"
 
             if path.stat().st_size > 1_000_000:
-                return "File too large (max 1MB)"
+                return "Error: File too large (max 1MB)"
 
             content = path.read_text(encoding="utf-8")
             return content[:5000] + "..." if len(content) > 5000 else content
@@ -157,7 +157,7 @@ class FileOps(Tool):
     def __init__(self):
         super().__init__(
             name="file_ops",
-            description="Create, write, read, move, or copy files. Use action=write with file_path and content to write a file.",
+            description="Write, list, mkdir, delete, move, or copy files and directories. Use read_file to read file contents.",
             permission="destructive",
             parameters={
                 "action": {
@@ -223,7 +223,7 @@ class FileOps(Tool):
             elif action == "list":
                 p = Path(file_path)
                 if not p.exists():
-                    return f"Directory not found: {file_path}"
+                    return f"Error: Directory not found: {file_path}"
                 items = []
                 for item in sorted(p.iterdir()):
                     prefix = "[dir] " if item.is_dir() else "      "
@@ -298,6 +298,6 @@ class FileOps(Tool):
                 return f"Copied {file_path} -> {destination}"
 
             else:
-                return f"Unknown action: {action}. Use write, list, mkdir, delete, move, or copy."
+                return f"Error: Unknown action: {action}. Use write, list, mkdir, delete, move, or copy."
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"

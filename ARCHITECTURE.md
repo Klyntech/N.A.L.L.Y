@@ -184,7 +184,7 @@ def get_system_prompt(user_context=None):
 
 ### MCP Integration (`nally/mcp/`)
 
-Model Context Protocol — connects NALLY to external services (GitHub, Notion, Gmail, Google Drive, Calendar, Higgsfield, Telegram, Playwright, Context7, Meta).
+Model Context Protocol — connects NALLY to external services. Default configured `MCP_SERVERS` are GitHub, Notion, and Gmail; Google Drive/Calendar and Higgsfield exist as OAuth flows only (not registered servers), and Context7/Meta/Telegram are npm packages (not default servers).
 
 **Request flow:**
 1. `client.py:connect_mcp_servers()` runs at startup
@@ -295,12 +295,13 @@ Pub/sub event bus for decoupled communication:
 - **Agent notifications**: Streaming events forwarded to WebSocket/SSE subscribers
 - **Used by**: Planner → Web frontend for real-time plan progress display
 
-### Database Adapters (`nally/db/`)
+### Database
 
-Optional backends alongside the default SQLite:
+SQLite is the only data store (`data/nally.db` for chat/state, `data/nally_memory.db` for memory). There is no `nally/db/` module — PostgreSQL/Redis exist only as reachability health probes:
 
-- **`postgres.py`**: PostgreSQL adapter using asyncpg connection pool. Same interface as `MemoryRepository` (remember/recall/forget/episodes/messages). Used when `DATABASE_URL` starts with `postgresql://`. Auto-creates schema on first use.
-- **`redis.py`**: Redis cache supporting Layerbase REST API (Upstash-compatible) and self-hosted redis-py. Singleton `get_cache()` returns `None` if `REDIS_URL` not set.
+- `nally/web/health.py` checks `DATABASE_URL` starting with `postgresql://`/`postgres://` via `asyncpg`, and `REDIS_URL` via Layerbase/Upstash REST or `redis.asyncio`, when configured
+- `nally/core/validator.py` warns on invalid Postgres/Redis URL formats and missing `asyncpg` at startup
+- No adapter implements `MemoryRepository` against Postgres/Redis; the memory layer is SQLite-only
 
 ### Telegram Bot (`nally/telegram/bot.py`)
 
@@ -311,7 +312,7 @@ DM + group chat interface via `python-telegram-bot`:
 - Session IDs: `telegram:{chat_id}` (DM), `telegram:group:{chat_id}` (groups)
 - Long messages split at paragraph boundaries (Telegram 4096 char limit)
 - Modes: polling (dev) or webhook (production)
-- Run: `python main.py --telegram` (web + bot) or `--telegram-only`
+- Run: `python main.py --telegram-only` (bot only, no web server)
 
 ### Image Generation (`nally/tools/imagegen.py`)
 

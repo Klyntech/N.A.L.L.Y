@@ -6,6 +6,7 @@ stays global across sessions.
 """
 
 import threading
+import time
 from typing import Callable, Dict, List, Optional
 
 from ..utils.logger import logger
@@ -22,6 +23,7 @@ class AgentSessionManager:
         self._locks: Dict[str, threading.Lock] = {}
         self._busy: Dict[str, bool] = {}
         self._queue: Dict[str, List[str]] = {}
+        self._last_activity: Dict[str, float] = {}
         self._pool_lock = threading.Lock()
         # Guards _busy/_queue across the process/queue_message/is_busy paths.
         self._queue_lock = threading.Lock()
@@ -66,6 +68,7 @@ class AgentSessionManager:
         with lock:
             with self._queue_lock:
                 self._busy[session_id] = True
+                self._last_activity[session_id] = time.time()
             try:
                 agent = self.get(session_id)
                 result = agent.process(message, emit=emit)
@@ -73,6 +76,7 @@ class AgentSessionManager:
             finally:
                 with self._queue_lock:
                     self._busy[session_id] = False
+                    self._last_activity[session_id] = time.time()
                 self._drain_queue(session_id)
 
     def _drain_queue(self, session_id: str):
@@ -88,11 +92,39 @@ class AgentSessionManager:
                 agent.process(msg)
             except Exception as e:
                 logger.error(f"Queued message failed: {type(e).__name__}: {e}")
+        if queued:
+            with self._queue_lock:
+                self._last_activity[session_id] = time.time()
 
     def get_history(self, session_id: str) -> list:
         """Get conversation history for a session."""
         agent = self.get(session_id)
         return agent.get_history()
+
+    def all_idle(self, idle_threshold: float = 300.0) -> bool:
+        """Return True if no session has been active for idle_threshold seconds."""
+        now = time.time()
+        with self._queue_lock:
+            for sid in self._sessions:
+                if self._busy.get(sid, False):
+                    return False
+                last = self._last_activity.get(sid, 0)
+                if (now - last) < idle_threshold:
+                    return False
+        return True
+
+    def seconds_since_last_activity(self) -> float:
+        """Seconds since any session was last active. 0 if never active."""
+        now = time.time()
+        with self._queue_lock:
+            if not self._last_activity:
+                return 0
+            return now - max(self._last_activity.values())
+
+    def active_session_ids(self) -> List[str]:
+        """Return session IDs that are currently busy."""
+        with self._queue_lock:
+            return [sid for sid, busy in self._busy.items() if busy]
 
     def list_sessions(self) -> list:
         """List all active session IDs."""

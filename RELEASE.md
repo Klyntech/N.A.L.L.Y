@@ -6,14 +6,15 @@ Nally follows [Semantic Versioning](https://semver.org/):
 - **MINOR**: New features (backward compatible)
 - **PATCH**: Bug fixes
 
-Current version: **1.1.0** (see `pyproject.toml`)
+Current version: **1.2.0** (see `pyproject.toml`)
 
 ## Version History
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| 1.0.0 | 2026-01-01 | Architecture redesign, LangGraph ReAct, memory, MCP, Telegram, skills |
-| 1.1.0 | Current | Tracing, receipts, claim verifier, planner, reflector, Telegram formatter |
+| 1.0.0 | 2026-07-22 | Architecture redesign, LangGraph ReAct, memory, MCP, Telegram, skills |
+| 1.1.0 | 2026-08-06 | Tracing, receipts, claim verifier, planner, reflector, Telegram formatter |
+| 1.2.0 | 2026-08-13 | VoIP phone interface (LiveKit), audit hardening, frontend modularization, MCP SDK 1.29, docs & dependency overhaul |
 
 ## Cutting a Release
 

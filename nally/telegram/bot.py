@@ -13,6 +13,7 @@ import io
 import os
 import re
 import threading
+import time
 from typing import Optional
 
 from telegram.constants import UpdateType
@@ -36,6 +37,7 @@ from .format import md_to_telegram_html
 MAX_MSG_LEN = 4096
 BOT_USERNAME: Optional[str] = None
 BOT = None  # set in post_init, used by _make_emit for approval messages
+_start_time = time.time()
 
 
 def _web_base_url() -> str:
@@ -120,6 +122,72 @@ def _clean_message_text(text: str) -> str:
     return text.strip()
 
 
+# ── Streaming support (SQLite event queue) ────────────────
+
+def _get_stream_db():
+    """Get/create the stream_events table for Telegram streaming."""
+    import sqlite3
+    from ..config import DATA_DIR
+    db_path = DATA_DIR / "nally.db"
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS stream_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload TEXT,
+            created_at REAL NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_stream_session ON stream_events(session_id, id)
+    """)
+    return conn
+
+
+def _write_stream_event(session_id: str, event_type: str, payload: str):
+    """Write a streaming event to SQLite (called from web server process)."""
+    import time as _time
+    try:
+        conn = _get_stream_db()
+        conn.execute(
+            "INSERT INTO stream_events (session_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
+            (session_id, event_type, payload, _time.time()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _read_stream_events(session_id: str, after_id: int = 0) -> list:
+    """Read unprocessed stream events for a session (called from bot process)."""
+    try:
+        conn = _get_stream_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, event_type, payload FROM stream_events WHERE session_id = ? AND id > ? ORDER BY id",
+            (session_id, after_id),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def _clear_stream_events(session_id: str):
+    """Clear old stream events for a session."""
+    try:
+        conn = _get_stream_db()
+        conn.execute("DELETE FROM stream_events WHERE session_id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def _make_emit(chat_id: int):
     """Create an emit callback that sends approval requests as inline buttons."""
     loop = asyncio.get_running_loop()
@@ -188,18 +256,26 @@ def _make_emit(chat_id: int):
     return emit
 
 
-def _make_emit_standalone(chat_id: int):
+def _make_emit_standalone(chat_id: int, session_id: str = ""):
     """Emit callback for the web-server process.
 
     Used when the bot runs as a separate process: the web server owns the
     agent + approval gate, so the approval button is sent directly from the
-    web server via its own Bot client. The full tool_call_id is used as
-    callback_data (no truncation/lookup needed) since both the button and its
-    resolution are handled through the web server.
+    web server via its own Bot client. Streaming events (response chunks,
+    thoughts) are written to SQLite so the bot process can poll and edit
+    the Telegram message progressively.
     """
     loop = asyncio.get_running_loop()
 
     def emit(event: str, data: dict):
+        # Write streaming events to SQLite for bot process to pick up
+        if event in ("response", "thought", "tool_call", "system_notice") and session_id:
+            try:
+                import json as _json
+                _write_stream_event(session_id, event, _json.dumps(data))
+            except Exception:
+                pass
+
         if event != "confirmation_required":
             return
         from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -336,6 +412,64 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /status command — show system health."""
+    import time
+    from ..config import ACTIVE_MODEL, DAILY_TOKEN_BUDGET, PROVIDER
+
+    # Uptime
+    uptime = time.time() - _start_time
+    days = int(uptime // 86400)
+    hours = int((uptime % 86400) // 3600)
+    minutes = int((uptime % 3600) // 60)
+    uptime_str = f"{days}d {hours}h {minutes}m" if days else f"{hours}h {minutes}m"
+
+    # Token budget
+    try:
+        from ..agent.context import context_manager
+        stats = context_manager.get_stats()
+        daily_used = stats.get("daily_tokens", 0)
+        budget = stats.get("daily_token_budget", 0)
+        budget_line = f"Token budget: {daily_used:,}/{budget:,} used" if budget > 0 else "Token budget: unlimited"
+    except Exception:
+        budget_line = "Token budget: unavailable"
+
+    # Tools
+    try:
+        from ..tools.registry import registry
+        tool_count = len(registry.tools)
+    except Exception:
+        tool_count = 0
+
+    # DB size
+    try:
+        from ..config import DATA_DIR
+        db_path = DATA_DIR / "nally_memory.db"
+        db_size = f"{db_path.stat().st_size / 1024:.0f}KB" if db_path.exists() else "new"
+    except Exception:
+        db_size = "unknown"
+
+    await update.message.reply_text(
+        f"Nally Status\n"
+        f"─────────────\n"
+        f"Provider: {PROVIDER}\n"
+        f"Model: {ACTIVE_MODEL}\n"
+        f"Uptime: {uptime_str}\n"
+        f"Tools: {tool_count} loaded\n"
+        f"DB: {db_size}\n"
+        f"{budget_line}"
+    )
+
+
+async def abort_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /abort command — cancel running operations."""
+    from ..core.abort import set_abort
+
+    session_id = _extract_session_id(update)
+    set_abort(session_id)
+    await update.message.reply_text("Abort signal sent. I'll stop what I'm doing.")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming text messages.
 
@@ -360,6 +494,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     session_id = _extract_session_id(update)
+
+    # Text "abort" fallback — same as /abort command
+    if text.strip().lower() == "abort":
+        from ..core.abort import set_abort
+        set_abort(session_id)
+        await message.reply_text("Abort signal sent. I'll stop what I'm doing.")
+        return
+
     try:
         await chat.send_chat_action("typing")
     except Exception:
@@ -367,22 +509,86 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     import httpx
 
+    # Send placeholder message for progressive editing
     try:
+        sent_msg = await _send_with_retry(message.reply_text, "Thinking...")
+    except Exception:
+        sent_msg = None
+
+    # Clear old stream events for this session
+    _clear_stream_events(session_id)
+
+    # Fire HTTP request to web server (non-blocking)
+    async def _do_request():
         async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(
                 f"{_web_base_url()}/api/telegram/message",
                 json={"session_id": session_id, "text": text, "chat_id": chat.id},
             )
-            response = resp.json().get("response", "")
+            return resp.json().get("response", "")
+
+    request_task = asyncio.create_task(_do_request())
+
+    # Poll stream events while waiting for the response
+    last_event_id = 0
+    collected_text = ""
+
+    while not request_task.done():
+        await asyncio.sleep(2)
+        events = _read_stream_events(session_id, after_id=last_event_id)
+        for eid, etype, payload in events:
+            last_event_id = eid
+            try:
+                import json as _json
+                data = _json.loads(payload) if payload else {}
+            except Exception:
+                data = {}
+            if etype == "response":
+                chunk_text = data.get("text", "")
+                if chunk_text:
+                    collected_text = chunk_text
+            elif etype == "thought":
+                pass  # Could show thinking indicator
+            elif etype == "tool_call":
+                tool_name = data.get("name", "?")
+                collected_text = f"Using {tool_name}..."
+
+        # Edit placeholder with latest status
+        if sent_msg and collected_text:
+            try:
+                html_text = md_to_telegram_html(collected_text)
+                await sent_msg.edit_text(html_text[:4000], parse_mode="HTML")
+            except Exception:
+                try:
+                    await sent_msg.edit_text(collected_text[:4000])
+                except Exception:
+                    pass
+
+    # Get final response
+    try:
+        response = request_task.result()
     except Exception as e:
         logger.error(f"HTTP to web server failed: {e}")
         response = f"Web server unreachable: {e}"
+
+    _clear_stream_events(session_id)
 
     if not response or response == "__EXIT__":
         return
 
     text_response = response.get("text", "") if isinstance(response, dict) else response
-    chunks = _split_message(md_to_telegram_html(text_response))
+    final_html = md_to_telegram_html(text_response)
+
+    # Final edit of the placeholder message with the complete response
+    if sent_msg:
+        try:
+            await sent_msg.edit_text(final_html[:4000], parse_mode="HTML")
+            return
+        except Exception:
+            pass
+
+    # Fallback: send as new messages if edit failed
+    chunks = _split_message(final_html)
     for chunk in chunks:
         try:
             await _send_with_retry(message.reply_text, chunk, parse_mode="HTML")
@@ -597,6 +803,8 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
 
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("abort", abort_command))
 
     # DEBUG: catch-all callback logger (group=-1 = runs first, doesn't consume)
     async def _debug_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):

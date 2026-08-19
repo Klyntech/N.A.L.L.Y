@@ -210,6 +210,16 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
     """Process a user message and stream events back."""
     from ..core.abort import check_abort, clear_abort
 
+    # Intercept "call me" on web UI — redirect to Telegram
+    if text.strip().lower() in ("call me", "call nally"):
+        from ..config import NALLY_VOICE_CALLS_ENABLED
+        if NALLY_VOICE_CALLS_ENABLED:
+            await ws_manager.send_json(cid, {
+                "type": "response",
+                "text": 'Voice calls only work on Telegram. Send me "call me" there and I\'ll set up a voice chat for you.',
+            })
+            return
+
     # Check if session is busy — queue the message
     if session_manager.is_busy(session_id):
         pos = session_manager.queue_message(session_id, text)
@@ -326,9 +336,9 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
             tmp_out_path = tmp_in_path.replace(".webm", ".pcm")
 
             try:
-                import shutil
+                from ..utils import ffmpeg_available
 
-                if not shutil.which("ffmpeg"):
+                if not ffmpeg_available():
                     await ws_manager.send_json(
                         cid,
                         {

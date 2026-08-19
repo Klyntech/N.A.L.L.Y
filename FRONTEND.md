@@ -1,29 +1,80 @@
 # Frontend
 
-The Nally web UI is a single-page application built with vanilla HTML, CSS, and JavaScript — no build tools or frameworks.
+The Nally web UI is a single-page application built with vanilla HTML, CSS, and JavaScript — no build tools or frameworks. As of commit `f3f75e8` the frontend is modular: `index.html` is a lightweight shell that loads 10 external stylesheets and 22 external JS modules.
 
 ## File Structure
 
 ```
 web/
-├── index.html        # Main UI — all CSS/JS inline
-├── marked.min.js     # Markdown parser (v4.3.0)
-├── nally-ws.js       # WebSocket + SSE client
-└── purify.min.js     # HTML sanitizer (DOMPurify)
+├── index.html        # HTML shell — loads CSS + JS modules (no inline code)
+├── css/              # 10 modular stylesheets
+│   ├── base.css      #   base layout + theme variables
+│   ├── orb.css       #   WebGL orb
+│   ├── drawer.css    #   chat drawer
+│   ├── toolcards.css #   tool call/result cards
+│   ├── mobile.css    #   responsive layout
+│   ├── settings.css  #   settings panel
+│   ├── auth.css      #   login gate + auth modal
+│   ├── diff.css      #   diff viewer
+│   ├── trace.css     #   execution trace panel
+│   └── command.css   #   command palette
+├── js/               # 22 ES5 modules (loaded in dependency order)
+│   ├── config.js     #   shared config / state providers
+│   ├── app.js        #   entry point — bootstraps the UI
+│   ├── auth.js       #   login/token handling
+│   ├── authmodal.js  #   OAuth modal
+│   ├── chat.js       #   message list + input
+│   ├── command.js    #   command palette
+│   ├── diff.js       #   file diff viewer
+│   ├── dom.js        #   DOM helpers
+│   ├── drawer.js     #   chat drawer chrome
+│   ├── hotkeys.js    #   keyboard shortcuts
+│   ├── markdown.js   #   marked + DOMPurify rendering, highlight.js hook
+│   ├── orb.js        #   animated WebGL background
+│   ├── services.js   #   MCP/service status grid
+│   ├── settings.js   #   settings panel behavior
+│   ├── sse.js        #   SSE client (POST /api/chat)
+│   ├── state.js      #   shared app state
+│   ├── sync.js       #   multi-tab broadcast channel sync
+│   ├── think.js      #   thought panel
+│   ├── toolcards.js  #   tool cards rendering
+│   ├── trace.js      #   trace panel
+│   ├── voice.js      #   mic input / voice pipeline
+│   └── websocket.js  #   WS client (/ws/{session_id})
+├── marked.min.js     # Markdown parser (v4.3.0, bundled)
+├── purify.min.js     # HTML sanitizer (DOMPurify, bundled)
+├── nally-ws.js       # WebSocket + SSE client helper
+└── mvp/              # Three.js 3D face-avatar demo (separate from the main UI)
+    ├── index.html
+    ├── css/style.css
+    ├── js/face-tracker.js
+    ├── js/lipsync.js
+    ├── models/facecap.glb
+    └── vendor/       # vendored three.js + GLTF loaders
 ```
 
 ## Architecture
 
+`index.html` contains only structure. Styling lives in `web/css/` (loaded in `<head>`), and behavior lives in `web/js/` modules loaded at the end of `<body>`:
+
 ```
-index.html
-├── <style>          # All CSS inline (theming, layout, animations)
+index.html (shell)
+├── <head>           # Google Fonts (Space Grotesk, JetBrains Mono),
+│                    # highlight.js theme (CDN), Lucide icons (CDN)
+│                    # 10 <link> stylesheets → /static/css/
+│                    # marked, purify, nally-ws scripts
 ├── <body>
-│   ├── Orb          # Animated WebGL + Canvas 2D background
-│   ├── Chat Drawer  # Message list, input, tool cards
-│   ├── Settings     # Accent colors, font size, compact mode
-│   └── Login Gate   # Bearer token entry
-└── <script>         # All JS inline (chat logic, SSE, rendering)
+│   ├── Command Palette  # keyboard command search
+│   ├── Login Overlay    # Bearer token gate (localStorage)
+│   ├── Root             # Orb (WebGL + Canvas 2D), status, thought panel
+│   ├── Chat Drawer      # messages, input, mic button, resize handles
+│   ├── Diff Panel       # file diff viewer
+│   ├── Settings         # MCP/services, themes, API, emergency, lock, about
+│   └── Auth Modal       # OAuth flow modal
+└── <script>         # 22 JS modules → /static/js/ (dependency order)
 ```
+
+The JS modules are plain `<script>` tags (no ES modules/imports) sharing globals; order matters — deps load first, `app.js` boots the app.
 
 ## Key Features
 
@@ -32,14 +83,17 @@ index.html
 - **Tool Cards**: Visual display of tool calls and results
 - **Multi-tab Sync**: Broadcast channel keeps tabs in sync
 - **Voice Input**: Browser mic → STT → agent → TTS (via WebSocket)
-- **Markdown Rendering**: `marked.min.js` for formatted responses
-- **Theme System**: Accent colors, font size, compact mode
+- **Markdown Rendering**: `marked.min.js` + DOMPurify for formatted, sanitized responses
+- **Syntax Highlighting**: highlight.js (CDN) colors code blocks in message output
+- **Diff Viewer**: Dedicated panel for file diffs returned by tools
+- **Command Palette**: Keyboard-driven command search
+- **Theme System**: Theme swatches, compact mode, runtime customization
 
 ## How It Works
 
 ### Page Load
 
-1. `index.html` loads with all CSS/JS inline
+1. `index.html` shell loads; the `web/css/` stylesheets and `web/js/` modules are fetched
 2. Checks for stored Bearer token in `localStorage`
 3. If no token → show login gate
 4. If token exists → connect to backend, load history
@@ -89,25 +143,29 @@ ws.onmessage = (event) => {
 
 ## Theming
 
-The UI supports runtime theme customization:
+The UI supports runtime theme customization. The settings panel is organized into sections (markup in `index.html`, behavior in `web/js/settings.js`):
 
-- **Accent colors**: Purple (default), blue, green, red, orange
-- **Font size**: Slider control (12px–20px)
-- **Compact mode**: Reduced spacing for dense layouts
+- **MCP / Plugins**: Service connection status grid (via `services.js`)
+- **Themes / Appearance**: Theme swatches — Midnight (default), Emerald, Crimson, Ocean, Gold — plus a **Compact** toggle for reduced spacing
+- **API**: Read-only provider / model display
+- **Emergency**: "Stop All Operations" button (aborts in-flight work)
+- **Lock Mode**: Lock UI toggle (hides/relocks the interface)
+- **About**: Backend status and uptime
 
 Settings persist in `localStorage`.
 
 ## Modifying the UI
 
-Since everything is inline in `index.html`:
+The frontend is modular:
 
-1. Edit `index.html` directly
-2. No build step needed — just refresh the browser
-3. CSS variables control theming: `--accent`, `--bg`, `--text`, etc.
+1. Markup lives in `index.html`
+2. Styles live in `web/css/` (`base.css` holds the theme CSS variables)
+3. Behavior lives in `web/js/` modules, loaded in dependency order at the end of `<body>`
+4. No build step needed — just refresh the browser
 
 ### Adding a New SSE Event Type
 
-1. Add handler in the event processing loop in `index.html`
+1. Add handler in the event processing loop in `web/js/sse.js` (and `web/js/websocket.js` for WS events)
 2. Update the corresponding Python emit in `nally/agent/graph.py`
 3. Add to the SSE event table in [API.md](API.md)
 
@@ -117,7 +175,9 @@ Since everything is inline in `index.html`:
 |---------|---------|---------|-----|
 | marked | 4.3.0 | Markdown → HTML | No (bundled) |
 | DOMPurify | latest | XSS sanitization | No (bundled) |
-| Lucide | latest | Icons | CDN |
+| Lucide | latest | Icons | CDN (`unpkg.com`) |
+| highlight.js | 11 | Syntax highlighting | CDN (`cdn.jsdelivr.net`) |
+| Google Fonts | — | Space Grotesk, JetBrains Mono | CDN (`fonts.googleapis.com`) |
 
 ## Browser Support
 

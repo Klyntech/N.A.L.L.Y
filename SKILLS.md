@@ -84,6 +84,7 @@ The `allowed-tools` field grants `allow` permission for those tools during skill
 | `api-design` | REST/GraphQL API review | read_file |
 | `architect` | System design, migrations | read_file, file_ops, run_command, code_analysis |
 | `backend-api` | Express.js, PostgreSQL, JWT | read_file, file_ops, run_command, code_analysis |
+| `build` | Autonomous full-project engineering (build/scaffold/generate a project, system, app, CLI, tool, library) | engineering_build |
 | `code-review` | Bug hunting, security audits | read_file, file_ops, run_command |
 | `creative` | Business writing, marketing | web_search, read_file |
 | `data` | Data analysis tasks | read_file |

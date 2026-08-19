@@ -8,60 +8,75 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Structured tool success — `registry.execute()` returns `(result, success)` tuple instead of relying on fragile `str(result).startswith("Error")` prefix check; receipt recording, snapshot diffing, and frontend events all use the structured boolean now
-- Receipt store rotation — JSONL files auto-rotate at 10MB, keeps up to 5 rotated files; loads from all rotated files on startup
-- Telegram Markdown→HTML formatter (`nally/telegram/format.py`) — bold, italic, code, headers, lists, tables render properly in Telegram instead of showing raw markdown characters
-- Telegram inline permission gates — Approve/Deny buttons for tool approval requests (run_command, git push), message disappears on click
-- Shared abort module (`nally/core/abort.py`) — thread-safe `check_abort`/`set_abort`/`clear_abort` with Lock, fixes circular import between agent/graph.py and web/app.py
-- MCP structured connection status — `connect_mcp_servers()` returns `[{name, status, tools, message}]` list instead of scattered log messages; status values: ok, awaiting, timeout, error
-- MCP ExceptionGroup error cleanup — recursively unwraps inner errors from MCP SDK 1.29, shows clean messages like `ConnectError: ...` instead of `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)`
-- MCP parse error suppression — `_connect_stdio_server()` temporarily sets `mcp.client.stdio` logger to CRITICAL during connection to suppress noisy "Failed to parse JSONRPC message" traceback
-- Platform-aware system — OS/arch detection, auto shell selection (PowerShell on Windows, bash on Linux/macOS)
-- Web search current-date injection — tool description includes today's date so the LLM searches with the correct year
-- GitHub Actions CI pipeline — lint (ruff) + test (pytest) on push/PR to master
-- GHCR publish workflow — Docker image publish on `v*` tags with semver + SHA tagging and GHA layer caching
-- `.dockerignore` — build context exclusions for faster/smaller Docker builds
-- Graph agent tests (`tests/test_graph.py`) — 12+ tests covering graph execution, retry logic, should_continue, doom loop detection
+### Changed
 
 ### Fixed
 
-- Telegram formatting — agent returned raw Markdown but bot sent with `parse_mode="HTML"`, causing Telegram to reject and fall back to plain text; now converts Markdown to HTML before sending
-- Permission defaults tightened — `file_ops` delete now requires approval (ask), `think`, `web_search`, `gmail_read/search/list`, `mcp_status` explicitly set to allow
-- `rm -rf /`, `rm -rf ~`, `rm -rf *` changed from deny to ask (user wants the option, not a hard block)
-- Skill `allowed-tools` no longer bypasses explicit deny rules — if a command is denied in `permissions.json`, skill overrides can't escalate past it
-- Intent matching threshold raised from 2 to 3 words — reduces false-positive skill activations
-- Skill name substring fallback removed — message must contain the full hyphenated skill name (e.g. "ui-design"), not just a segment (e.g. "ui")
-- Dead `get_skill_content()` call fixed — now uses `skill_registry.get(name).body` correctly
-- Silent exception swallowing fixed on critical paths — receipt system, claim verifier, skill activation, and override cleanup now log warnings instead of silently failing
-- Receipt HMAC key read/write failures now logged
-- Receipt store load failures now logged
+## [1.2.0] - 2026-08-13
+
+### Added
+
+- VoIP phone interface — zero-cost voice calls via LiveKit SIP Ingress (`nally/voice/livekit_agent.py`; set `NALLY_VOICE_CALLS_ENABLED` and run `python -m nally.voice.livekit_agent`); see `docs/LIVEKIT_SIP_SETUP.md`
+- Telegram user account (`nally/telegram/user.py`, Telethon) with DM + proactive alert support — `run_tg_user.py`
+- Telegram real-time voice calls (`nally/telegram/voice_call.py`, pytgcalls + Deepgram + Silero VAD + barge-in) — `run_tg_call.py`
+- Structured tool success — `registry.execute()` returns `(result, success)`, the structured boolean being the primary signal for receipts, snapshot diffing, and frontend events; legacy `str(result).startswith("Error")` prefix check retained as defense-in-depth
+- Receipt store rotation — JSONL auto-rotates at 10MB, keeps up to 5 rotated files, loads all on startup
+- Telegram Markdown→HTML formatter (`nally/telegram/format.py`) — bold, italic, code, headers, lists, tables render properly
+- Telegram inline permission gates — Approve/Deny buttons for tool approval requests
+- Shared abort module (`nally/core/abort.py`) — thread-safe `check_abort`/`set_abort`/`clear_abort`
+- MCP structured connection status (`connect_mcp_servers()` returns `[{name, status, tools, message}]`), ExceptionGroup cleanup, and parse-error suppression (SDK 1.29)
+- Platform-aware system — OS/arch detection, auto shell selection (PowerShell on Windows, bash on Linux/macOS)
+- Web search current-date injection so the LLM searches with the correct year
+- GitHub Actions CI pipeline (ruff + pytest) and GHCR publish workflow with semver + SHA tagging and layer caching
+- Harness evaluation runner — `python -m tests.harness_eval.runner` (intent-classifier accuracy + latency over `tests/harness_eval/cases/`)
+- Full documentation overhaul — ARCHITECTURE, API, MCP_GUIDE, VOICE, MEMORY, SKILLS, PLUGINS, TESTING, FRONTEND, SECURITY, PERSONALITIES, DEPLOYMENT, and new HARNESS.md aligned with the actual codebase
+- Missing runtime dependencies added to `requirements.txt` — `plivo` (phone tool), `pygetwindow` (window focus), `readability-lxml` (fetch tool), `torch` (voice-pipeline VAD), `telethon` (user account), `pycaw`/`comtypes` (volume control)
 
 ### Changed
 
-- Tool success detection — `registry.execute()` returns `tuple[str, bool]` instead of bare string; `graph.py` unpacks the tuple for receipt recording, snapshot diffing, and frontend events
-- Telegram voice transcript HTML injection — user speech from voice messages is now HTML-escaped before inserting into HTML response
-- SSE `/api/events` infinite 401 loop — login now validates tokens against `/api/me` (auth-gated) instead of unauthenticated `/api/status`; SSE retries probe auth and re-shows login on invalid token instead of retrying forever
-- Telegram bot crash on startup — `nonlocal BOT_USERNAME` changed to `global` (module-level variable, not closure)
-- `.gitignore` was tracking `.dockerignore` — removed the offending line so `.dockerignore` is now committed
-- MCP SDK 1.26 incompatibility — upgraded to 1.29.0 which pulls anyio 4.14.2, fixing `TypeError: 'function' object is not subscriptable` on every MCP server connection
-- Deprecated `streamablehttp_client` API replaced with `streamable_http_client` (new API takes `httpx.AsyncClient` instead of raw headers)
-- Module-scope side effect — `_gen_dir.mkdir()` moved from module scope into `lifespan()` startup
-- Shutdown crash — changed `agent.clear_history()` to `agent._save_history()` in lifespan shutdown
-- Startup log noise — suppressed `nally.mcp`, `nally.tools`, `nally.memory`, `nally.skills`, `mcp`, `telegram`, `httpx`, `httpcore` loggers during startup display, restored after tree printed
+- Frontend modularized — monolithic `index.html` split into dedicated CSS/JS modules
+- MCP SDK upgraded to 1.29.0 with the `streamable_http_client` API (replaces deprecated `streamablehttp_client`)
+- Tool success detection — `registry.execute()` returns `tuple[str, bool]` instead of a bare string
+- Telegram voice transcript HTML injection — user speech is HTML-escaped before inserting into HTML responses
+- Nally personality shifted to first-person POV; startup banner rewritten (pyfiglet `block`, iris purple) with rich tree-style startup display
+- `load_all_tools()` returns `(tool_count, mcp_status)` tuple; config validation deduplicated into `lifespan()`
+- FastAPI upgraded to 0.141.1, `rich`/`pyfiglet` pinned; ruff format pass
+
+### Fixed
+
+- Audit hardening — tool-approval race condition, Telegram single-owner enforcement (`resolve_telegram_mode`), async safety, and credential/token scrubbing
+- Telegram bot startup crash, timeouts, approval buttons, and HTML formatting
+- Issue #1 — permission rules, tool success detection, exception handling, and skills security validation
+- Permission defaults — `file_ops` delete now `ask`; `think`, `web_search`, `mcp_status` explicitly `allow`; `rm -rf /`, `rm -rf ~`, `rm -rf *` remain `deny`; skill `allowed-tools` can no longer bypass explicit deny rules
+- Intent-matching threshold raised 2→3 words; skill-name substring fallback removed
+- SSE `/api/events` infinite 401 loop — login now validates against `/api/me`; SSE retries probe auth and re-shows login on invalid token
+- Telegram bot startup crash — `nonlocal BOT_USERNAME` → `global`
+- Module-scope side effect moved into `lifespan()`; shutdown crash fix; startup log-noise suppression
+- MCP SDK 1.26 incompatibility fixed by 1.29.0 (anyio 4.14.2); `.dockerignore` now committed
+
+## [1.1.0]
+
+### Added
+
+- Execution tracing — nested span-based run trees persisted to SQLite (`nally/core/tracing.py`)
+- Tool receipts — HMAC-signed, tamper-evident audit trail (`nally/tools/receipts.py`)
+- Claim verifier — cross-checks LLM claims against tool receipts (`nally/agent/verifier.py`)
+- Plan-and-Execute pipeline with agent safety (`nally/agent/planner.py`)
+- Background reflector — hourly LLM-powered summarization
+- Telegram Markdown→HTML formatter
+- SSE auth fix and version-bump infrastructure
+- Harness v2, scratchpad, thinking engine, curiosity, and engineering modules introduced
 
 ### Changed
 
-- Nally personality shifted to first-person POV — removed third-person self-references
-- Startup banner rewritten — pyfiglet `block` font with rich iris purple (`#7C6AEF`) styling
-- Startup display — rich tree-style showing config status, tool count, MCP server statuses, agent pre-warm, reflector status
-- Voice toggle removed from text input — text messages always respond with text; voice toggle (`/voice`) only affects voice input
-- `load_all_tools()` returns `(tool_count, mcp_status)` tuple instead of just count
-- Config validation dedup — removed duplicate validation from `main.py`, only `lifespan()` validates now
-- FastAPI upgraded to 0.141.1 (from 0.104.1) for starlette 1.4.1 compatibility
-- MCP SDK upgraded to 1.29.0 (from 1.26.0), anyio 4.14.2 added
-- `rich>=13.0` and `pyfiglet>=1.0` added to requirements
+- Platform-aware system prompts; interface awareness; voice formatter wiring
+- Telegram voice support groundwork
 
-## [1.0.0] - 2026-01-01
+### Fixed
+
+- Startup validation and tool-approval flow refinements
+
+## [1.0.0] - 2026-07-22
 
 ### Added — Architecture
 
@@ -87,7 +102,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Direct Gmail tools (bypasses broken Google MCP)
 - MCP services panel: service icons, token storage, PAT token flow
 - Telegram bot with unified sessions — DM + group chat support
-- Layerbase/PostgreSQL + Redis database adapters
+- PostgreSQL/Redis reachability health probes
 
 ### Added — Tools
 
@@ -109,7 +124,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added — Skills & Training
 
 - Skill system — `skills/*/SKILL.md` with frontmatter parsing and hot-reload
-- Video editing, UI design, test writing, shipping, research, refactoring, design-system, productivity, creative, code-review, plan, image generation, docs, diagnose, devops, API design, architect, backend API, data skills
+- Video editing, UI design, test writing, shipping, research, refactoring, design-system, productivity, creative, code-review, plan, image generation, docs, diagnose, devops, API design, architect, backend API, build, data skills
 - Training: 8 frontend quality lessons, backend quality rules, anti-hallucination safeguards
 
 ### Added — Infrastructure

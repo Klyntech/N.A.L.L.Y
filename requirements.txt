@@ -27,9 +27,26 @@ requests>=2.31.0
 Pillow>=10.0.0
 numpy>=1.24.0
 
-# Windows audio control (optional, Windows-only)
-# pycaw>=20230407; sys_platform == 'win32'
-# comtypes>=1.4.0; sys_platform == 'win32'
+# Windows audio control (used by agent/router.py volume control; Windows-only)
+pycaw>=20230407; sys_platform == 'win32'
+comtypes>=1.4.0; sys_platform == 'win32'
+
+# Phone calls (Plivo API — nally/tools/phone.py)
+plivo>=4.0
+
+# Fetch tool readability extraction (nally/tools/fetch.py; has fallback if absent)
+readability-lxml>=0.8
+
+# Window focus control (nally/agent/router.py)
+pygetwindow>=0.0.9
+
+# Torch runtime for Silero VAD in the voice pipeline (nally/voice/pipeline.py)
+# Heavy dependency — only required for streaming voice/VAD paths.
+torch>=2.0
+
+# Telethon — Telegram user account (nally/telegram/user.py, run_tg_call.py).
+# Explicit so it's always available; py-tgcalls[telethon] already pulls it in.
+telethon>=1.34
 
 # MCP (Model Context Protocol)
 mcp>=1.27,<2
@@ -40,6 +57,9 @@ cryptography>=41.0.0
 # Web search
 duckduckgo-search>=7.0.0
 httpx>=0.27.0
+
+# Curiosity / proactive learning
+feedparser>=6.0.0
 
 # Telegram bot
 python-telegram-bot>=20.0
@@ -56,11 +76,24 @@ livekit-plugins-silero>=0.1.0
 livekit-plugins-deepgram>=0.1.0
 livekit-plugins-elevenlabs>=0.1.0
 
+# Telegram Voice Calls (pytgcalls — WebRTC via Telegram)
+py-tgcalls[telethon]>=2.3.3
+silero-vad>=4.0
+
 # Database (optional, for PostgreSQL backend)
 asyncpg>=0.29.0
 
 # Redis (optional, for caching layer)
 redis>=5.0.0
+
+# Streaming STT & TTS & Observability additions
+fish-audio-sdk>=1.0.0
+deepgram-sdk>=3.0
+websockets>=12.0
+opentelemetry-api>=1.20
+opentelemetry-sdk>=1.20
+opentelemetry-exporter-prometheus
+prometheus-client>=0.19
 
 # Dev dependencies (install with: pip install -r requirements.txt -e ".[dev]")
 # Or directly: pip install pytest pytest-cov ruff pre-commit

@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..utils import ffmpeg_available
+
 logger = logging.getLogger("nally.telegram.voice")
 
 # Telegram voice message specs
@@ -29,8 +31,7 @@ def ogg_to_pcm(ogg_bytes: bytes, sample_rate: int = STT_SAMPLE_RATE) -> bytes | 
         Raw PCM bytes as float32, or None on failure.
     """
     try:
-        import shutil
-        if not shutil.which("ffmpeg"):
+        if not ffmpeg_available():
             logger.error("ffmpeg not installed — required for voice conversion")
             return None
 
@@ -85,8 +86,7 @@ def wav_to_ogg(wav_bytes: bytes) -> bytes | None:
         OGG/Opus bytes, or None on failure.
     """
     try:
-        import shutil
-        if not shutil.which("ffmpeg"):
+        if not ffmpeg_available():
             logger.error("ffmpeg not installed — required for voice conversion")
             return None
 
@@ -132,8 +132,4 @@ def wav_to_ogg(wav_bytes: bytes) -> bytes | None:
 
 def check_ffmpeg() -> bool:
     """Check if ffmpeg is available."""
-    try:
-        import shutil
-        return shutil.which("ffmpeg") is not None
-    except Exception:
-        return False
+    return ffmpeg_available()

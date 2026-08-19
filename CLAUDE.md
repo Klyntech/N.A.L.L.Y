@@ -1,6 +1,6 @@
 # N.A.L.L.Y - AI Assistant
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 
 Personal AI assistant inspired by Jarvis from Iron Man. Built by Clinton (Klyntech/Klynvybz).
 
@@ -9,6 +9,9 @@ Personal AI assistant inspired by Jarvis from Iron Man. Built by Clinton (Klynte
 ```
 N.A.L.L.Y/
 ├── main.py                 # Entry point (CLI, voice, web, telegram modes)
+├── run_bot_standalone.py   # Telegram bot in a separate process (polling mode)
+├── run_tg_user.py          # Telethon real-user account (separate process)
+├── run_tg_call.py          # Telegram voice-call sessions via pytgcalls (separate process)
 ├── .env.example            # Template for environment variables
 ├── nally/
 │   ├── config.py           # Single source of truth — all settings, no side effects
@@ -17,6 +20,7 @@ N.A.L.L.Y/
 │   ├── core/
 │   │   ├── errors.py       # Typed error hierarchy (NallyError, ToolError, LLMError, PlanError, etc.)
 │   │   ├── validator.py    # Startup config validation, env var checks
+│   │   ├── startup.py      # StartupDisplay + print_banner
 │   │   ├── abort.py        # Thread-safe abort flags (shared between agent/graph and web)
 │   │   └── tracing.py      # Execution tracer — nested spans, run trees, SQLite persistence
 │   ├── agent/
@@ -28,7 +32,9 @@ N.A.L.L.Y/
 │   │   ├── sessions.py     # SessionManager — multi-session support, busy/queue logic
 │   │   ├── planner.py      # Plan-and-Execute pipeline (classify→plan→execute→replan→synthesize)
 │   │   ├── platform.py     # OS/shell detection, auto-injected into system prompt
-│   │   └── verifier.py     # Claim verifier — cross-checks LLM claims against tool receipts
+│   │   ├── verifier.py     # Claim verifier — cross-checks LLM claims against tool receipts
+│   │   ├── harness.py      # Harness v2 — intent classification, pipeline routing, critique, tool verify
+│   │   └── scratchpad.py   # Per-request working memory (ephemeral, separate from long-term memory)
 │   ├── tools/
 │   │   ├── registry.py     # Tool registry + base Tool class
 │   │   ├── permissions.py  # PermissionGate (allow/ask/deny per tool)
@@ -39,6 +45,8 @@ N.A.L.L.Y/
 │   │   ├── imagegen.py     # Image generation (Pollinations API, CLIP scoring, critique loop)
 │   │   ├── gmail.py        # Gmail direct tools (bypasses broken Google MCP)
 │   │   ├── websearch.py    # Web search (Parallel.ai primary, DuckDuckGo fallback)
+│   │   ├── fetch.py        # Web page fetch tool
+│   │   ├── phone.py        # Plivo telephony tool (PLIVO_* env vars)
 │   │   ├── mcp.py          # MCP status tool (shows server connection status)
 │   │   ├── receipts.py     # HMAC-signed tool execution receipts (tamper-evident audit trail)
 │   │   └── __init__.py     # load_all_tools() — registers everything
@@ -57,21 +65,26 @@ N.A.L.L.Y/
 │   ├── mcp/
 │   │   ├── client.py       # MCP client — connects to MCP servers (stdio + HTTP/OAuth)
 │   │   └── oauth.py        # OAuth 2.0 flow manager (DCR, PKCE, token encryption)
-│   ├── db/
-│   │   ├── postgres.py     # PostgreSQL adapter (asyncpg, Layerbase/self-hosted)
-│   │   └── redis.py        # Redis cache (Layerbase REST or self-hosted redis-py)
+│   ├── engineering/        # Autonomous engineering loop (run via python -m nally.engineering)
+│   ├── curiosity/          # Proactive idle-cycle learning (feeds.py, interests.py, scanner.py)
 │   ├── skills/
 │   │   ├── loader.py       # Scans skills/*/SKILL.md, parses frontmatter, security validation
 │   │   └── registry.py     # Skill registry singleton, hot-reload, intent matching
 │   ├── telegram/
 │   │   ├── bot.py          # Telegram bot (DM + group chat, polling/webhook)
+│   │   ├── user.py         # Telethon real-user account (launched via run_tg_user.py)
+│   │   ├── voice_call.py   # Telegram voice-call sessions via pytgcalls (run_tg_call.py)
 │   │   ├── format.py       # Markdown→Telegram HTML converter
 │   │   └── voice.py        # OGG/PCM/WAV audio conversion for Telegram voice
 │   ├── voice/
 │   │   ├── loop.py         # Voice interaction loop
-│   │   ├── stt.py          # Speech-to-text
-│   │   ├── tts.py          # Text-to-speech
+│   │   ├── stt.py          # Speech-to-text (Groq Whisper-first, faster-whisper fallback, Deepgram streaming)
+│   │   ├── tts.py          # Text-to-speech (Piper / ElevenLabs / Fish Audio)
 │   │   ├── formatter.py    # Text→speech formatting
+│   │   ├── pipeline.py     # VoicePipeline streaming orchestrator
+│   │   ├── metrics.py      # OpenTelemetry/Prometheus metrics
+│   │   ├── bargein.py      # Barge-in detector (barge_in.py is legacy/unused)
+│   │   ├── livekit_agent.py # LiveKit VoIP agent
 │   │   └── speech_pipeline.py # End-to-end speech pipeline
 │   ├── thinking/           # Thinking/reasoning module
 │   │   ├── tool.py          # ThinkTool — structured reasoning before complex tasks
@@ -87,12 +100,15 @@ N.A.L.L.Y/
 │   │   └── ws_handler.py   # WebSocket bidirectional streaming
 │   └── utils/
 │       └── logger.py       # Structured logging
-├── web/                    # Frontend (HTML/JS/CSS — Jarvis UI)
+├── web/                    # Frontend (HTML/JS/CSS — Jarvis UI; web/mvp/ = Three.js 3D avatar)
 ├── skills/                 # Skill definitions (skills/*/SKILL.md)
 ├── plugins/                # User plugins
-├── tests/                  # Test suite (pytest — 19 test files)
-├── data/                   # SQLite DB, user profile, todos, generated images (runtime, gitignored)
+├── tests/                  # Test suite (pytest — 29 test files: 28 in tests/ + tests/harness_eval/)
+├── data/                   # SQLite DB (data/nally.db, data/nally_memory.db), user profile, todos, generated images (runtime, gitignored)
 ├── logs/                   # Application logs (runtime, gitignored)
+├── Dockerfile              # Container image
+├── docker-compose.yml      # Container orchestration
+├── .github/workflows/      # CI (ci.yml) + publish (publish.yml) pipelines
 └── requirements.txt
 ```
 
@@ -101,11 +117,11 @@ N.A.L.L.Y/
 - **Backend**: Python, FastAPI, LangGraph, OpenAI SDK
 - **Frontend**: Vanilla JS, HTML, CSS (no build tools)
 - **LLM Providers**: OpenCode Zen (hy3-free) or Groq (Llama 3.3)
-- **Database**: SQLite (default), PostgreSQL via Layerbase or self-hosted, Redis for caching
+- **Database**: SQLite data store (`data/nally.db` + `data/nally_memory.db`); PostgreSQL/Redis exist only as reachability health probes (no adapter modules)
 - **Streaming**: Server-Sent Events (SSE) + WebSocket (bidirectional, lower latency)
-- **MCP**: Model Context Protocol integrations (GitHub, Notion, Gmail, Drive, Calendar, Higgsfield, Telegram, Context7, Meta)
-- **TTS**: Piper (default) or ElevenLabs (`NALLY_TTS_BACKEND`)
-- **STT**: Faster-Whisper
+- **MCP**: GitHub, Notion, Gmail (default MCP servers); Google Drive/Calendar + Higgsfield via OAuth flows only; Context7/Meta/Telegram via npm packages — not default servers
+- **TTS**: Piper (default) or ElevenLabs (`NALLY_TTS_BACKEND`) or Fish Audio (`FISH_*` env vars)
+- **STT**: Groq Whisper API (first), faster-whisper (fallback), Deepgram streaming (real-time)
 - **Image Gen**: Pollinations API (free, no key required)
 
 
@@ -124,18 +140,37 @@ python main.py --cli
 # Run voice mode (push-to-talk)
 python main.py --voice
 
-# Run Telegram bot (with web server)
-python main.py --telegram
-
 # Run Telegram bot only (no web server)
 python main.py --telegram-only
+
+# Run Telegram bot in a separate process (polling mode)
+python run_bot_standalone.py
+
+# Run the Telethon user-account client (real user, separate process)
+python run_tg_user.py
+
+# Run Telegram voice-call sessions (pytgcalls, separate process)
+python run_tg_call.py
+
+# VoIP phone interface (requires LiveKit Cloud — see docs/LIVEKIT_SIP_SETUP.md)
+python -m nally.voice.livekit_agent
+
+# Run the autonomous engineering loop (opt-in build mode)
+python main.py --engineer "TASK"
+python -m nally.engineering
 
 # Run with specific provider
 python main.py --provider groq
 python main.py --provider opencode
 
+# Show full MCP server tree during startup
+python main.py --verbose
+
 # Run on custom port
 python main.py --port 8080
+
+# Evaluate the Harness intent classifier against test cases
+python -m tests.harness_eval.runner
 ```
 
 ## Environment Variables (.env)
@@ -174,10 +209,16 @@ DISCORD_BOT_TOKEN=...            # Discord bot token
 DISCORD_WEBHOOK_URL=...          # Discord webhook URL
 
 # TTS (Text-to-Speech)
-NALLY_TTS_BACKEND=piper          # "piper" (default) or "elevenlabs"
+NALLY_TTS_BACKEND=piper          # "piper" (default), "elevenlabs", or "fish"
 ELEVENLABS_API_KEY=...           # ElevenLabs API key (if using elevenlabs)
 ELEVENLABS_VOICE_ID=...          # ElevenLabs voice ID (default: Rachel)
 ELEVENLABS_MODEL=eleven_multilingual_v2  # ElevenLabs model
+FISH_API_KEY=...                 # Fish Audio API key (if using fish backend)
+FISH_VOICE_ID=...                # Fish Audio voice ID (empty = model default)
+FISH_MODEL=s2.1-pro-free         # Fish Audio model
+
+# STT (Speech-to-Text)
+DEEPGRAM_API_KEY=...             # Deepgram API key (streaming/real-time STT)
 
 # Proxy / SSL
 HTTP_PROXY=...                   # HTTP proxy URL (e.g. http://proxy:8080)

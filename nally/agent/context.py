@@ -9,6 +9,7 @@ Handles:
 
 import json
 import re
+from datetime import date
 from typing import Dict, List
 
 from ..utils.logger import logger
@@ -49,6 +50,9 @@ from ..config import (
     CONTEXT_RECENT_MESSAGES as RECENT_MESSAGES,
 )
 from ..config import (
+    DAILY_TOKEN_BUDGET,
+)
+from ..config import (
     MAX_MEMORIES_TO_INJECT as MAX_MEMORIES,
 )
 
@@ -64,6 +68,9 @@ class ContextManager:
             "compactions": 0,
             "memories_injected": 0,
         }
+        # Daily token budget tracking
+        self._budget_date: date = date.today()
+        self._daily_tokens: int = 0
 
     def estimate_tokens(self, messages: List[Dict]) -> int:
         """Estimate token count for a list of messages"""
@@ -281,16 +288,45 @@ class ContextManager:
         return messages
 
     def track_usage(self, input_tokens: int, output_tokens: int):
-        """Track token usage for cost estimation"""
+        """Track token usage for cost estimation and daily budget."""
         self._stats["total_requests"] += 1
         self._stats["total_tokens_in"] += input_tokens
         self._stats["total_tokens_out"] += output_tokens
+
+        # Daily budget tracking — auto-reset at midnight UTC
+        today = date.today()
+        if today != self._budget_date:
+            self._budget_date = today
+            self._daily_tokens = 0
+            logger.info("Daily token budget reset")
+
+        used = input_tokens + output_tokens
+        self._daily_tokens += used
+
+    def check_budget(self) -> bool:
+        """Return True if within daily budget, False if exceeded."""
+        if DAILY_TOKEN_BUDGET <= 0:
+            return True  # Unlimited
+        # Check date rollover
+        today = date.today()
+        if today != self._budget_date:
+            self._budget_date = today
+            self._daily_tokens = 0
+        return self._daily_tokens < DAILY_TOKEN_BUDGET
+
+    @property
+    def budget_exceeded(self) -> bool:
+        """Return True if daily token budget is exceeded."""
+        return not self.check_budget()
 
     def get_stats(self) -> Dict:
         """Get context management statistics"""
         return {
             **self._stats,
             "avg_tokens_per_request": (self._stats["total_tokens_in"] // max(1, self._stats["total_requests"])),
+            "daily_tokens": self._daily_tokens,
+            "daily_token_budget": DAILY_TOKEN_BUDGET,
+            "daily_budget_remaining": max(0, DAILY_TOKEN_BUDGET - self._daily_tokens) if DAILY_TOKEN_BUDGET > 0 else -1,
         }
 
     def get_context_preview(self, messages: List[Dict]) -> Dict:

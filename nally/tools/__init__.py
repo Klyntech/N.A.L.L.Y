@@ -53,6 +53,11 @@ def _load_all_registered():
 
     registry.register(WebSearch())
 
+    # --- Fetch (1 tool) ---
+    from .fetch import FetchTool
+
+    registry.register(FetchTool())
+
     # --- Image Generation (1 tool) ---
     from .imagegen import ImageGen
 
@@ -256,6 +261,11 @@ def _load_all_registered():
     from ..subagent.tools import register_tools as register_subagent_tools
 
     register_subagent_tools()
+
+    # --- Engineering subsystem (opt-in autonomous build) ---
+    from ..engineering.tool import register as register_engineering
+
+    register_engineering()
 
     # --- Load user plugins ---
     registry.load_plugins()

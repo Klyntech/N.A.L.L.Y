@@ -1,6 +1,6 @@
 # API Reference
 
-Nally exposes a REST API with SSE streaming and WebSocket support. All endpoints except health and OAuth callbacks require Bearer token auth.
+Nally exposes a REST API with SSE streaming and WebSocket support. Most endpoints require Bearer token auth; the exceptions are health endpoints, OAuth callbacks, `GET /api/status`, and the two Telegram message/approve endpoints (`POST /api/telegram/message`, `POST /api/telegram/approve`) — all of which have no auth dependency. Each endpoint's auth requirement is noted below.
 
 ## Authentication
 
@@ -39,7 +39,7 @@ data: {"type": "tool_call", "tool": "web_search", "args": {"query": "weather"}}
 
 data: {"type": "tool_result", "tool": "web_search", "result": "..."}
 
-data: {"type": "stream_done"}
+data: {"event": "done"}
 ```
 
 **SSE Event Types:**
@@ -48,7 +48,7 @@ data: {"type": "stream_done"}
 |-------|---------|-------------|
 | `run_id` | `{run_id}` | Unique ID for this execution trace |
 | `stream_chunk` | `{text}` | Partial text from LLM |
-| `stream_done` | `{}` | Response complete |
+| `done` | `{}` | Response complete (`{"event": "done"}` terminal event) |
 | `thought` | `{text}` | Internal reasoning (if thinking enabled) |
 | `tool_call` | `{tool, args}` | Tool being invoked |
 | `tool_result` | `{tool, result}` | Tool execution result |
@@ -65,6 +65,24 @@ GET /api/events?token=<NALLY_ACCESS_TOKEN>
 ```
 
 Broadcasts events like `history_cleared` to all connected tabs.
+
+### Web Frontend
+
+#### `GET /`
+
+Serves `web/index.html` (Jarvis web UI). No auth.
+
+#### `GET /mvp`
+
+Serves the Three.js face avatar frontend from `web/mvp/index.html`. No auth.
+
+#### `GET /web/`
+
+Redirects to `/` with a 302. No auth.
+
+#### `GET /debug`
+
+Debug console HTML page. No auth.
 
 ### Session
 
@@ -110,22 +128,24 @@ Clear the abort flag.
 
 #### `GET /api/status`
 
-Server status (no auth).
+Server status (no auth). Returns provider, active model, tool count, uptime, and framework.
 
 **Response:**
 ```json
 {
-  "status": "ok",
+  "status": "online",
   "provider": "opencode",
   "model": "hy3-free",
   "tools": 25,
-  "mcp_servers": 5
+  "uptime": 12345.67,
+  "framework": "fastapi",
+  "streaming": "websocket+sse"
 }
 ```
 
-#### `GET `
+#### `GET /api/me`
 
-Current auth status.
+Current auth status (Bearer auth required).
 
 **Response:**
 ```json
@@ -186,7 +206,8 @@ Disconnect an MCP service and remove stored tokens.
 
 #### `GET /api/oauth/notion/callback`
 #### `GET /api/oauth/google/callback`
-#### `GET `
+#### `GET /api/oauth/github/callback`
+#### `GET /api/oauth/higgsfield/callback`
 
 OAuth redirect endpoints (no auth — called by external providers).
 
@@ -202,6 +223,45 @@ Set an environment variable at runtime and persist to `.env`.
 
 Telegram webhook receiver (token-based auth, no Bearer token).
 
+#### `POST /api/telegram/message`
+
+Message entry point used by the standalone Telegram bot process to forward a user message for processing. **No Bearer auth** — intentionally unauthenticated so the separate bot subprocess can call it. Requests originate from `run_bot_standalone.py`; expose it only on a private/trusted network.
+
+**Request:**
+```json
+{
+  "session_id": "telegram:123",
+  "chat_id": 123,
+  "text": "hello"
+}
+```
+
+**Response:**
+```json
+{
+  "response": "Hey!"
+}
+```
+
+#### `POST /api/telegram/approve`
+
+Approval resolution endpoint used by the standalone bot process to resolve a pending tool approval. **No Bearer auth** — same design as `POST /api/telegram/message`.
+
+**Request:**
+```json
+{
+  "tc_id": "tc_run_command_0",
+  "approved": true
+}
+```
+
+**Response:**
+```json
+{
+  "resolved": true
+}
+```
+
 ### WebSocket
 
 #### `WS /ws/{session_id}`
@@ -216,9 +276,11 @@ Supports text messages and voice (browser mic audio).
 
 ### Health (No Auth)
 
+These endpoints skip Bearer auth, but they are still subject to the per-IP rate limiter (see [Rate Limiting](#rate-limiting)). Bypass is only at the FastAPI route level — the HTTP middleware rate limiter still applies.
+
 #### `GET /health`
 
-Full health check (DB, Redis, tools). Returns 200 or 503.
+Full health check (DB, Redis, tools). Returns 200 when healthy or 503 when degraded.
 
 #### `GET /health/live`
 
@@ -256,6 +318,9 @@ All errors follow the typed error structure:
 
 ## Rate Limiting
 
-Token bucket algorithm per IP:
+Token bucket algorithm per IP, applied via HTTP middleware:
 - **Rate**: 30 requests/minute (configurable via `RATE_LIMIT_RPM`)
 - **Burst**: 60 (configurable via `RATE_LIMIT_BURST`)
+- Disabled when `RATE_LIMIT_ENABLED=false`.
+
+The limiter applies to all HTTP requests (including the health endpoints and other no-auth routes) except `/static/*`, `/generated/*`, `/mvp/static/*`, and `/favicon.ico`. This includes the initial request of the persistent SSE endpoint (`/api/events`), since it is an HTTP GET. WebSocket connections (`/ws/{session_id}`) bypass the rate limiter — the HTTP middleware does not apply to WebSockets.

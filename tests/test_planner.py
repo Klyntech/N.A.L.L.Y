@@ -1,14 +1,20 @@
 """Tests for nally.agent.planner — simplified LangGraph planning pipeline."""
 
 import json
+from unittest.mock import MagicMock, patch
+
+from langchain_core.messages import HumanMessage
 
 from nally.agent.planner import (
     Plan,
+    PlanStatus,
     PlanStep,
     StepStatus,
     classify_by_patterns,
+    critique_node,
     parse_plan_response,
     route_after_classify,
+    route_after_critique,
     route_after_replan,
     validate_plan,
 )
@@ -139,3 +145,113 @@ class TestRouting:
         plan.steps[0].status = StepStatus.COMPLETED
         state = {"plan_status": "executing", "plan": plan, "iteration": 0, "max_iterations": 100}
         assert route_after_replan(state) == "execute_step"
+
+
+# ── Critique Node ─────────────────────────────────────────
+
+
+class TestCritiqueNode:
+    """Tests for the plan critique node (reviews plans before execution)."""
+
+    def _make_plan(self, goal="build an API", step_count=2):
+        steps = [PlanStep(id=f"s{i}", goal=f"step {i}") for i in range(step_count)]
+        return Plan(goal=goal, steps=steps)
+
+    def _make_state(self, plan=None, revision_count=0):
+        p = plan or self._make_plan()
+        p.revision_count = revision_count
+        return {"plan": p, "plan_status": "executing"}
+
+    @patch("nally.agent.llm.llm")
+    def test_approve_verdict(self, mock_llm):
+        mock_llm.simple_chat.return_value = json.dumps({"verdict": "approve"})
+        state = self._make_state()
+        result = critique_node(state)
+
+        assert result["plan_status"] == "executing"
+        assert result["plan"].critique is None
+
+    @patch("nally.agent.llm.llm")
+    def test_revise_verdict(self, mock_llm):
+        mock_llm.simple_chat.return_value = json.dumps(
+            {"verdict": "revise", "reason": "Missing a testing step"}
+        )
+        state = self._make_state()
+        result = critique_node(state)
+
+        assert result["plan_status"] == "critique_revising"
+        assert result["plan"].status == PlanStatus.REVISING
+        assert result["plan"].critique == "Missing a testing step"
+
+    @patch("nally.agent.llm.llm")
+    def test_skip_when_revision_limit_reached(self, mock_llm):
+        from nally.config import PLAN_MAX_REVISIONS
+
+        state = self._make_state(revision_count=PLAN_MAX_REVISIONS)
+        result = critique_node(state)
+
+        assert result["plan_status"] == "executing"
+        mock_llm.simple_chat.assert_not_called()
+
+    @patch("nally.agent.llm.llm")
+    def test_llm_error_fails_open(self, mock_llm):
+        mock_llm.simple_chat.side_effect = Exception("LLM down")
+        state = self._make_state()
+        result = critique_node(state)
+
+        assert result["plan_status"] == "executing"
+
+    @patch("nally.agent.llm.llm")
+    def test_unparseable_response_fails_open(self, mock_llm):
+        mock_llm.simple_chat.return_value = "not json at all"
+        state = self._make_state()
+        result = critique_node(state)
+
+        assert result["plan_status"] == "executing"
+
+    def test_no_plan_returns_none(self):
+        state = {"plan": None}
+        result = critique_node(state)
+        assert result["plan_status"] == "none"
+
+    def test_route_after_critique_approve(self):
+        state = {"plan_status": "executing"}
+        assert route_after_critique(state) == "execute_step"
+
+    def test_route_after_critique_revise(self):
+        state = {"plan_status": "critique_revising"}
+        assert route_after_critique(state) == "planner"
+
+
+class TestPlannerNodeCritique:
+    """Test that planner_node consumes plan.critique and builds the right prompt."""
+
+    @patch("nally.agent.llm.llm")
+    def test_critique_repair_prompt(self, mock_llm):
+        """When existing_plan has status=REVISING and critique set, planner_node
+        builds the critique-repair prompt (not the failure-repair prompt)."""
+        from nally.agent.planner import planner_node
+
+        mock_llm.simple_chat.return_value = json.dumps(
+            {"goal": "test", "steps": [{"id": "s1", "goal": "step 1"}]}
+        )
+        existing = Plan(goal="test", steps=[PlanStep(id="s1", goal="step 1")])
+        existing.status = PlanStatus.REVISING
+        existing.critique = "Missing a testing step"
+
+        state = {
+            "messages": [HumanMessage(content="Build a test project")],
+            "plan": existing,
+            "plan_status": "revising",
+        }
+        result = planner_node(state)
+
+        # The critique was consumed when building the prompt (cleared on the original)
+        assert existing.critique is None
+        # The LLM was called with the critique-repair prompt
+        mock_llm.simple_chat.assert_called_once()
+        prompt_arg = mock_llm.simple_chat.call_args[1]["user_message"]
+        assert "reviewed and needs revision" in prompt_arg
+        assert "Missing a testing step" in prompt_arg
+        # A new plan was returned (revision count incremented)
+        assert result["plan"].revision_count == 1

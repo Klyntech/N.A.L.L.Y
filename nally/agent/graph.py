@@ -31,12 +31,14 @@ from ..config import (
     DATABASE_URL,
     DUPLICATE_TOOL_THRESHOLD,
     MAX_AGENT_WALL_TIME,
+    MAX_TOOL_FAILURES_PER_TURN,
     MAX_TOOL_CALLS,
     PLAN_ENABLED,
     RECURSION_LIMIT,
     SESSION_ID,
     TOKEN_WARN_THRESHOLD,
     TOOL_RETRY_LIMIT,
+    WALL_TIME_OVERRIDES,
     ensure_data_dir,
 )
 from ..core.errors import LLMError
@@ -172,12 +174,77 @@ def _diff_snapshots(before: dict) -> list:
 
 
 def _parse_text_tool_calls(text: str) -> tuple:
-    """Parse XML-style tool calls from models that don't support native function calling."""
+    """Parse XML-style tool calls from models that don't support native function calling.
+
+    Handles two formats:
+    1. Standard: `` — JSON payload in tags
+    2. Alternate: <tool_calls:ID> wrapper with <tool_call:ID>name and
+       <tool_call:IDparameter name="key">value lines (with or without
+       closing <tool_call:IDend> / </tool_calls:ID> tags).
+
+    hy3-free and similar models often omit the closing tags.
+    """
+    # First try standard `` format
     pattern = r"<tool_call>\s*(\{.*?\})\s*</tool_call>"
     matches = re.findall(pattern, text, re.DOTALL)
-    if not matches:
-        return text, []
+
+    # Parse alternate format: find each <tool_calls:ID>...</tool_calls:ID> block
+    # and extract tool name + params from within it.
     tool_calls = []
+
+    # Match wrapper blocks (with or without closing tag)
+    # Group 1: the hex ID, Group 2: everything inside the wrapper
+    wrapper_re = re.compile(
+        r"<tool_calls:([a-f0-9]+)>"       # opening wrapper
+        r"(.*?)"                            # content inside
+        r"(?:</tool_calls:\1>|(?=\Z))",    # closing wrapper OR end-of-string
+        re.DOTALL,
+    )
+
+    if not matches:
+        for wrapper_match in wrapper_re.finditer(text):
+            tc_id = wrapper_match.group(1)
+            block = wrapper_match.group(2)
+
+            # Find ALL <tool_call:ID>word occurrences in this block
+            # Each one is a separate tool call (bare name, possibly with params)
+            all_tool_names = re.findall(
+                r"<tool_call:" + tc_id + r">(\w+)", block
+            )
+
+            for tool_name in all_tool_names:
+                # Skip if this is actually a "parameter" keyword (not a tool)
+                if tool_name == "parameter":
+                    continue
+
+                # Find the params block after this specific tool name occurrence
+                # Match the tool name line and grab everything until the next tool name
+                param_pattern = re.compile(
+                    r'<tool_call:[a-f0-9]+>' + re.escape(tool_name) +
+                    r'(.*?)(?=<tool_call:|</tool_calls:|$)',
+                    re.DOTALL,
+                )
+                param_match = param_pattern.search(block)
+
+                args = {}
+                if param_match:
+                    params_block = param_match.group(1)
+                    param_re = re.compile(
+                        r'parameter name="([^"]+)">(.*?)(?=<tool_call:|$)',
+                        re.DOTALL,
+                    )
+                    for pm in param_re.finditer(params_block):
+                        args[pm.group(1)] = pm.group(2).strip()
+
+                tool_calls.append(
+                    {
+                        "id": f"tc_{tc_id}_{len(tool_calls)}",
+                        "name": tool_name,
+                        "args": args,
+                    }
+                )
+
+    # Parse standard `` format
     for match in matches:
         try:
             parsed = json.loads(match)
@@ -193,7 +260,23 @@ def _parse_text_tool_calls(text: str) -> tuple:
                 )
         except json.JSONDecodeError:
             continue
+
+    if not tool_calls:
+        if re.search(r"<tool_calls?:[a-f0-9]+>", text):
+            logger.warning(
+                "Found <tool_call:> XML in response but _parse_text_tool_calls "
+                "could not parse it — tool calls will be sent as raw text"
+            )
+        return text, []
+
+    # Clean both formats from text (handle with and without closing tags)
     cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL).strip()
+    cleaned = re.sub(
+        r"<tool_calls?:[a-f0-9]+>.*?(?:</tool_calls?:[a-f0-9]+>|\Z)",
+        "",
+        cleaned,
+        flags=re.DOTALL,
+    ).strip()
     return cleaned, tool_calls
 
 
@@ -278,34 +361,10 @@ def _ensure_tracer_store():
 
 
 # ── Approval gate ─────────────────────────────────────────
-_approval_events: Dict[str, threading.Event] = {}
-_approval_results: Dict[str, bool] = {}
-# Approvals that arrived before the gate registered its event. Maps tc_id ->
-# (approved, timestamp). Prevents the "approval lost in the race between DB
-# write and event registration" bug (audit Broken #4).
-_early_approvals: Dict[str, tuple] = {}
-_approval_lock = threading.Lock()
-
-# Stale early-approval entries are pruned after APPROVAL_TIMEOUT + 60s.
-_APPROVAL_TTL_SLACK = 60
-
-
-def _prune_early_approvals(now: float = None):
-    """Remove expired entries from _early_approvals. Caller must hold _approval_lock."""
-    if now is None:
-        now = time.time()
-    ttl = (APPROVAL_TIMEOUT or 1800) + _APPROVAL_TTL_SLACK
-    stale = [k for k, (_, ts) in _early_approvals.items() if now - ts > ttl]
-    for k in stale:
-        _early_approvals.pop(k, None)
-
-
-def _pop_approval_state(tc_id: str) -> tuple:
-    """Thread-safe: pop both event and result for a tc_id. Returns (event, result)."""
-    with _approval_lock:
-        event = _approval_events.pop(tc_id, None)
-        result = _approval_results.pop(tc_id, False)
-        return event, result
+# Approvals are persisted to SQLite via _save_pending_approval / _get_approval_status.
+# The tool_execution_node polls SQLite at 2-second intervals instead of blocking on
+# threading.Event, so the web server thread pool is never starved (audit Risk #1).
+# Cross-process resolution (Telegram bot → web server) works via SQLite WAL.
 
 
 def _get_approval_db():
@@ -395,6 +454,11 @@ class AgentState(TypedDict):
     current_step_index: int
     model_override: Optional[str]
     start_time: float
+    tool_failures: List[Dict[str, Any]]
+    intent_class: str
+    intent_confidence: float
+    wall_time_budget: int
+    task_progress: Dict[str, str]
 
 
 def _convert_to_openai(messages: List[BaseMessage]) -> List[dict]:
@@ -472,6 +536,8 @@ def _stream_with_emit(llm_client, openai_messages, tools, cache_key, emit):
     if not collected_tool_calls and full_content:
         full_content, text_tool_calls = _parse_text_tool_calls(full_content)
         collected_tool_calls.extend(text_tool_calls)
+        # Clear collected content so tool call text isn't sent as response
+        collected_content.clear()
 
     if collected_tool_calls:
         tc_list = [
@@ -575,6 +641,36 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit, mo
             raise LLMError.auth_failed(provider="llm")
         else:
             raise LLMError.connection_failed(provider="llm", reason=str(last_error)[:200])
+
+
+def _detect_partial_completion(state: AgentState) -> str:
+    """Detect partial completion scenarios that should prevent honest success claims.
+
+    Returns a reason string if partial completion detected, empty string otherwise.
+    Only checks per-turn state (resets between turns), NOT message history.
+    Only blocks if failures dominate (>50%) or ALL tools failed.
+    """
+    # Check for failed tools in task_progress
+    task_progress = state.get("task_progress", {})
+    failed_tools = [tool for tool, status in task_progress.items() if status == "failed"]
+    succeeded_tools = [tool for tool, status in task_progress.items() if status == "success"]
+    total_tracked = len(failed_tools) + len(succeeded_tools)
+
+    if failed_tools:
+        # Only block if failures dominate or nothing succeeded
+        if total_tracked == 0 or len(failed_tools) >= total_tracked or len(failed_tools) / total_tracked > 0.5:
+            return f"tool failures: {', '.join(failed_tools)}"
+        # Otherwise, partial success — don't block
+
+    # Check if wall-clock budget is >80% consumed
+    start_time = state.get("start_time", 0)
+    wall_budget = state.get("wall_time_budget", 300)
+    if start_time and wall_budget:
+        elapsed = time.time() - start_time
+        if elapsed > wall_budget * 0.8:
+            return f"wall-clock budget {int(elapsed)}s/{wall_budget}s (>80% consumed)"
+
+    return ""
 
 
 def llm_call(state: AgentState) -> AgentState:
@@ -694,6 +790,30 @@ def llm_call(state: AgentState) -> AgentState:
     except Exception as e:
         logger.warning(f"Failed to inject receipts into context: {e}")
 
+    # ── Daily token budget gate ────────────────────────────
+    try:
+        from ..agent.context import context_manager
+
+        if context_manager.budget_exceeded:
+            logger.warning("Daily token budget exceeded — refusing LLM call")
+            emit = _get_emit()
+            if emit:
+                try:
+                    emit("system_notice", {
+                        "text": "Daily token budget reached. Try again tomorrow or increase NALLY_DAILY_TOKEN_BUDGET."
+                    })
+                except Exception:
+                    pass
+            fallback = AIMessage(
+                content=(
+                    "Daily token budget reached. Please try again tomorrow "
+                    "or increase NALLY_DAILY_TOKEN_BUDGET in your .env file."
+                )
+            )
+            return {"messages": [fallback], "iteration": iteration + 1}
+    except Exception as e:
+        logger.debug(f"Daily budget check skipped: {e}")
+
     model_override = state.get("model_override")
 
     llm_span = tracer.start_span("llm_call", {
@@ -801,6 +921,47 @@ def llm_call(state: AgentState) -> AgentState:
                             emit("verification", vresult.to_dict())
                         except Exception:
                             pass
+            # ── Completion gate ──
+            # Only force "not complete" if tool failures are significant
+            # (all or most calls failed). Partial failures on a mostly-successful
+            # turn should not block the response.
+            failures = state.get("tool_failures", [])
+            partial = _detect_partial_completion(state)
+            total_calls = state.get("tool_calls_total", 0)
+            failure_count = len(failures)
+            _should_block = False
+            if partial:
+                _should_block = True
+            elif failure_count > 0 and total_calls > 0:
+                # Block only if ALL calls failed or failures dominate (>50%)
+                _should_block = failure_count >= total_calls or (failure_count / total_calls) > 0.5
+            elif failure_count > 0 and total_calls == 0:
+                # No total count tracked — block on any failure (legacy safety)
+                _should_block = True
+            if _should_block:
+                if failures:
+                    _summary = "\n".join(
+                        f"- {f.get('tool')}: {f.get('error', '')[:160]}" for f in failures[-6:]
+                    )
+                    _reason = (
+                        "The following tool call(s) failed this turn "
+                        "and were not resolved:\n"
+                        + _summary
+                    )
+                else:
+                    _reason = f"Partial completion detected: {partial}"
+                ai_message.content = (
+                    "[TASK NOT COMPLETE] " + _reason
+                    + "\n\nI have not finished. Tell me how you'd like to proceed."
+                )
+                logger.warning(f"Completion gate: forcing incomplete status ({len(failures)} failures, partial: {partial or 'none'})")
+                return {
+                    "messages": [ai_message],
+                    "iteration": iteration + 1,
+                    "error_count": 0,
+                    "last_error": None,
+                    "tool_failures": [],
+                }
         except Exception as e:
             logger.warning(f"Claim verification failed: {e}")
 
@@ -835,6 +996,11 @@ def tool_executor(state: AgentState) -> AgentState:
     emit = _get_emit()
     tool_calls_total = state.get("tool_calls_total", 0)
     thread_id = state.get("thread_id", "default")
+    # Per-turn record of failed tool calls (consumed by the completion gate in
+    # the generate_response node and reset there after each final answer).
+    failure_log = []
+    # Per-turn record of tool execution outcomes for task_progress tracking.
+    progress_log = []
 
     if emit is None:
         logger.warning("tool_executor: emit is None — approval buttons won't work")
@@ -923,21 +1089,6 @@ def tool_executor(state: AgentState) -> AgentState:
                 approved = False
                 result_approved = False
             else:
-                # Register the in-memory event BEFORE persisting pending so a
-                # fast approval (web/ws/telegram) can never arrive before the
-                # gate is registered — the approval-race fix (audit Broken #4).
-                approval_event = threading.Event()
-                with _approval_lock:
-                    _approval_events[tool_id] = approval_event
-                    _approval_results[tool_id] = False
-                    _prune_early_approvals()
-                    early = _early_approvals.pop(tool_id, None)
-                    if early is not None:
-                        _approval_results[tool_id] = early[0]
-                        approval_event.set()
-                        logger.info(
-                            f"approval_gate: early resolution '{early[0]}' applied for tc_id={tool_id}"
-                        )
                 _save_pending_approval(tool_id, "pending")
 
                 # Compute diff preview for file write operations
@@ -964,28 +1115,22 @@ def tool_executor(state: AgentState) -> AgentState:
 
                 logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}' (timeout: {APPROVAL_TIMEOUT}s)")
 
-                # Wait on the event instead of sleep-polling: Event.wait(timeout)
-                # wakes immediately when resolve_approval sets the event and
-                # burns no CPU while waiting (audit Architecture Risk #1). Abort
-                # is still checked each iteration so a user abort breaks the
-                # wait immediately.
+                # Poll SQLite every 2s — no thread blocking, cross-process safe.
                 _poll_interval = 2
                 _polls = (APPROVAL_TIMEOUT or 1800) // _poll_interval
+                approved = False
+                result_approved = False
                 for _i in range(_polls):
-                    if approval_event.is_set():
-                        break
                     if _check_abort(thread_id):
-                        _pop_approval_state(tool_id)
                         _save_pending_approval(tool_id, "aborted")
                         _finish(False, "aborted by user")
                         return ToolMessage(content="Aborted by user.", tool_call_id=tool_id)
-                    approval_event.wait(_poll_interval)
-
-                approved = approval_event.is_set()
-                _, result_approved = _pop_approval_state(tool_id)
-
-                if not result_approved:
-                    result_approved = (_get_approval_status(tool_id) == "approved")
+                    status = _get_approval_status(tool_id)
+                    if status in ("approved", "denied"):
+                        result_approved = (status == "approved")
+                        approved = True
+                        break
+                    time.sleep(_poll_interval)
 
             if not approved or not result_approved:
                 _save_pending_approval(tool_id, "denied")
@@ -1046,6 +1191,76 @@ def tool_executor(state: AgentState) -> AgentState:
         except Exception as e:
             logger.warning(f"Failed to record receipt for {tool_name}: {e}")
 
+        # ── Post-execution validation ──────────────────────
+        # Verify tool output matches claimed success before reporting to agent.
+        # Success is now derived authoritatively (registry._result_is_success):
+        # Error:-prefixed results and non-zero run_command exits are failures.
+        # Here we only flag UNMISTAKABLE crash signals (a leaked Python
+        # traceback / exception type) as a defense-in-depth net. We deliberately
+        # do NOT sniff for loose words like "error"/"failed"/"not found" — those
+        # appear constantly in legitimate file content and command output and
+        # produced false-positive "success" downgrades. File-content tools are
+        # exempt entirely; their success is already structural.
+        if success and isinstance(result, str) and tool_name not in ("read_file", "file_ops"):
+            _HARD_ERROR_TOKENS = (
+                "traceback (most recent call last)",
+                "permissionerror:",
+                "filenotfounderror:",
+                "modulenotfounderror:",
+                "isadirectoryerror:",
+                "notadirectoryerror:",
+                "oserror:",
+                "valueerror:",
+                "timeouterror:",
+                "connectionerror:",
+                "keyerror:",
+                "typeerror:",
+            )
+            rl = result.lower()
+            is_hard_error = any(tok in rl for tok in _HARD_ERROR_TOKENS)
+            if is_hard_error:
+                logger.warning(f"Tool validation: {tool_name} reported success but output contains error patterns")
+                success = False
+                result += "\n\n[Validation warning: output contains error-like text despite success status]"
+            elif not result.strip():
+                logger.warning(f"Tool validation: {tool_name} reported success but output is empty")
+                result = "(empty result — tool executed but produced no output)"
+
+        # ── Harness v2: Tool-Result Verification (Phase 4) ──
+        try:
+            from ..config import HARNESS_ENABLED, HARNESS_VERIFY_ENABLED
+            if HARNESS_ENABLED and HARNESS_VERIFY_ENABLED:
+                from .harness import verify_tool_result, _TOOL_VERIFY_MAX_RETRIES
+                # Get objective from state if available
+                _objective = ""
+                _intent = state.get("intent_class", "")
+                if _intent in ("COMPLEX", "CREATIVE", "HIGH_STAKES"):
+                    # Try to extract objective from the last human message
+                    for msg in reversed(state.get("messages", [])):
+                        if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
+                            _objective = msg.content[:200]
+                            break
+
+                verification = verify_tool_result(
+                    tool_name=tool_name,
+                    tool_args=tool_args if isinstance(tool_args, dict) else {},
+                    tool_result=str(result),
+                    tool_success=success,
+                    objective=_objective,
+                )
+                if not verification.satisfies_objective and success:
+                    logger.warning(
+                        f"Tool verification: {tool_name} passed but may not satisfy objective "
+                        f"(confidence={verification.confidence:.2f})"
+                    )
+                    if emit:
+                        try:
+                            emit("tool_verification", verification.to_dict())
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug(f"Tool verification skipped: {e}")
+
         # For run_command, detect changed files via snapshot diff
         if snapshot_before is not None and success:
             changes = _diff_snapshots(snapshot_before)
@@ -1078,6 +1293,15 @@ def tool_executor(state: AgentState) -> AgentState:
             except Exception:
                 pass
 
+        if not success:
+            failure_log.append({
+                "tool": tool_name,
+                "args": tool_args if isinstance(tool_args, dict) else {},
+                "error": str(result)[:200],
+            })
+            progress_log.append({"tool": tool_name, "status": "failed"})
+        else:
+            progress_log.append({"tool": tool_name, "status": "success"})
         _finish(success, str(result)[:2000])
         return ToolMessage(content=str(result)[:2000], tool_call_id=tool_id)
 
@@ -1094,9 +1318,14 @@ def tool_executor(state: AgentState) -> AgentState:
     # the same nesting depth — required for correct sub-agent depth limiting.
     import contextvars
 
-    ctx = contextvars.copy_context()
+    base_ctx = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=min(len(last_ai_msg.tool_calls), 5)) as executor:
-        futures = {executor.submit(ctx.run, _execute_single, tc): tc for tc in last_ai_msg.tool_calls}
+        # Each thread gets its own context copy — reusing the same ctx across
+        # threads causes "context already entered" errors.
+        futures = {
+            executor.submit(base_ctx.copy().run, _execute_single, tc): tc
+            for tc in last_ai_msg.tool_calls
+        }
         for future in as_completed(futures):
             try:
                 tool_messages.append(future.result())
@@ -1107,6 +1336,13 @@ def tool_executor(state: AgentState) -> AgentState:
     return {
         "messages": tool_messages,
         "tool_calls_total": tool_calls_total + len(last_ai_msg.tool_calls),
+        "tool_failures": state.get("tool_failures", []) + [
+            {"tool": f["tool"], "args": f["args"], "error": f["error"]} for f in failure_log
+        ],
+        "task_progress": {
+            **state.get("task_progress", {}),
+            **{p["tool"]: p["status"] for p in progress_log},
+        },
     }
 
 
@@ -1140,15 +1376,42 @@ def should_continue(state: AgentState) -> str:
 
     # Wall-clock budget
     start_time = state.get("start_time", 0)
-    if start_time and (time.time() - start_time) > MAX_AGENT_WALL_TIME:
-        logger.warning(f"Agent exceeded {MAX_AGENT_WALL_TIME}s wall-clock budget")
+    wall_budget = state.get("wall_time_budget", MAX_AGENT_WALL_TIME)
+    if start_time and (time.time() - start_time) > wall_budget:
+        logger.warning(f"Agent exceeded {wall_budget}s wall-clock budget")
         emit = _get_emit()
         if emit:
             try:
-                emit("system_notice", {"text": f"Execution halted: hit my {MAX_AGENT_WALL_TIME}s time budget for this turn — say 'continue' if you want me to keep going."})
+                _fail_n = len(state.get("tool_failures", []))
+                _notice = (
+                    f"Execution halted: hit my {wall_budget}s time budget for this turn"
+                )
+                if _fail_n:
+                    _notice += (
+                        f" — {_fail_n} tool call(s) failed and weren't resolved. Say 'continue' "
+                        "and I'll pick up where I left off using what we have."
+                    )
+                else:
+                    _notice += " — say 'continue' if you want me to keep going."
+                emit("system_notice", {"text": _notice})
             except Exception:
                 pass
         _record_exit("wall_clock")
+        return "end"
+
+    # Too many failed tool calls this turn — halt and ask the user how to proceed
+    # instead of looping on a failing action and burning the wall-clock budget.
+    if len(state.get("tool_failures", [])) >= MAX_TOOL_FAILURES_PER_TURN:
+        logger.warning(f"Agent exceeded {MAX_TOOL_FAILURES_PER_TURN} tool failures this turn")
+        emit = _get_emit()
+        if emit:
+            try:
+                emit("system_notice", {
+                    "text": f"Execution halted: {MAX_TOOL_FAILURES_PER_TURN}+ tool calls failed this turn and weren't resolved. Tell me how you'd like to proceed."
+                })
+            except Exception:
+                pass
+        _record_exit("tool_failures")
         return "end"
 
     if iteration >= max_iterations:
@@ -1224,7 +1487,8 @@ def create_agent_graph():
 
     When PLAN_ENABLED, adds planner topology:
         classify -> (planner | llm)
-        planner -> execute_step -> replan -> (execute_step | planner | synthesize | llm)
+        planner -> critique -> (execute_step | planner)
+        execute_step -> replan -> (execute_step | planner | synthesize | llm)
         synthesize -> END
     """
     graph = StateGraph(AgentState)
@@ -1237,16 +1501,19 @@ def create_agent_graph():
     if PLAN_ENABLED:
         from .planner import (
             classify_node,
+            critique_node,
             execute_step_node,
             planner_node,
             replan_node,
             route_after_classify,
+            route_after_critique,
             route_after_replan,
             synthesize_node,
         )
 
         graph.add_node("classify", classify_node)
         graph.add_node("planner", planner_node)
+        graph.add_node("critique", critique_node)
         graph.add_node("execute_step", execute_step_node)
         graph.add_node("replan", replan_node)
         graph.add_node("synthesize", synthesize_node)
@@ -1258,8 +1525,15 @@ def create_agent_graph():
             {"planner": "planner", "llm": "llm"},
         )
 
-        # planner -> execute_step (always)
-        graph.add_edge("planner", "execute_step")
+        # planner -> critique (review before execution)
+        graph.add_edge("planner", "critique")
+
+        # critique routes: revise plan or proceed to execution
+        graph.add_conditional_edges(
+            "critique",
+            route_after_critique,
+            {"execute_step": "execute_step", "planner": "planner"},
+        )
 
         # execute_step -> replan (always)
         graph.add_edge("execute_step", "replan")
@@ -1315,6 +1589,8 @@ def run_agent(
     model: Optional[str] = None,
     _parent_span_id: Optional[str] = None,
     _run_id: Optional[str] = None,
+    intent_class: str = "",
+    intent_confidence: float = 0.0,
 ) -> str:
     """Run the agent graph and return the final response."""
     _ensure_tracer_store()
@@ -1393,6 +1669,11 @@ def run_agent(
         "current_step_index": 0,
         "model_override": model,
         "start_time": time.time(),
+        "tool_failures": [],
+        "intent_class": intent_class,
+        "intent_confidence": intent_confidence,
+        "wall_time_budget": WALL_TIME_OVERRIDES.get(intent_class, MAX_AGENT_WALL_TIME) if intent_class else MAX_AGENT_WALL_TIME,
+        "task_progress": {},
     }
 
     try:
@@ -1407,6 +1688,17 @@ def run_agent(
                 break
 
         chain_response = chain_response or "Done."
+
+        # Fallback: strip any residual XML tool call tags that leaked through
+        # This is defense-in-depth — the user should never see raw XML
+        if chain_response and re.search(r"<tool_calls?:[a-f0-9]+>", chain_response):
+            logger.warning("Residual XML tool call tags found in final response — stripping")
+            chain_response = re.sub(
+                r"<tool_calls?:[a-f0-9]+>.*?(?:</tool_calls?:[a-f0-9]+>|$)",
+                "",
+                chain_response,
+                flags=re.DOTALL,
+            ).strip()
 
     except Exception as e:
         _set_emit(None)
@@ -1442,26 +1734,10 @@ def run_agent(
 def resolve_approval(tool_call_id: str, approved: bool) -> bool:
     """Resolve a pending approval request from the frontend or Telegram inline button.
 
-    Persists decision to SQLite so approvals survive server restarts. Returns True if
-    the approval request was found (either in-memory or persisted in DB).
+    Persists decision to SQLite — the polling tool_execution_node picks it up
+    on the next 2-second interval. Returns True always (resolution is async).
     """
     status_str = "approved" if approved else "denied"
     _save_pending_approval(tool_call_id, status_str)
-    logger.info(f"resolve_approval: tc_id={tool_call_id}, approved={approved}, status saved to DB")
-
-    # Thread-safe: check and signal
-    with _approval_lock:
-        _prune_early_approvals()
-        event = _approval_events.get(tool_call_id)
-        if event:
-            _approval_results[tool_call_id] = approved
-            event.set()
-            logger.info(f"resolve_approval: event set for tc_id={tool_call_id}")
-            return True
-        # Approval arrived before the gate registered its event. Cache it so
-        # the gate applies it as soon as it registers (audit Broken #4).
-        _early_approvals[tool_call_id] = (approved, time.time())
-        logger.info(
-            f"resolve_approval: no event yet for tc_id={tool_call_id}, cached early result ({approved})"
-        )
-        return True
+    logger.info(f"resolve_approval: tc_id={tool_call_id}, approved={approved}")
+    return True

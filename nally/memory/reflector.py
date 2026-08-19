@@ -19,6 +19,7 @@ from ..utils.logger import logger
 
 _SUMMARY_PROMPT = """You are Nally, an AI assistant. Summarize this conversation in 2-3 sentences.
 Focus on: what the user wanted, what was accomplished, and any notable outcomes.
+Never include a credential, API key, password, or token in the summary, even if one appeared in the conversation.
 
 Conversation:
 {conversation}
@@ -34,8 +35,10 @@ Extract:
 1. topic: What was the main thing discussed (2-5 words)
 2. what_happened: What Nally did to help (1-2 sentences)
 3. outcome: What was the result (success/partial/fail)
-4. solution: If there was a problem, how was it solved (1 sentence, or "n/a")
+4. solution: If there was a problem, how was it solved. If outcome is "partial" or "fail", lead with the root cause, not just the fix (1-2 sentences, or "n/a")
 5. tags: 1-3 relevant tags
+
+Never include a credential, API key, password, or token in any field, even if one appeared in the conversation.
 
 Output JSON: {{"topic": "...", "what_happened": "...", "outcome": "...", "solution": "...", "tags": ["..."]}}
 Output ONLY the JSON. No explanation."""
@@ -46,6 +49,7 @@ Conversation:
 {conversation}
 
 Extract 0-3 patterns. For each, a short phrase describing what Nally learned about the user's preferences, workflow, or style.
+Never extract a pattern that would require storing a credential, API key, password, or token as part of the description.
 
 Output JSON array: ["pattern 1", "pattern 2"]
 Output ONLY the JSON array. If no clear patterns, output []."""
@@ -57,8 +61,10 @@ _DAILY_PROMPT = """You are Nally reflecting on the past day. Review these recent
 Generate a daily reflection with:
 1. summary: 2-3 sentence overview of the day
 2. key_achievements: list of things accomplished (1-3 items)
-3. issues_encountered: list of problems or failures (0-3 items)
+3. issues_encountered: list of problems or failures (0-3 items) — name the root cause, not just the symptom
 4. lessons_learned: list of insights about the user or the system (1-3 items)
+
+Never include a credential, API key, password, or token anywhere in the output.
 
 Output JSON: {{
   "summary": "...",
@@ -77,6 +83,8 @@ Look for:
 - Goals, plans, or intentions
 - Preferences (likes, dislikes, choices)
 - Location, occupation, or personal details
+
+Do NOT extract, store, or reference the literal value of any credential, API key, password, secret, or access token, even if the user pasted one directly. If a credential's existence is itself relevant context (e.g. "user has a Stripe account"), store that fact without the value.
 
 Conversation:
 {conversation}

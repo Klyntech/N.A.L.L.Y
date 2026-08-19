@@ -12,7 +12,8 @@ Rules:
 - Each subtask must be INDEPENDENT (no dependency on other subtasks)
 - Each subtask must have a clear, specific goal
 - Each subtask should include necessary context from the original goal
-- Output as a JSON array of objects, each with "goal" and "context" fields
+- Mark each subtask "risk": "safe" if it only reads/researches/generates content, or "needs_review" if it writes files, runs commands, or could be destructive
+- Output as a JSON array of objects, each with "goal", "context", and "risk" fields
 
 Example:
 Input: "Research competitors and build a landing page"
@@ -20,11 +21,13 @@ Output:
 [
   {
     "goal": "Research top 3 competitors in the AI coding space",
-    "context": "We need to know what features competitors offer, their pricing, and their target audience."
+    "context": "We need to know what features competitors offer, their pricing, and their target audience.",
+    "risk": "safe"
   },
   {
     "goal": "Build a responsive landing page HTML with Tailwind CSS",
-    "context": "The landing page should highlight our key features: voice interaction, multi-provider AI, system control, and memory."
+    "context": "The landing page should highlight our key features: voice interaction, multi-provider AI, system control, and memory.",
+    "risk": "needs_review"
   }
 ]
 

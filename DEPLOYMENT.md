@@ -28,29 +28,16 @@ docker run -d \
 
 ### Docker Compose
 
-```yaml
-version: '3.8'
-services:
-  nally:
-    build: .
-    ports:
-      - "5000:5000"
-    environment:
-      - NALLY_PROVIDER=opencode
-      - OPENCODE_API_KEY=sk-...
-      - NALLY_ACCESS_TOKEN=your-secret
-    volumes:
-      - nally-data:/app/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:5000/health').raise_for_status()"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+The repo ships a `docker-compose.yml` with an `app` service (builds the Dockerfile)
+and an optional `redis` service gated behind the `with-redis` profile:
 
-volumes:
-  nally-data:
+```bash
+docker compose up -d          # app only
+docker compose --profile with-redis up -d   # app + redis
 ```
+
+It maps `${PORT:-5000}:5000`, loads `.env` via `env_file`, mounts `nally_data`
+and `nally_logs` volumes, and restarts unless stopped.
 
 ### Environment Variables for Production
 
@@ -66,11 +53,13 @@ RATE_LIMIT_ENABLED=true
 RATE_LIMIT_RPM=30
 RATE_LIMIT_BURST=60
 
-# Optional: PostgreSQL instead of SQLite
-DATABASE_URL=postgresql://user:pass@host:5432/nally
-
-# Optional: Redis for caching
-REDIS_URL=redis://host:6379
+# Data store — SQLite is the datastore (there is no nally/db/ PostgreSQL/Redis
+# adapter package). DATABASE_URL may be a SQLite path or a Turso/LibSQL URL.
+# PostgreSQL and Redis URLs are ONLY read by the /health probes (nally/web/health.py)
+# to report reachability — they are not used as the application datastore.
+DATABASE_URL=data/nally.db
+# DATABASE_URL=postgresql://user:pass@host:5432/nally   # health-probe check only
+# REDIS_URL=redis://host:6379                           # health-probe check only
 ```
 
 ## Systemd (Linux)
@@ -181,7 +170,9 @@ readinessProbe:
 
 ## GitHub Container Registry
 
-Pre-built images are published on `v*` tags:
+CI publishes Docker images to GHCR (`ghcr.io/klyntech/nally`) whenever a `v*` git tag is pushed (`.github/workflows/publish.yml`, and available manually via `workflow_dispatch`). The workflow tags images with `type=semver` (e.g. `v1.2.0`, `v1.2`) plus the commit SHA.
+
+> **Note**: no git tags exist in the repository yet, so no image has been published so far. Once a `v*` tag is created and pushed, the image will appear at:
 
 ```bash
 docker pull ghcr.io/klyntech/nally:latest
@@ -189,7 +180,7 @@ docker pull ghcr.io/klyntech/nally:latest
 
 Tags:
 - `latest` — latest stable
-- `v1.1.0` — specific version
+- `v1.2.0` — specific version
 - `<sha>` — commit SHA
 
 ## Monitoring
