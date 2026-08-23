@@ -164,19 +164,39 @@ async def main():
         pytgcalls only delivers StreamFrames (incoming remote audio) after
         record() is called — play() alone sets up the outgoing capture source
         but does NOT observe the incoming playback stream.
+
+        For MVP, group calls (chat_id < 0) are the stable path. P2P chat_id > 0
+        will raise 406 CALL_PROTOCOL_COMPAT_LAYER_INVALID — caller should have
+        been routed via group fallback before reaching here.
         """
-        await tg_call.play(chat_id, MediaStream(ExternalMedia.AUDIO))
-        await tg_call.record(
-            chat_id,
-            RecordStream(
-                audio=True,
-                audio_parameters=AudioParameters(bitrate=48000, channels=2),
-            ),
-        )
-        logger.info("call_media_joined", extra={"call_id": chat_id})
+        try:
+            await tg_call.play(chat_id, MediaStream(ExternalMedia.AUDIO))
+            await tg_call.record(
+                chat_id,
+                RecordStream(
+                    audio=True,
+                    audio_parameters=AudioParameters(bitrate=48000, channels=2),
+                ),
+            )
+            logger.info("call_media_joined", extra={"call_id": chat_id})
+        except Exception as e:
+            err_str = str(e)
+            if "CALL_PROTOCOL_COMPAT_LAYER_INVALID" in err_str or "406" in err_str:
+                logger.error(
+                    f"join_media_protocol_invalid: P2P layer mismatch for {chat_id} — use group voice chat",
+                    extra={"call_id": chat_id, "error": err_str},
+                )
+            raise
 
     async def _answer_call(chat_id: int):
-        """Answer an incoming call and start the voice loop."""
+        """Answer an incoming call and start the voice loop.
+
+        Private 1:1 calls (chat_id > 0) use Telegram's P2P phone protocol which
+        currently fails with 406 CALL_PROTOCOL_COMPAT_LAYER_INVALID on this
+        Telethon/ntgcalls layer. For MVP we handle this gracefully: decline the
+        P2P call and fall back to a group voice chat (which is stable via
+        StreamFrames). Group calls (chat_id < 0, -100...) go direct.
+        """
         if chat_id in active_sessions:
             logger.debug(f"Already in call with {chat_id}")
             return
@@ -188,6 +208,71 @@ async def main():
         async with lock:
             logger.info("answering_call", extra={"call_id": chat_id})
 
+            # P2P fallback: private calls (positive chat_id) are fragile — use group instead
+            is_private = chat_id > 0
+            if is_private:
+                logger.warning(f"private_p2p_call_detected_fallback_to_group chat_id={chat_id}")
+                try:
+                    with contextlib.suppress(Exception):
+                        await tg_call.leave_call(chat_id)
+                    # Discard the P2P call if possible (best-effort)
+                    with contextlib.suppress(Exception):
+                        from telethon.tl.functions.phone import DiscardCallRequest
+                        from telethon.tl.types import InputPhoneCall
+                        # We don't have the call ID here, so just notify user
+                        pass
+                    await telethon_client.send_message(
+                        chat_id,
+                        "Private calls hit Telegram's 406 layer error on this build — group voice is stable. "
+                        "Creating a private group voice chat for you... please wait.",
+                    )
+                    # Create / reuse group voice chat and invite user
+                    from nally.telegram.voice_call import (
+                        ensure_voice_chat_group,
+                        start_group_voice_chat,
+                        VoiceCallSession as GroupSession,
+                    )
+
+                    group_id, invite_link = await ensure_voice_chat_group(telethon_client)
+                    # Invite user to group (try both legacy and channel invite)
+                    try:
+                        from telethon.tl.functions.channels import InviteToChannelRequest
+
+                        await telethon_client(InviteToChannelRequest(channel=group_id, users=[chat_id]))
+                    except Exception as e:
+                        logger.warning(f"private_fallback_invite_failed: {e}")
+                        # Fallback: try AddChatUser (for small groups)
+                        with contextlib.suppress(Exception):
+                            from telethon.tl.functions.messages import AddChatUserRequest
+
+                            await telethon_client(AddChatUserRequest(chat_id=group_id, user_id=chat_id, fwd_limit=0))
+                    if invite_link:
+                        await telethon_client.send_message(
+                            chat_id, f"Join this group voice chat: {invite_link}\nOnce you join, I'll start talking."
+                        )
+                    # Start group call and run session there
+                    try:
+                        await start_group_voice_chat(tg_call, telethon_client, group_id)
+                    except Exception as e:
+                        # If group call already active, just join media
+                        logger.warning(f"group_voice_start_fallback: {e}")
+                        await _join_call_media(group_id)
+                    session = GroupSession(group_id, tg_call=tg_call, use_pipeline=True)
+                    active_sessions[group_id] = session
+                    try:
+                        await session.run()
+                    finally:
+                        active_sessions.pop(group_id, None)
+                        with contextlib.suppress(Exception):
+                            await tg_call.leave_call(group_id)
+                    logger.info("private_call_fallback_group_ended", extra={"call_id": chat_id, "group_id": group_id})
+                    return
+                except Exception as e:
+                    logger.error(f"private_fallback_failed: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
+                    # Fall through to try direct anyway (will be caught below)
+                    pass
+
+            # Normal path: group call or P2P that we still try direct
             session = VoiceCallSession(chat_id, tg_call=tg_call, use_pipeline=True)
             active_sessions[chat_id] = session
 
@@ -197,7 +282,20 @@ async def main():
                 await _join_call_media(chat_id)
                 await session.run()
             except Exception as e:
-                logger.error(f"call_session_error: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
+                err_str = str(e)
+                # Graceful handling for known Telegram layer incompatibility
+                if "CALL_PROTOCOL_COMPAT_LAYER_INVALID" in err_str or "406" in err_str:
+                    logger.error(
+                        f"call_protocol_layer_invalid: Telegram P2P layer mismatch — use group voice chat. {e}",
+                        extra={"call_id": chat_id, "error": str(e)},
+                    )
+                    with contextlib.suppress(Exception):
+                        await telethon_client.send_message(
+                            chat_id,
+                            "That private call failed (Telegram 406 layer). Please use group voice: create a group, add this account, and start a voice chat — I'll join instantly.",
+                        )
+                else:
+                    logger.error(f"call_session_error: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
             finally:
                 active_sessions.pop(chat_id, None)
                 call_locks.pop(chat_id, None)
@@ -206,9 +304,55 @@ async def main():
                 logger.info("call_ended", extra={"call_id": chat_id})
 
     async def _initiate_call(chat_id: int):
-        """Initiate an outgoing call to the owner."""
+        """Initiate an outgoing call to the owner.
+
+        For MVP, outgoing \"call me\" always uses a group voice chat (stable) even
+        if chat_id is a user. Direct P2P `play` on a user ID hits 406 layer.
+        """
         if chat_id in active_sessions:
             return
+
+        # If user ID (positive), route via group voice chat for reliability
+        is_private = chat_id > 0
+        if is_private:
+            logger.info("outgoing_private_fallback_to_group", extra={"call_id": chat_id})
+            try:
+                from nally.telegram.voice_call import (
+                    ensure_voice_chat_group,
+                    start_group_voice_chat,
+                    VoiceCallSession as GroupSession,
+                )
+
+                group_id, invite_link = await ensure_voice_chat_group(telethon_client)
+                try:
+                    from telethon.tl.functions.channels import InviteToChannelRequest
+
+                    await telethon_client(InviteToChannelRequest(channel=group_id, users=[chat_id]))
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        from telethon.tl.functions.messages import AddChatUserRequest
+
+                        await telethon_client(AddChatUserRequest(chat_id=group_id, user_id=chat_id, fwd_limit=0))
+                if invite_link:
+                    await telethon_client.send_message(chat_id, f"Calling you via group voice chat: {invite_link}\nJoin to talk.")
+                try:
+                    await start_group_voice_chat(tg_call, telethon_client, group_id)
+                except Exception as e:
+                    logger.warning(f"outgoing_group_start_failed: {e}")
+                    await _join_call_media(group_id)
+                session = GroupSession(group_id, tg_call=tg_call, use_pipeline=True)
+                active_sessions[group_id] = session
+                try:
+                    await session.run()
+                finally:
+                    active_sessions.pop(group_id, None)
+                    with contextlib.suppress(Exception):
+                        await tg_call.leave_call(group_id)
+                logger.info("outgoing_group_ended", extra={"call_id": chat_id, "group_id": group_id})
+                return
+            except Exception as e:
+                logger.error(f"outgoing_group_fallback_failed: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
+                # Fall through to direct attempt
 
         session = VoiceCallSession(chat_id, tg_call=tg_call, use_pipeline=True)
         active_sessions[chat_id] = session
@@ -217,6 +361,12 @@ async def main():
             await _join_call_media(chat_id)
             await session.run()
         except Exception as e:
+            err_str = str(e)
+            if "CALL_PROTOCOL_COMPAT_LAYER_INVALID" in err_str or "406" in err_str:
+                logger.error(f"outgoing_call_protocol_invalid: use group voice: {e}", extra={"call_id": chat_id})
+                with contextlib.suppress(Exception):
+                    await telethon_client.send_message(chat_id, "Outgoing private call failed (406). Use group voice chat instead.")
+            else:
                 logger.error(f"outgoing_call_error: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
         finally:
             active_sessions.pop(chat_id, None)
