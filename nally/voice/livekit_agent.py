@@ -90,13 +90,51 @@ def _wav_to_frames(wav_bytes: bytes, target_rate: int = OUTPUT_SAMPLE_RATE) -> l
         samples = samples.reshape(-1, num_channels).mean(axis=1)
 
     if sample_rate != target_rate:
-        n = int(round(len(samples) * target_rate / sample_rate))
-        if len(samples) > 1:
-            samples = np.interp(
-                np.linspace(0, len(samples) - 1, n),
-                np.arange(len(samples)),
-                samples,
-            )
+        # Free-tier TTS often 22050→48000: use proper resampler, not linear (hoarse + speed drift)
+        orig_len = len(samples)
+        n_expected = int(round(orig_len * target_rate / sample_rate))
+        resampled = None
+        # Try soxr HQ
+        try:
+            import soxr  # type: ignore
+
+            resampled = soxr.resample(samples, sample_rate, target_rate, quality="HQ")
+        except ImportError:
+            resampled = None
+        except Exception:
+            resampled = None
+        # Try scipy polyphase
+        if resampled is None:
+            try:
+                from scipy.signal import resample_poly  # type: ignore
+                import math
+
+                g = math.gcd(int(sample_rate), int(target_rate))
+                up = int(target_rate // g)
+                down = int(sample_rate // g)
+                resampled = resample_poly(samples, up, down, window=("kaiser", 5.0))
+            except ImportError:
+                resampled = None
+            except Exception:
+                resampled = None
+        # Fallback linear
+        if resampled is None:
+            n = n_expected
+            if len(samples) > 1:
+                resampled = np.interp(
+                    np.linspace(0, len(samples) - 1, n),
+                    np.arange(len(samples)),
+                    samples,
+                )
+            else:
+                resampled = samples
+        samples = resampled
+        # Ensure exact length for deterministic 20ms chunking
+        if len(samples) != n_expected:
+            if len(samples) > n_expected:
+                samples = samples[:n_expected]
+            else:
+                samples = np.pad(samples, (0, n_expected - len(samples)))
 
     int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
     chunk = int(target_rate * FRAME_DURATION)

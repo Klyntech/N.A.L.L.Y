@@ -7,11 +7,14 @@ Backend is selected via NALLY_TTS_BACKEND env var.
 Public API: speak(text), synthesize_to_wav(text)
 """
 
+import inspect
 import io
 import logging
 import struct
 import time
 import typing
+import urllib.request
+from pathlib import Path
 
 import numpy as np
 
@@ -198,27 +201,25 @@ class ElevenLabsBackend(TTSBackend):
             f"?model_id={model}&output_format=pcm_{eleven_sr}"
         )
 
-try:
-        import websockets
-        # Check if websockets.connect supports the 'proxy' parameter (added in v14)
-        proxy_supported = "proxy" in inspect.signature(websockets.connect).parameters
-    except Exception:
-        proxy_supported = False
+        try:
+            import websockets
+            # Check if websockets.connect supports the 'proxy' parameter (added in v14)
+            proxy_supported = "proxy" in inspect.signature(websockets.connect).parameters
+        except Exception:
+            proxy_supported = False
 
         try:
             t_conn = time.monotonic()
-            connect_kwargs: dict[str, object] = {
-                "uri",
+            async with websockets.connect(
+                uri,
                 additional_headers={"xi-api-key": api_key},
                 open_timeout=30,
                 ping_interval=20,
                 ping_timeout=10,
                 close_timeout=5,
-            }
-            if proxy_supported:
-                connect_kwargs["proxy"] = None  # disable Windows proxy probing
-            async with websockets.connect(**connect_kwargs) as ws:
-                logger.info(f"el_ws: connected in {time.monotonic() - t_conn:.1f}s")
+                **({"proxy": None} if proxy_supported else {}),
+            ) as ws:
+                logger.debug(f"el_ws: connected in {time.monotonic() - t_conn:.1f}s")
 
                 # 1. Send voice settings (init frame)
                 init_msg = json.dumps({
@@ -232,26 +233,27 @@ try:
                 })
                 await ws.send(init_msg)
                 await asyncio.sleep(0)  # yield to event loop — flush transport write buffer
-                logger.info("el_ws: sent_init")
+                logger.debug("el_ws: sent_init")
 
                 # 2. Send the full text
                 await ws.send(json.dumps({"text": text}))
                 await asyncio.sleep(0)
-                logger.info("el_ws: sent_text")
+                logger.debug("el_ws: sent_text")
 
                 # 3. Flush (signal end of input)
                 await ws.send(json.dumps({"text": "", "flush": True}))
                 await asyncio.sleep(0)
-                logger.info("el_ws: sent_flush")
+                logger.debug("el_ws: sent_flush")
 
                 # 4. Receive audio chunks and stream-resample to target rate.
                 #    Maintain an input accumulator so inter-chunk phase is
                 #    continuous — we only yield once we have a full 20ms output
                 #    chunk and keep leftover input samples for the next cycle.
                 input_acc = np.array([], dtype=np.int16)
-                out_chunk = int(target_sample_rate * 0.02)  # 960 samples @48k
+                out_chunk = int(target_sample_rate * 0.02)  # 960 samples @48k — exact 20ms, do not drift
                 ratio = eleven_sr / target_sample_rate       # ~0.459
-                needed_in = int(out_chunk * ratio) + 1      # ~442 input samples
+                # Exact input needed for one output chunk: 960 * 22050/48000 = 441
+                needed_in = int(round(out_chunk * eleven_sr / target_sample_rate))  # 441 @22050→48000
                 msg_count = 0
                 audio_bytes_in = 0
                 chunks_out = 0
@@ -271,7 +273,7 @@ try:
                     if first_audio_at is not None:
                         remaining = WS_SILENCE_TIMEOUT - (time.monotonic() - last_data_at)
                         if remaining <= 0:
-                            logger.info(
+                            logger.debug(
                                 f"el_ws: silence after audio — stream complete "
                                 f"(msgs={msg_count} chunks_out={chunks_out})"
                             )
@@ -298,7 +300,7 @@ try:
                             )
                             break
                         # Got audio earlier but silence now — stream done
-                        logger.info(
+                        logger.debug(
                             f"el_ws: recv timeout after audio — stream complete "
                             f"(msgs={msg_count} chunks_out={chunks_out})"
                         )
@@ -313,48 +315,53 @@ try:
                     if audio_b64:
                         if first_audio_at is None:
                             first_audio_at = time.monotonic()
-                            logger.info(f"el_ws: first_audio in {first_audio_at - t_conn:.1f}s")
+                            logger.debug(f"el_ws: first_audio in {first_audio_at - t_conn:.1f}s")
                         chunk_pcm = np.frombuffer(
                             base64.b64decode(audio_b64), dtype=np.int16
                         )
                         input_acc = np.append(input_acc, chunk_pcm)
                         audio_bytes_in += len(chunk_pcm) * 2
 
-                    # Emit as many 20ms output chunks as we can
+                    # Emit as many 20ms output chunks as we can — use
+                    # high-quality resampler (soxr/scipy) not linear interp.
+                    # Each 20ms @48k = 960 samples needs ~442 @22050; we slice
+                    # exactly needed_in and resample to out_chunk for phase-continuous
+                    # output, then emit strictly 960-sample frames.
                     while len(input_acc) >= needed_in:
-                        src = np.linspace(
-                            0, len(input_acc) - 1, out_chunk
+                        window = input_acc[:needed_in]
+                        # Use shared helper for quality: soxr > scipy > linear
+                        resampled_bytes = _resample_pcm(
+                            window.tobytes(), eleven_sr, target_sample_rate
                         )
-                        resampled = np.interp(
-                            src,
-                            np.arange(len(input_acc)),
-                            input_acc.astype(np.float32),
-                        ).astype(np.int16)
+                        # _resample_pcm may be slightly off due to filter delay; force 960
+                        resampled = np.frombuffer(resampled_bytes, dtype=np.int16)
+                        if len(resampled) != out_chunk:
+                            if len(resampled) > out_chunk:
+                                resampled = resampled[:out_chunk]
+                            else:
+                                resampled = np.pad(
+                                    resampled, (0, out_chunk - len(resampled))
+                                )
                         yield resampled.tobytes()
                         chunks_out += 1
-                        # Consume input up to the last interpolated position
-                        consumed = int(src[-1]) + 1
-                        input_acc = input_acc[consumed:]
+                        input_acc = input_acc[needed_in:]
 
                     if data.get("isFinal"):
                         break
 
-                logger.info(
+                logger.debug(
                     f"el_ws: done msgs={msg_count} audio_in={audio_bytes_in} "
                     f"chunks_out={chunks_out} tail={len(input_acc)}"
                 )
 
-                # Flush any remaining input samples (< 20ms tail)
+                # Flush any remaining input samples (< 20ms tail) — resample once
+                # to keep total duration exact (avoids fast/slow drift).
                 if len(input_acc) > 0:
-                    src = np.linspace(
-                        0, len(input_acc) - 1, len(input_acc)
+                    tail_bytes = _resample_pcm(
+                        input_acc.tobytes(), eleven_sr, target_sample_rate
                     )
-                    tail = np.interp(
-                        src,
-                        np.arange(len(input_acc)),
-                        input_acc.astype(np.float32),
-                    ).astype(np.int16)
-                    yield tail.tobytes()
+                    if tail_bytes:
+                        yield tail_bytes
 
         except Exception as e:
             logger.warning(f"ElevenLabs WS streaming failed ({type(e).__name__}: {e}); fallback to HTTP")
@@ -604,9 +611,61 @@ def _wav_to_pcm(wav_bytes: bytes) -> tuple[bytes, int]:
 
 
 def _resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
-    """Resample raw int16 mono PCM from src_rate to dst_rate via linear interp."""
+    """Resample raw int16 mono PCM from src_rate to dst_rate.
+
+    Free-tier ElevenLabs only offers pcm_22050 (or mp3), so 22050→48000 is the
+    hot path.  Linear ``np.interp`` is hoarse and changes duration — use a
+    proper polyphase resampler.
+
+    Priority:
+      1. soxr (best quality, light) — ``pip install soxr``
+      2. scipy.signal.resample_poly (good, already in many envs)
+      3. linear interp fallback (kept for minimal envs)
+    """
     if src_rate == dst_rate or not pcm_int16:
         return pcm_int16
+    # Fast path for empty / single sample
+    audio_len = len(pcm_int16) // 2
+    if audio_len < 2:
+        return pcm_int16
+    # Try soxr first (HQ)
+    try:
+        import soxr  # type: ignore
+
+        # soxr expects float32 in [-1, 1]
+        audio_f32 = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32) / 32768.0
+        # soxr.resample(x, in_rate, out_rate, quality='HQ')
+        out_f32 = soxr.resample(audio_f32, src_rate, dst_rate, quality="HQ")
+        out_f32 = np.clip(out_f32, -1.0, 1.0)
+        return (out_f32 * 32767).astype(np.int16).tobytes()
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"soxr resample failed ({e}), trying scipy")
+    # Try scipy polyphase
+    try:
+        from scipy.signal import resample_poly  # type: ignore
+        import math
+
+        audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
+        g = math.gcd(int(src_rate), int(dst_rate))
+        up = int(dst_rate // g)
+        down = int(src_rate // g)
+        # Kaiser window 5.0 is a good tradeoff for speech
+        resampled = resample_poly(audio, up, down, window=("kaiser", 5.0))
+        # resample_poly can produce slightly longer/shorter due to filter delay;
+        # trim/pad to exact expected length for deterministic chunking downstream.
+        expected = int(round(len(audio) * dst_rate / src_rate))
+        if len(resampled) > expected:
+            resampled = resampled[:expected]
+        elif len(resampled) < expected:
+            resampled = np.pad(resampled, (0, expected - len(resampled)))
+        return np.clip(resampled, -32768, 32767).astype(np.int16).tobytes()
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"scipy resample failed ({e}), falling back to linear")
+    # Fallback: linear interp (original, hoarse but functional)
     audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
     n_dst = int(round(len(audio) * dst_rate / src_rate))
     if n_dst <= 0:
@@ -614,7 +673,7 @@ def _resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
     resampled = np.interp(
         np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio
     )
-    return resampled.astype(np.int16).tobytes()
+    return np.clip(resampled, -32768, 32767).astype(np.int16).tobytes()
 
 
 def _piper_pcm(text: str, target_sample_rate: int) -> bytes | None:

@@ -98,29 +98,38 @@ async def main():
     await tg_call.start()
     logger.info("pytgcalls_started")
 
+    # ── Preload Silero VAD at process startup (before any call) ──
+    # This is the biggest startup race fix: pipeline.start() previously did
+    # `stt.connect() → load Silero (15-20s block) → spawn workers`, leaving
+    # Deepgram with no audio for 17s → NET-0001.  Preloading here makes the
+    # first call's pipeline.start() instant.
+    logger.info("preloading_silero_vad")
+    try:
+        import nally.voice.pipeline as _pipe_mod
+        if not getattr(_pipe_mod, "_vad_loaded", False):
+            from silero_vad import load_silero_vad
+
+            # to_thread so we don't block the event loop during model load
+            _pipe_mod._vad_model = await asyncio.to_thread(load_silero_vad, onnx=True)
+            _pipe_mod._vad_loaded = True
+            logger.info("silero_vad_preloaded")
+        else:
+            logger.info("silero_vad_preloaded_cached")
+    except Exception as e:
+        logger.warning("silero_vad_preload_failed", extra={"error": str(e)})
+
     # ── Pre-warm greeting cache (zero-latency on call start) ──
     from nally.telegram.voice_call import _greeting_cache
     logger.info("warming_greeting_cache")
     await _greeting_cache.warm()
 
-    # ── Pre-warm STT + TTS WebSocket connections (avoid handshake delay during call) ──
-    from nally.config import DEEPGRAM_API_KEY, ELEVENLABS_API_KEY
+    # ── Pre-warm TTS WebSocket (STT is per-call with immediate silence, so no prewarm needed) ──
+    from nally.config import ELEVENLABS_API_KEY
     async def _warm_connections():
-        # Deepgram — open WebSocket now so it's ready when call arrives
-        if DEEPGRAM_API_KEY:
-            try:
-                from nally.voice.stt import DeepgramStreamingSTT
-                stt = DeepgramStreamingSTT(DEEPGRAM_API_KEY)
-                ok = await stt.connect()
-                if ok:
-                    logger.info("deepgram_prewarmed")
-                    # Keep connection alive with a keepalive, then close
-                    # (the actual call will create its own connection)
-                    await stt.close()
-                else:
-                    logger.warning("deepgram_prewarm_failed")
-            except Exception as e:
-                logger.warning("deepgram_prewarm_error", extra={"error": str(e)})
+        # Deepgram is now connected per-call with immediate 100ms binary silence
+        # (see stt.py) and Silero is preloaded above, so no Deepgram prewarm
+        # is needed — the previous open+close pattern didn't help and just
+        # added log noise.
 
         # ElevenLabs — test WebSocket connectivity
         if ELEVENLABS_API_KEY:
@@ -241,23 +250,36 @@ async def main():
             if isinstance(update, StreamFrames):
                 if not _first_frame_logged[0]:
                     _first_frame_logged[0] = True
+                    # Clinton debug tip: log size + first bytes to confirm real audio arriving
+                    _sample_frame = update.frames[0].frame if update.frames else b""
+                    _preview = _sample_frame[:8].hex() if _sample_frame else "empty"
                     logger.info("first_stream_frame", extra={
                         "call_id": chat_id,
                         "direction": str(update.direction),
                         "device": str(update.device),
                         "has_session": session is not None,
+                        "frame_count": len(update.frames),
+                        "frame_bytes": len(_sample_frame),
+                        "preview_hex": _preview,
                     })
 
                 # Only feed INCOMING (remote user) audio into STT. Our own TTS
                 # is OUTGOING and must never be transcribed (feedback loop).
                 # feed_frame() downmixes stereo->mono for the pipeline.
+                # Critical: never send empty bytes — Deepgram ignores them and
+                # they don't reset the idle timer (NET-0001).
                 if update.direction == Direction.INCOMING and update.device in (
                     Device.MICROPHONE,
                     Device.SPEAKER,
                 ):
                     if session:
                         for frame in update.frames:
-                            session.feed_frame(frame.frame)
+                            pcm = frame.frame
+                            if not pcm or len(pcm) == 0:
+                                continue
+                            # Log first few frames for debugging (per Clinton tip)
+                            # session.feed_frame handles stereo->mono downmix.
+                            session.feed_frame(pcm)
                 return
 
             if isinstance(update, StreamEnded):

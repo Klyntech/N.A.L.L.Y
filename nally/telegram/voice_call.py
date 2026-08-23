@@ -266,6 +266,12 @@ class VoiceCallSession:
         # LLM has context across turns without touching the text-agent brain.
         self._voice_history: list[dict] = []
         self._heartbeat_task: asyncio.Task | None = None
+        # Early-frame buffer: frames arriving before Deepgram pipeline is ready
+        # are queued here (max ~1s) and flushed right after the pipeline
+        # connects, so the first user utterance isn't lost and Deepgram gets
+        # binary audio within 1-2s of opening the socket (avoids NET-0001).
+        self._pending_frames: list[bytes] = []
+        self._pending_frames_max = 50  # ~1s at 20ms frames
 
     # ── emit bridge (agent thread → event loop) ──
 
@@ -528,11 +534,40 @@ class VoiceCallSession:
         return mono.tobytes()
 
     def feed_frame(self, frame_bytes: bytes):
-        """Feed an incoming audio frame into the pipeline (non-blocking)."""
-        if self._pipeline is not None:
-            # Inbound Telegram frames are stereo; the STT/VAD pipeline wants mono.
-            mono = self._stereo_to_mono(frame_bytes)
+        """Feed an incoming audio frame into the pipeline (non-blocking).
+
+        Frames arriving before the pipeline/Deepgram is ready are buffered
+        (max ~1s) and flushed once the pipeline connects, so the first
+        utterance isn't lost and Deepgram receives binary audio within 1-2s
+        (avoids the NET-0001 idle timeout).
+        """
+        if not frame_bytes or len(frame_bytes) == 0:
+            return
+        # Inbound Telegram frames are stereo; the STT/VAD pipeline wants mono.
+        mono = self._stereo_to_mono(frame_bytes)
+        if not mono or len(mono) == 0:
+            return
+        # If pipeline is ready and STT is connected (or reconnecting, where
+        # pipeline queues frames), forward immediately.
+        if (
+            self._pipeline is not None
+            and self._pipeline.running
+            and (self._pipeline.stt.connected or getattr(self._pipeline.stt, "_reconnecting", False))
+        ):
             self._pipeline.feed_audio(mono)
+            # Also flush any pending frames that arrived early (should be empty now).
+            if self._pending_frames:
+                for pending in self._pending_frames:
+                    self._pipeline.feed_audio(pending)
+                self._pending_frames.clear()
+        else:
+            # Buffer early frames until pipeline is ready (avoid NET-0001 + lost speech).
+            if len(self._pending_frames) < self._pending_frames_max:
+                self._pending_frames.append(mono)
+            # If pipeline exists but isn't yet connected, still try to queue
+            # (pipeline.feed_audio handles disconnect buffering).
+            elif self._pipeline is not None and self._pipeline.running:
+                self._pipeline.feed_audio(mono)
 
     # ── Main loop ──
 
@@ -540,6 +575,16 @@ class VoiceCallSession:
         """Main voice chat loop: pipeline-driven streaming with barge-in."""
         self._active = True
         self._heartbeat_task = None
+
+        # 2. Start pipeline BEFORE greeting so Deepgram warms while greeting
+        # plays.  This ensures the first user utterance isn't lost and the
+        # Deepgram socket gets binary audio within 1-2s (avoids NET-0001).
+        # The pipeline is started in background so greeting has zero-latency.
+        if self._use_pipeline:
+            from ..voice.pipeline import VoicePipeline  # noqa: F401
+
+            self._pipeline = self._build_pipeline()
+            asyncio.create_task(self._start_pipeline_bg())
 
         # 1. Send greeting IMMEDIATELY via _send_frame (no pipeline needed)
         cached = _greeting_cache.get()
@@ -563,13 +608,6 @@ class VoiceCallSession:
                 if not self._active:
                     break
                 await self._send_frame(tone[i:i + chunk_step].tobytes())
-
-        # 2. Start pipeline in background (non-blocking — Deepgram connect can take 10s+)
-        if self._use_pipeline:
-            from ..voice.pipeline import VoicePipeline
-
-            self._pipeline = self._build_pipeline()
-            asyncio.create_task(self._start_pipeline_bg())
 
         # 3. Start heartbeat (2s interval) — replaces all per-frame diagnostics
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -622,7 +660,15 @@ class VoiceCallSession:
         try:
             ok = await self._pipeline.start()
             if ok:
-                logger.info("pipeline_started", extra={"call_id": self._chat_id})
+                # Flush any frames that arrived before the pipeline was ready
+                # so Deepgram gets audio within 1-2s of connecting.
+                pending = len(self._pending_frames)
+                if pending:
+                    for p in self._pending_frames:
+                        self._pipeline.feed_audio(p)
+                    self._pending_frames.clear()
+                    logger.info("pipeline_pending_flushed", extra={"call_id": self._chat_id, "flushed": pending})
+                logger.info("pipeline_started", extra={"call_id": self._chat_id, "pending_flushed": pending})
             else:
                 logger.warning("pipeline_stt_failed", extra={"call_id": self._chat_id})
         except Exception as e:
@@ -652,6 +698,7 @@ class VoiceCallSession:
     def stop(self):
         """Stop the call session and pipeline."""
         self._active = False
+        self._pending_frames.clear()
         if self._heartbeat_task is not None:
             self._heartbeat_task.cancel()
             self._heartbeat_task = None

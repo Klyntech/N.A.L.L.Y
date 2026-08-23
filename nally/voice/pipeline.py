@@ -47,19 +47,58 @@ _vad_loaded = False
 
 
 def resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
-    """Resample raw int16 mono PCM using linear interpolation."""
+    """Resample raw int16 mono PCM using high-quality polyphase.
+
+    Telegram capture is 48k, Deepgram expects 16k (3:1).  Linear interp is
+    hoarse and aliases — use soxr/scipy when available.
+    Mirrors nally.voice.tts._resample_pcm but kept local to avoid import cycle.
+    """
     if src_rate == dst_rate or not pcm_int16:
         return pcm_int16
-    audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
-    if len(audio) < 2:
+    audio_len = len(pcm_int16) // 2
+    if audio_len < 2:
         return pcm_int16
+    # Try soxr (HQ)
+    try:
+        import soxr  # type: ignore
+
+        audio_f32 = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32) / 32768.0
+        out_f32 = soxr.resample(audio_f32, src_rate, dst_rate, quality="HQ")
+        out_f32 = np.clip(out_f32, -1.0, 1.0)
+        return (out_f32 * 32767).astype(np.int16).tobytes()
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    # Try scipy polyphase
+    try:
+        from scipy.signal import resample_poly  # type: ignore
+        import math
+
+        audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
+        g = math.gcd(int(src_rate), int(dst_rate))
+        up = int(dst_rate // g)
+        down = int(src_rate // g)
+        resampled = resample_poly(audio, up, down, window=("kaiser", 5.0))
+        expected = int(round(len(audio) * dst_rate / src_rate))
+        if len(resampled) > expected:
+            resampled = resampled[:expected]
+        elif len(resampled) < expected:
+            resampled = np.pad(resampled, (0, expected - len(resampled)))
+        return np.clip(resampled, -32768, 32767).astype(np.int16).tobytes()
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    # Fallback linear
+    audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
     n_dst = int(round(len(audio) * dst_rate / src_rate))
     if n_dst <= 0:
         return b""
     resampled = np.interp(
         np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio
     )
-    return resampled.astype(np.int16).tobytes()
+    return np.clip(resampled, -32768, 32767).astype(np.int16).tobytes()
 
 
 class VoicePipeline:
@@ -108,23 +147,26 @@ class VoicePipeline:
         if self._running:
             return True
 
-        stt_ok = await self.stt.connect()
-        if not stt_ok:
-            inc_error("stt_connect")
-            logger.error("pipeline_stt_unavailable", extra={"action": "transcription_disabled"})
-
-        # Load Silero VAD once at module level — reused across all calls.
+        # 1. Load Silero VAD FIRST — before opening Deepgram, so the socket
+        # doesn't sit idle for 15-20s while torch loads the model (NET-0001).
+        # This is the root cause of the 19s gap in the logs.
         global _vad_model, _vad_loaded
         if not _vad_loaded:
             try:
                 from silero_vad import load_silero_vad
-                _vad_model = load_silero_vad(onnx=True)
+                _vad_model = await asyncio.to_thread(load_silero_vad, onnx=True)
                 _vad_loaded = True
                 logger.info("silero_vad_loaded")
             except Exception as e:
                 logger.warning("silero_vad_load_failed", extra={"error": str(e)})
                 _vad_loaded = True  # Don't retry
         self._vad_model = _vad_model
+
+        # 2. Connect STT — now workers can send audio immediately after connect
+        stt_ok = await self.stt.connect()
+        if not stt_ok:
+            inc_error("stt_connect")
+            logger.error("pipeline_stt_unavailable", extra={"action": "transcription_disabled"})
 
         self._running = True
         self._tasks = [
@@ -210,14 +252,48 @@ class VoicePipeline:
     # ── Worker 1: STT ingest + VAD ──
 
     async def _stt_ingest_worker(self):
+        _frames_logged = 0
         while self._running:
             try:
                 frame = await self._inbound.get()
             except asyncio.CancelledError:
                 raise
 
+            # Clinton debug tip: log size + first bytes of every frame so we can
+            # confirm real audio is arriving (and catch empty/invalid frames).
+            if _frames_logged < 3:
+                _frames_logged += 1
+                preview = frame[:8].hex() if frame else "empty"
+                logger.info(
+                    "pipeline_frame",
+                    extra={
+                        "frame_bytes": len(frame),
+                        "preview_hex": preview,
+                        "sample_rate": self.sample_rate,
+                        "expected_48k": self.sample_rate == 48000,
+                    },
+                )
+            # Guard empty frames — never send empty bytes to Deepgram, they don't
+            # reset the idle timer and can be treated as invalid.
+            if not frame or len(frame) == 0:
+                continue
+
             # Resample 48k -> 16k for Deepgram.
+            # Ensure resampled audio is linear16 mono @ stt_sample_rate as Deepgram expects.
             resampled = resample_pcm(frame, self.sample_rate, self.stt_sample_rate)
+            if not resampled or len(resampled) == 0:
+                continue
+            # Optional throttle: log resampled size for first few frames.
+            if _frames_logged <= 3:
+                logger.debug(
+                    "pipeline_resampled",
+                    extra={
+                        "src_bytes": len(frame),
+                        "dst_bytes": len(resampled),
+                        "src_rate": self.sample_rate,
+                        "dst_rate": self.stt_sample_rate,
+                    },
+                )
             await self.stt.send_audio(resampled)
 
             # Silero VAD on 48k buffer for barge-in. Run in a worker thread
@@ -323,7 +399,7 @@ class VoicePipeline:
             try:
                 buf = ""
                 tok_count = 0
-                logger.info(f"tts_worker: processing transcript: {transcript[:80]!r}")
+                logger.debug(f"tts_worker: processing transcript: {transcript[:80]!r}")
                 async for tok in self.on_transcript(transcript):
                     # Barge-in cancelled mid-generation -> drop the rest.
                     if self._tts_cancel.is_set():
@@ -336,10 +412,10 @@ class VoicePipeline:
                     tok_count += 1
                     buf += tok
                     if self._should_flush(buf):
-                        logger.info(f"tts_worker: flushing {len(buf)}-char turn ({tok_count} tokens)")
+                        logger.debug(f"tts_worker: flushing {len(buf)}-char turn ({tok_count} tokens)")
                         await self._synthesize_turn(buf.strip())
                         buf = ""
-                logger.info(f"tts_worker: generator done, {tok_count} tokens, buf={len(buf)} chars")
+                logger.debug(f"tts_worker: generator done, {tok_count} tokens, buf={len(buf)} chars")
                 if buf.strip():
                     await self._synthesize_turn(buf.strip())
             except Exception as e:
@@ -351,7 +427,7 @@ class VoicePipeline:
 
     async def _synthesize_turn(self, text: str):
         """Synthesize one transcript and stream chunks to the outbound queue."""
-        logger.info(f"tts_synth: start ({len(text)} chars): {text[:60]!r}...")
+        logger.debug(f"tts_synth: start ({len(text)} chars): {text[:60]!r}...")
         self.bargein.set_agent_speaking(True)
         started = time.monotonic()
         first_chunk_at = None
@@ -389,7 +465,7 @@ class VoicePipeline:
             elapsed = time.monotonic() - started
             if sent_any and first_chunk_at is not None:
                 record_pipeline_latency(time.monotonic() - started)
-            logger.info(
+            logger.debug(
                 f"tts_synth: done chunks={chunk_count} bytes={total_bytes} "
                 f"sent={sent_any} elapsed={elapsed:.3f}s"
             )
@@ -410,7 +486,7 @@ class VoicePipeline:
                     chunk_count += 1
                     total_bytes += len(chunk)
                     yield chunk
-                logger.info(f"tts_stream: streaming path delivered {chunk_count} chunks ({total_bytes} bytes)")
+                logger.debug(f"tts_stream: streaming path delivered {chunk_count} chunks ({total_bytes} bytes)")
                 return
             except Exception as e:
                 logger.warning("tts_streaming_failed", extra={"error": str(e), "action": "fallback"})
@@ -426,7 +502,7 @@ class VoicePipeline:
             pcm, sr = _wav_to_pcm(wav)
             if sr != self.sample_rate:
                 pcm = _resample_pcm(pcm, sr, self.sample_rate)
-            logger.info(f"tts_stream: fallback path delivered {len(pcm)} bytes")
+            logger.debug(f"tts_stream: fallback path delivered {len(pcm)} bytes")
             yield pcm
         except Exception as e:
             inc_error("tts_synth")

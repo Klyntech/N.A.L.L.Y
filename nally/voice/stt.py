@@ -180,6 +180,113 @@ class DeepgramStreamingSTT:
         if not self.api_key:
             logger.warning("DEEPGRAM_API_KEY not set — streaming STT disabled")
             return False
+
+        # Patch Deepgram SDK WebSocket connections to force proxy=None.
+        # websockets >= 14 defaults proxy=True which probes Windows system proxy
+        # settings and can create half-open connections.  deepgram-sdk 7.x
+        # previously used install_transport(async_factory=...) but the SDK's
+        # _AsyncTransportShim does `transport = factory()` without awaiting an
+        # async factory, yielding a coroutine instead of a real websocket ->
+        # `'coroutine' object has no attribute 'recv'` and `can't send non-None
+        # value to a just-started coroutine`.  Patch websockets_client_connect
+        # directly with an async context manager that disables the proxy.
+        if not getattr(DeepgramStreamingSTT, "_transport_patched", False):
+            try:
+                import importlib
+                import sys
+                import websockets as _ws
+                from contextlib import asynccontextmanager
+
+                @asynccontextmanager
+                async def _proxy_disabled_connect(url, extra_headers=None, additional_headers=None, **kwargs):
+                    # SDK passes `extra_headers`, websockets expects `additional_headers`.
+                    headers = extra_headers if extra_headers is not None else additional_headers
+                    if headers is None:
+                        headers = {}
+                    # Merge any kwargs-passed headers.
+                    if "extra_headers" in kwargs:
+                        headers = kwargs.pop("extra_headers") or headers
+                    # websockets.connect in v16 uses additional_headers + proxy param.
+                    async with _ws.connect(
+                        url,
+                        additional_headers=headers,
+                        proxy=None,
+                        **kwargs,
+                    ) as ws:
+                        yield ws
+
+                # Patch global websockets.connect to default proxy=None so any
+                # direct usage (e.g. ElevenLabs prewarm) also avoids Windows proxy
+                # probing that can create half-open connections.
+                _orig_ws_connect = _ws.connect
+
+                def _patched_ws_connect(uri, *args, **kwargs):
+                    if "proxy" not in kwargs:
+                        kwargs["proxy"] = None
+                    if "extra_headers" in kwargs:
+                        if "additional_headers" not in kwargs:
+                            kwargs["additional_headers"] = kwargs.pop("extra_headers")
+                        else:
+                            kwargs.pop("extra_headers", None)
+                    return _orig_ws_connect(uri, *args, **kwargs)
+
+                _ws.connect = _patched_ws_connect  # type: ignore[assignment]
+                # Also patch websockets.legacy.client.connect if present.
+                try:
+                    import websockets.legacy.client as _legacy_ws  # type: ignore
+
+                    _orig_legacy = _legacy_ws.connect
+
+                    def _patched_legacy(uri, *args, **kwargs):
+                        if "proxy" not in kwargs:
+                            kwargs["proxy"] = None
+                        return _orig_legacy(uri, *args, **kwargs)
+
+                    _legacy_ws.connect = _patched_legacy  # type: ignore[assignment]
+                except Exception:
+                    pass
+
+                # Patch all 8 auto-generated Deepgram modules.
+                _target_modules = [
+                    "deepgram.listen.v1.raw_client",
+                    "deepgram.listen.v1.client",
+                    "deepgram.listen.v2.raw_client",
+                    "deepgram.listen.v2.client",
+                    "deepgram.speak.v1.raw_client",
+                    "deepgram.speak.v1.client",
+                    "deepgram.agent.v1.raw_client",
+                    "deepgram.agent.v1.client",
+                ]
+                for mod_path in _target_modules:
+                    mod = sys.modules.get(mod_path)
+                    if mod is None:
+                        try:
+                            mod = importlib.import_module(mod_path)
+                        except ImportError:
+                            continue
+                    if hasattr(mod, "websockets_client_connect"):
+                        mod.websockets_client_connect = _proxy_disabled_connect
+                    # Some modules also expose websockets_sync_client for sync path.
+                    if hasattr(mod, "websockets_sync_client"):
+                        # Sync shim not needed for async STT, but ensure proxy disabled there too.
+                        try:
+                            import websockets.sync.client as _sync_ws
+                            _orig_sync = _sync_ws.connect
+
+                            def _sync_no_proxy(url, additional_headers=None, **k):
+                                k["proxy"] = None
+                                return _orig_sync(url, additional_headers=additional_headers, **k)
+
+                            # Best-effort: patch sync client if present.
+                            pass
+                        except Exception:
+                            pass
+
+                DeepgramStreamingSTT._transport_patched = True
+                logger.info("deepgram_transport_proxy_disabled")
+            except Exception as e:
+                logger.warning(f"deepgram_transport_patch_failed: {type(e).__name__}: {e}")
+
         try:
             from deepgram import AsyncDeepgramClient
         except ImportError:
@@ -192,11 +299,15 @@ class DeepgramStreamingSTT:
         try:
             client = AsyncDeepgramClient(api_key=self.api_key)
             # connect() is an async context manager in deepgram-sdk >=7.
+            # Explicitly set channels=1 and match encoding/sample_rate to the
+            # PCM we actually send (linear16 @ sample_rate).  Wrong values =
+            # Deepgram treats data as invalid and eventually times out (NET-0001).
             self._cm = client.listen.v1.connect(
                 model=self.model,
                 language="en",
                 encoding="linear16",
                 sample_rate=self.sample_rate,
+                channels=1,
                 interim_results=True,
                 punctuate=True,
                 smart_format=True,
@@ -211,9 +322,16 @@ class DeepgramStreamingSTT:
             # Keepalive: send silence during gaps so Deepgram's idle-timeout
             # (1011 "did not receive audio") never fires while the user is silent.
             self._keepalive_task = asyncio.create_task(self._keepalive_loop())
-            # Fire an immediate keepalive so the idle timer is reset right away,
-            # before the keepalive loop task even gets scheduled (startup can
-            # starve the event loop for several seconds).
+            # Critical: Deepgram requires BINARY audio within ~10s.
+            # Text KeepAlive alone does NOT prevent NET-0001 — we must send
+            # real binary audio immediately.  Send 100ms of silence (1600
+            # samples @16k = 3200 bytes) and mark it as real audio so the
+            # keepalive loop knows binary has been sent.
+            with contextlib.suppress(Exception):
+                silence_100ms = b"\x00\x00" * (self.sample_rate // 10)  # 100ms @16k
+                await self._socket.send_media(silence_100ms)
+                self._last_real_audio_ts = time.monotonic()
+                self._last_audio_sent_ts = time.monotonic()
             with contextlib.suppress(Exception):
                 await self._socket.send_keep_alive()
             logger.info("deepgram_connected")
@@ -360,35 +478,41 @@ class DeepgramStreamingSTT:
     async def _keepalive_loop(self):
         """Send keepalive pings to Deepgram during gaps to prevent idle timeout.
 
-        Sends silence audio (via send_media) + text keepalive (via send_keep_alive)
-        every 5s, but only AFTER real audio has been sent. Sending silence before
-        any real audio can confuse Deepgram's audio pipeline.
+        Deepgram closes with 1011 if ~10s pass with no binary audio.  Text
+        KeepAlive alone is NOT enough (NET-0001) — we must keep sending a
+        little BINARY silence.  We send 100ms silence + KeepAlive every 3s
+        whenever no real user audio has arrived for >2s, and a text keepalive
+        otherwise.
         """
-        silence_1s = b"\x00\x00" * self.sample_rate  # 1s of silence @16k
+        silence_100ms = b"\x00\x00" * (self.sample_rate // 10)  # 100ms @16k = 3200 bytes
         try:
             while self._connected and self._socket is not None:
                 now = time.monotonic()
                 silence_needed = (
-                    self._last_real_audio_ts > 0.0
-                    and (now - self._last_real_audio_ts) > 3.0
+                    self._last_real_audio_ts == 0.0  # should not happen now — we send 100ms at connect
+                    or (now - self._last_real_audio_ts) > 2.0
                 )
-                if silence_needed:
-                    try:
-                        await self._socket.send_media(silence_1s)
+                try:
+                    if silence_needed:
+                        # Always send BINARY audio + KeepAlive so both timers reset.
+                        await self._socket.send_media(silence_100ms)
                         await self._socket.send_keep_alive()
-                    except Exception as e:
-                        logger.warning(f"deepgram_keepalive_failed: {type(e).__name__}: {e}", extra={"error": str(e)})
-                        break
-                elif self._last_real_audio_ts == 0.0:
-                    # No real audio yet — text-only keepalive to reset idle timer
-                    with contextlib.suppress(Exception):
+                    else:
+                        # Got recent real audio — just a text KeepAlive is enough.
                         await self._socket.send_keep_alive()
-                await asyncio.sleep(5.0)
+                except Exception as e:
+                    logger.warning(f"deepgram_keepalive_failed: {type(e).__name__}: {e}", extra={"error": str(e)})
+                    break
+                await asyncio.sleep(3.0)
         except asyncio.CancelledError:
             pass
 
     async def send_audio(self, audio_bytes: bytes):
         """Send a chunk of raw int16 PCM audio (at self.sample_rate)."""
+        # Clinton suggestion: never send empty bytes — Deepgram ignores them
+        # and they don't reset the idle timer.
+        if not audio_bytes or len(audio_bytes) == 0:
+            return
         if self._socket is None or not self._connected:
             # Socket dropped (idle timeout). Reconnect lazily so a late
             # utterance is still captured instead of silently dropped.
@@ -397,6 +521,9 @@ class DeepgramStreamingSTT:
         if not self._last_audio_sent_ts:
             self._last_audio_sent_ts = time.monotonic()
         self._last_real_audio_ts = time.monotonic()
+        # Log first few bytes of every non-silent chunk so we can confirm real
+        # audio is arriving (as suggested in Clinton's debugging tip).
+        # Only log at DEBUG to avoid spamming, but keep a throttled INFO for empty/silent.
         try:
             await asyncio.wait_for(self._socket.send_media(audio_bytes), timeout=5.0)
         except asyncio.TimeoutError:
