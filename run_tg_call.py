@@ -234,29 +234,31 @@ async def main():
                     )
 
                     group_id, invite_link = await ensure_voice_chat_group(telethon_client)
-                    # Invite user to group (try both legacy and channel invite)
-                    try:
-                        from telethon.tl.functions.channels import InviteToChannelRequest
-
-                        await telethon_client(InviteToChannelRequest(channel=group_id, users=[chat_id]))
-                    except Exception as e:
-                        logger.warning(f"private_fallback_invite_failed: {e}")
-                        # Fallback: try AddChatUser (for small groups)
-                        with contextlib.suppress(Exception):
-                            from telethon.tl.functions.messages import AddChatUserRequest
-
-                            await telethon_client(AddChatUserRequest(chat_id=group_id, user_id=chat_id, fwd_limit=0))
+                    # For MVP, don't try programmatic invite (fails if user not in contacts / privacy).
+                    # Just send the invite link — user taps to join, which is reliable.
                     if invite_link:
-                        await telethon_client.send_message(
-                            chat_id, f"Join this group voice chat: {invite_link}\nOnce you join, I'll start talking."
-                        )
+                        with contextlib.suppress(Exception):
+                            await telethon_client.send_message(
+                                chat_id,
+                                f"Join this group voice chat: {invite_link}\nOnce you join, I'll start talking.",
+                            )
+                    else:
+                        with contextlib.suppress(Exception):
+                            await telethon_client.send_message(
+                                chat_id,
+                                "Voice chat ready — open the 'Nally Voice' group and join the voice chat.",
+                            )
                     # Start group call and run session there
                     try:
                         await start_group_voice_chat(tg_call, telethon_client, group_id)
                     except Exception as e:
                         # If group call already active, just join media
-                        logger.warning(f"group_voice_start_fallback: {e}")
-                        await _join_call_media(group_id)
+                        logger.debug(f"group_voice_start_fallback: {e}")
+                        try:
+                            await _join_call_media(group_id)
+                        except Exception as je:
+                            logger.warning(f"group_join_media_failed: {je}")
+                            raise
                     session = GroupSession(group_id, tg_call=tg_call, use_pipeline=True)
                     active_sessions[group_id] = session
                     try:
@@ -324,22 +326,22 @@ async def main():
                 )
 
                 group_id, invite_link = await ensure_voice_chat_group(telethon_client)
-                try:
-                    from telethon.tl.functions.channels import InviteToChannelRequest
-
-                    await telethon_client(InviteToChannelRequest(channel=group_id, users=[chat_id]))
-                except Exception:
-                    with contextlib.suppress(Exception):
-                        from telethon.tl.functions.messages import AddChatUserRequest
-
-                        await telethon_client(AddChatUserRequest(chat_id=group_id, user_id=chat_id, fwd_limit=0))
+                # MVP: just send invite link, don't try programmatic invite (privacy/entity errors)
                 if invite_link:
-                    await telethon_client.send_message(chat_id, f"Calling you via group voice chat: {invite_link}\nJoin to talk.")
+                    with contextlib.suppress(Exception):
+                        await telethon_client.send_message(chat_id, f"Calling you via group voice chat: {invite_link}\nJoin to talk.")
+                else:
+                    with contextlib.suppress(Exception):
+                        await telethon_client.send_message(chat_id, "Voice chat ready — open 'Nally Voice' group and join.")
                 try:
                     await start_group_voice_chat(tg_call, telethon_client, group_id)
                 except Exception as e:
-                    logger.warning(f"outgoing_group_start_failed: {e}")
-                    await _join_call_media(group_id)
+                    logger.debug(f"outgoing_group_start_fallback: {e}")
+                    try:
+                        await _join_call_media(group_id)
+                    except Exception as je:
+                        logger.warning(f"outgoing_group_join_failed: {je}")
+                        raise
                 session = GroupSession(group_id, tg_call=tg_call, use_pipeline=True)
                 active_sessions[group_id] = session
                 try:

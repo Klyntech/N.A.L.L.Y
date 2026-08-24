@@ -212,7 +212,16 @@ async def start_group_voice_chat(tg_call, client, group_id: int):
 
     from telethon.tl.functions.phone import CreateGroupCallRequest
     try:
-        await client(CreateGroupCallRequest(peer=group_id, random_id=client.rnd_id()))
+        # Telethon's rnd_id is not a public method; use random int
+        import random
+
+        rnd = getattr(client, "rnd_id", None)
+        if callable(rnd):
+            random_id = rnd()
+        else:
+            # Fallback: random 32-bit id
+            random_id = random.randint(0, 0x7FFFFFFF)
+        await client(CreateGroupCallRequest(peer=group_id, random_id=random_id))
         await asyncio.sleep(1.5)
     except Exception as e:
         logger.debug(f"Group call creation: {e} (might already exist)")
