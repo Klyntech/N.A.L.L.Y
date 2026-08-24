@@ -33,6 +33,52 @@ from ..agent.sessions import session_manager
 from ..utils.logger import logger
 from .format import md_to_telegram_html
 
+# ── DNS 11001 spam filter: collapse httpx getaddrinfo failures to one warning ──
+import logging as _logging
+
+class _GetAddrInfoFilter(_logging.Filter):
+    """Collapse Telegram polling DNS failures (11001 getaddrinfo) to a single warning.
+
+    python-telegram-bot logs the full 20-line httpx/httpcore chain at ERROR
+    with exc_info on every poll. We rewrite it to a one-liner and downgrade to
+    WARNING so the console isn't flooded while DNS is down.
+    """
+    _last_log = 0.0  # rate-limit to 1 per 30s
+
+    def filter(self, record: _logging.LogRecord) -> bool:
+        msg = record.getMessage() + " " + str(getattr(record, "exc_info", "") or "")
+        if "getaddrinfo failed" in msg or "11001" in msg or "WinError 1231" in msg or "WinError 1236" in msg:
+            # Rate-limit: only log once per 30s, drop the rest
+            import time as _time
+            now = _time.monotonic()
+            if now - self._last_log < 30:
+                return False
+            self._last_log = now
+            # Rewrite to single helpful warning, no stack
+            record.levelno = _logging.WARNING
+            record.levelname = "WARNING"
+            record.exc_info = None
+            record.exc_text = None
+            record.msg = "Telegram polling DNS/network down (getaddrinfo 11001 / WinError 1231) — check internet/DNS/proxy for api.telegram.org. Retrying…"
+            record.args = ()
+            return True
+        return True
+
+# Install on the noisy loggers (httpx/httpcore/telegram)
+for _lname in ("telegram.ext._updater", "telegram.request", "telegram.request._httpxrequest", "httpx", "httpcore", "httpx._transports.default", "httpcore._async.connection_pool"):
+    try:
+        _logging.getLogger(_lname).addFilter(_GetAddrInfoFilter())
+        if _lname.startswith("httpx") or _lname.startswith("httpcore"):
+            _logging.getLogger(_lname).setLevel(_logging.WARNING)
+    except Exception:
+        pass
+# Also quiet Telethon's network spam a bit (keep WARNING, not INFO for connect retries)
+for _lname in ("telethon.network.mtprotosender", "telethon.network.connection.connection"):
+    try:
+        _logging.getLogger(_lname).setLevel(_logging.WARNING)
+    except Exception:
+        pass
+
 # Telegram max message length
 MAX_MSG_LEN = 4096
 BOT_USERNAME: Optional[str] = None
@@ -1053,13 +1099,18 @@ async def _generate_voice_summary(text: str) -> str:
 
 
 async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE):
-    """Log errors from the telegram bot."""
+    """Log errors from the telegram bot — collapse DNS 11001 to one warning."""
     from telegram.error import TimedOut, NetworkError
     error = context.error
+    err_str = str(error) if error else ""
+    # DNS / network down — already filtered to one warning every 30s, just log compactly
+    if "getaddrinfo failed" in err_str or "11001" in err_str or "WinError 1231" in err_str or "WinError 1236" in err_str:
+        logger.warning(f"Telegram DNS/network down (will retry): {err_str[:120]}")
+        return
     if isinstance(error, TimedOut):
         logger.warning(f"Telegram bot timeout: {error} (likely slow agent response)")
     elif isinstance(error, NetworkError):
-        logger.error(f"Telegram network error: {error}")
+        logger.warning(f"Telegram network error (retrying): {error}")
     else:
         logger.error(f"Telegram bot error: {error}")
 
@@ -1095,16 +1146,36 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
     # Store bot username and bot reference for mention detection and approval messages
     async def post_init(application: Application):
         global BOT_USERNAME, BOT
+        # Quick DNS check before get_me — gives actionable hint vs 20-line traceback
         try:
-            me = await application.bot.get_me()
-            BOT_USERNAME = me.username
-            BOT = application.bot
-            logger.info(f"Telegram bot started: @{BOT_USERNAME}")
-        except Exception as e:
-            # Don't take the whole bot down for a startup lookup; but be loud
-            # so operators notice the degraded state (no @mention detection).
-            print(f"[ERROR] Telegram bot get_me() failed at startup: {e}")
-            logger.error(f"Telegram bot get_me() failed at startup: {e}")
+            import socket as _socket
+            _socket.getaddrinfo("api.telegram.org", 443, timeout=3)
+        except Exception as _dns_e:
+            logger.warning(f"DNS check failed for api.telegram.org at startup: {_dns_e} — check internet/DNS/proxy. Will retry get_me…")
+
+        for _attempt in range(3):
+            try:
+                me = await application.bot.get_me()
+                BOT_USERNAME = me.username
+                BOT = application.bot
+                logger.info(f"Telegram bot started: @{BOT_USERNAME}")
+                break
+            except Exception as e:
+                err_str = str(e)
+                is_dns = "getaddrinfo failed" in err_str or "11001" in err_str or "WinError 1231" in err_str
+                level = logger.warning if is_dns else logger.error
+                msg = f"Telegram bot get_me() failed at startup (attempt {_attempt+1}/3): {e}"
+                if is_dns:
+                    msg += " — DNS/network down, will retry polling anyway"
+                # Don't take the whole bot down; be loud so operators notice degraded state
+                print(f"[{'WARN' if is_dns else 'ERROR'}] {msg}")
+                level(msg)
+                if _attempt < 2:
+                    await asyncio.sleep(2 ** (_attempt + 1))
+                else:
+                    # Final failure — leave BOT as None, polling will still retry getUpdates
+                    BOT = application.bot  # allow approval emit to at least try
+                    BOT_USERNAME = None
 
     app.post_init = post_init
 

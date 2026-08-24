@@ -30,6 +30,64 @@ class _StructuredFormatter(logging.Formatter):
         return msg
 
 
+# ── Global DNS/network spam filter (applies to all Nally processes) ──
+import logging as _logging  # noqa: E402
+
+class _DnsSpamFilter(_logging.Filter):
+    """Collapse repeated DNS 11001 / WinError 1231/1236 to one WARNING per 30s."""
+    _last_log = 0.0
+
+    def filter(self, record: _logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            msg = str(record.msg)
+        # Also inspect exc_info if present
+        exc = ""
+        if record.exc_info and record.exc_info[0] is not None:
+            try:
+                exc = str(record.exc_info[1])
+            except Exception:
+                exc = ""
+        hay = f"{msg} {exc}"
+        if "getaddrinfo failed" in hay or "11001" in hay or "WinError 1231" in hay or "WinError 1236" in hay:
+            import time as _time
+            now = _time.monotonic()
+            if now - self._last_log < 30:
+                return False
+            self._last_log = now
+            record.levelno = _logging.WARNING
+            record.levelname = "WARNING"
+            record.exc_info = None
+            record.exc_text = None
+            # Provide actionable one-liner
+            record.msg = "Network DNS down (getaddrinfo 11001 / WinError 1231) — check internet, DNS (8.8.8.8), or proxy for api.telegram.org. Retrying…"
+            record.args = ()
+        return True
+
+# Install globally once at import time
+try:
+    for _lname in (
+        "telegram.ext._updater",
+        "telegram.request",
+        "telegram.request._httpxrequest",
+        "httpx",
+        "httpcore",
+        "httpx._transports.default",
+        "httpcore._async.connection_pool",
+        "telethon.network.mtprotosender",
+        "telethon.network.connection.connection",
+    ):
+        lg = _logging.getLogger(_lname)
+        lg.addFilter(_DnsSpamFilter())
+        if _lname.startswith("httpx") or _lname.startswith("httpcore"):
+            lg.setLevel(_logging.WARNING)
+        if _lname.startswith("telethon.network"):
+            lg.setLevel(_logging.WARNING)
+except Exception:
+    pass
+
+
 class NallyLogger:
     """Centralized logger for Nally"""
 
