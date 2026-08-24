@@ -226,14 +226,14 @@ async def main():
                         "Private calls hit Telegram's 406 layer error on this build — group voice is stable. "
                         "Creating a private group voice chat for you... please wait.",
                     )
-                    # Create / reuse group voice chat and invite user
+                    # Create / reuse PRIVATE group for this user (1:1 isolation for beta)
                     from nally.telegram.voice_call import (
-                        ensure_voice_chat_group,
+                        ensure_private_voice_group,
                         start_group_voice_chat,
                         VoiceCallSession as GroupSession,
                     )
 
-                    group_id, invite_link = await ensure_voice_chat_group(telethon_client)
+                    group_id, invite_link = await ensure_private_voice_group(telethon_client, chat_id)
                     # For MVP, don't try programmatic invite (fails if user not in contacts / privacy).
                     # Just send the invite link — user taps to join, which is reliable.
                     if invite_link:
@@ -320,19 +320,19 @@ async def main():
             logger.info("outgoing_private_fallback_to_group", extra={"call_id": chat_id})
             try:
                 from nally.telegram.voice_call import (
-                    ensure_voice_chat_group,
+                    ensure_private_voice_group,
                     start_group_voice_chat,
                     VoiceCallSession as GroupSession,
                 )
 
-                group_id, invite_link = await ensure_voice_chat_group(telethon_client)
-                # MVP: just send invite link, don't try programmatic invite (privacy/entity errors)
+                group_id, invite_link = await ensure_private_voice_group(telethon_client, chat_id)
+                # Beta 1:1: private group per user, just send invite link (no entity invite)
                 if invite_link:
                     with contextlib.suppress(Exception):
-                        await telethon_client.send_message(chat_id, f"Calling you via group voice chat: {invite_link}\nJoin to talk.")
+                        await telethon_client.send_message(chat_id, f"Calling you via private group voice chat: {invite_link}\nTap to join — 1:1 with Nally.")
                 else:
                     with contextlib.suppress(Exception):
-                        await telethon_client.send_message(chat_id, "Voice chat ready — open 'Nally Voice' group and join.")
+                        await telethon_client.send_message(chat_id, "Private voice chat ready — check your Nally Voice private group.")
                 try:
                     await start_group_voice_chat(tg_call, telethon_client, group_id)
                 except Exception as e:
@@ -460,17 +460,17 @@ async def main():
 
     @telethon_client.on(events.NewMessage(pattern=r"(?i)^call me$"))
     async def on_call_me(event):
-        """Initiate a call when owner sends 'call me'."""
+        """Initiate a call when any beta user sends 'call me' (full Telegram capabilities)."""
         sender = await event.get_sender()
-        if sender and sender.id != TELEGRAM_USER_ID:
+        if not sender or not sender.id:
             return
-
+        # Beta: allow any user, not just TELEGRAM_USER_ID
         chat_id = sender.id
         if chat_id in active_sessions:
             await event.reply("Already in a call with you.")
             return
 
-        await event.reply("Calling you now...")
+        await event.reply("Calling you now... check your private group invite.")
         asyncio.create_task(_initiate_call(chat_id))
 
     # ── Shutdown ──

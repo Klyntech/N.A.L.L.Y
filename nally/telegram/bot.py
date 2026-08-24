@@ -188,6 +188,65 @@ def _clear_stream_events(session_id: str):
         pass
 
 
+# ── Callback ID map (SQLite persistence for cross-process resolve) ──
+
+def _get_callback_db():
+    """Get/create the callback_id_map table for cross-process truncation resolve."""
+    import sqlite3
+    from ..config import DATA_DIR
+    db_path = DATA_DIR / "nally.db"
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS callback_id_map (
+            safe_id TEXT PRIMARY KEY,
+            full_id TEXT NOT NULL,
+            created_at REAL NOT NULL
+        )
+    """)
+    return conn
+
+
+def _write_callback_map(safe_id: str, full_id: str):
+    """Persist safe->full mapping to SQLite (cross-process)."""
+    import time as _time
+    try:
+        conn = _get_callback_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO callback_id_map (safe_id, full_id, created_at) VALUES (?, ?, ?)",
+            (safe_id, full_id, _time.time()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _read_callback_map(safe_id: str) -> Optional[str]:
+    """Read full_id for safe_id from SQLite. Returns None if missing."""
+    try:
+        conn = _get_callback_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT full_id FROM callback_id_map WHERE safe_id = ?", (safe_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _clear_old_callbacks(max_age: float = 3600):
+    """Remove callback mappings older than max_age seconds (cleanup)."""
+    import time as _time
+    try:
+        conn = _get_callback_db()
+        conn.execute("DELETE FROM callback_id_map WHERE created_at < ?", (_time.time() - max_age,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def _make_emit(chat_id: int):
     """Create an emit callback that sends approval requests as inline buttons."""
     loop = asyncio.get_running_loop()
@@ -226,6 +285,8 @@ def _make_emit(chat_id: int):
         # Always store mapping so callback handler can resolve IDs
         with _callback_id_lock:
             _callback_id_map[safe_tc_id] = tc_id
+        # Persist for cross-process (web server -> bot) resolution
+        _write_callback_map(safe_tc_id, tc_id)
         logger.info(f"DEBUG CB: tc_id={tc_id!r} ({len(tc_id)} chars), safe={safe_tc_id!r} ({len(safe_tc_id)} chars)")
         logger.info(f"DEBUG CB: approve_cb={approve_cb!r} ({len(approve_cb.encode('utf-8'))} bytes)")
         logger.info(f"DEBUG CB: _callback_id_map has {len(_callback_id_map)} entries after storing {safe_tc_id!r}")
@@ -291,15 +352,36 @@ def _make_emit_standalone(chat_id: int, session_id: str = ""):
         text = f"<b>Permission required</b>\n\n<b>Tool:</b> <code>{_esc(tool)}</code>"
         if args_str:
             text += f"\n<b>Args:</b> <code>{_esc(args_str[:500])}</code>"
+        if data.get("diff"):
+            diff = data["diff"][:800]
+            text += f"\n\n<pre>{_esc(diff)}</pre>"
+
+        # Telegram callback_data max is 64 bytes — truncate tc_id if needed
+        # and store full mapping so approval_callback can look it up
+        # (same pattern as _make_emit, but persisted to SQLite for cross-process)
+        MAX_CB_DATA = 60  # leave room for "approve:" prefix
+        cb_prefix = "approve:"
+        max_tc_len = MAX_CB_DATA - len(cb_prefix)
+        safe_tc_id = tc_id[:max_tc_len] if len(tc_id) > max_tc_len else tc_id
+
+        # Store in both memory and SQLite
+        with _callback_id_lock:
+            _callback_id_map[safe_tc_id] = tc_id
+        _write_callback_map(safe_tc_id, tc_id)
+        logger.info(f"DEBUG CB (standalone): tc_id={tc_id!r} ({len(tc_id)} chars), safe={safe_tc_id!r}")
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("Approve", callback_data=f"approve:{tc_id}"),
-            InlineKeyboardButton("Deny", callback_data=f"deny:{tc_id}"),
+            InlineKeyboardButton("Approve", callback_data=f"approve:{safe_tc_id}"),
+            InlineKeyboardButton("Deny", callback_data=f"deny:{safe_tc_id}"),
         ]])
 
         async def _do_send():
             bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN", ""))
-            await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard)
+            try:
+                await _send_with_retry(bot.send_message, chat_id, text, parse_mode="HTML", reply_markup=keyboard)
+                logger.info(f"Approval message sent (standalone) for tool_call_id={tc_id}")
+            except Exception as e:
+                logger.error(f"Approval message failed (standalone) after {_TG_MAX_RETRIES} attempts: {e}")
 
         asyncio.run_coroutine_threadsafe(_do_send(), loop)
 
@@ -343,8 +425,13 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cb_id = data.split(":", 1)[1]
         approved = data.startswith("approve:")
         # Resolve truncated callback_data IDs back to full tool_call_ids
+        # Check in-memory first, then SQLite (cross-process), then fallback to raw cb_id
         with _callback_id_lock:
-            full_tc_id = _callback_id_map.get(cb_id, cb_id)
+            full_tc_id = _callback_id_map.get(cb_id)
+        if not full_tc_id:
+            full_tc_id = _read_callback_map(cb_id)
+        if not full_tc_id:
+            full_tc_id = cb_id
         logger.info(f"DEBUG CALLBACK: cb_id={cb_id!r}, resolved to full_tc_id={full_tc_id!r}, approved={approved}")
         logger.info(f"DEBUG CALLBACK: _callback_id_map contains: {list(_callback_id_map.keys())}")
         # Resolve in BOTH processes so approvals work regardless of which
@@ -485,12 +572,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     text = message.text
 
+    # Beta: handle all group messages, not just @mentions (full Telegram capabilities)
+    # Keep mention cleaning if present, but don't require it
     if chat.type in ("group", "supergroup"):
-        if not BOT_USERNAME or f"@{BOT_USERNAME}" not in text:
-            return
         text = _clean_message_text(text)
         if not text:
-            await message.reply_text("Yeah? What's up?")
+            # Ignore empty after cleaning (e.g., just an @mention)
             return
 
     session_id = _extract_session_id(update)
@@ -577,17 +664,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text_response = response.get("text", "") if isinstance(response, dict) else response
+
+    # Outbound file markers (IMAGE_FILE: / SEND_FILE:) — send as Telegram attachments
+    try:
+        from .media import parse_outbound_files, strip_file_markers, send_attachments_bot
+        out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
+        if out_files:
+            # Strip markers for text display
+            cleaned = strip_file_markers(text_response)
+            if not cleaned.strip():
+                cleaned = "Here you go:"
+            text_response = cleaned
+            # Send files after the text placeholder edit
+            # We still edit placeholder first, then send files as follow-ups
+    except Exception as e:
+        logger.debug(f"Bot outbound media parse failed: {e}")
+        out_files = []
+
     final_html = md_to_telegram_html(text_response)
 
     # Final edit of the placeholder message with the complete response
     if sent_msg:
+        _edit_ok = False
         try:
             await sent_msg.edit_text(final_html[:4000], parse_mode="HTML")
-            return
+            _edit_ok = True
         except Exception:
-            pass
+            try:
+                await sent_msg.edit_text(text_response[:4000])
+                _edit_ok = True
+            except Exception:
+                sent_msg = None
+                _edit_ok = False
+        if _edit_ok:
+            if out_files:
+                try:
+                    await send_attachments_bot(context.bot, chat.id, out_files)
+                except Exception as e:
+                    logger.error(f"Bot send attachments failed: {e}")
+            return
 
-    # Fallback: send as new messages if edit failed
+    # Fallback: send as new messages if edit failed or no placeholder
     chunks = _split_message(final_html)
     for chunk in chunks:
         try:
@@ -597,6 +714,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _send_with_retry(message.reply_text, chunk)
             except Exception as e:
                 logger.error(f"Telegram reply failed: {e}")
+    if out_files:
+        try:
+            await send_attachments_bot(context.bot, chat.id, out_files)
+        except Exception as e:
+            logger.error(f"Bot send attachments fallback failed: {e}")
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -659,12 +781,199 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Always send voice response for voice input
         await _send_voice_response(message, text_response)
 
+        # If agent also produced files (e.g. image gen via voice), send them
+        try:
+            from .media import parse_outbound_files, send_attachments_bot, strip_file_markers
+            out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
+            if out_files:
+                await send_attachments_bot(context.bot, chat.id, out_files)
+        except Exception as e:
+            logger.debug(f"Voice outbound file send failed: {e}")
+
     except Exception as e:
         logger.error(f"Telegram voice error: {e}")
         try:
             await _send_with_retry(message.reply_text, f"Voice processing failed: {e}")
         except Exception:
             logger.error("Telegram voice error reply failed after retries")
+
+
+async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming photos/documents (download -> agent -> reply with files)."""
+    message = update.message
+    if not message:
+        return
+    # Only photo or document
+    if not (message.photo or message.document):
+        return
+
+    chat = update.effective_chat
+    session_id = _extract_session_id(update)
+
+    # Beta: handle all group media, mention optional
+    caption = message.caption or message.text or ""
+    if chat.type in ("group", "supergroup"):
+        caption = _clean_message_text(caption)
+        # caption may be empty — still process file with description
+
+    # Text "abort" fallback
+    if caption.strip().lower() == "abort":
+        from ..core.abort import set_abort
+        set_abort(session_id)
+        await message.reply_text("Abort signal sent. I'll stop what I'm doing.")
+        return
+
+    try:
+        await chat.send_chat_action("typing")
+    except Exception:
+        pass
+
+    import httpx
+
+    # Download media to inbox and build combined prompt
+    combined = caption
+    try:
+        from .media import save_bot_media, build_agent_input, analyze_image_for_game
+        saved_path, media_desc = await save_bot_media(context.bot, message, session_id)
+        if saved_path and saved_path.suffix.lower() in {".jpg",".jpeg",".png",".webp",".gif",".bmp"}:
+            try:
+                # Game-aware vision + OCR (uses Muse Spark vision when available)
+                vision_block = await analyze_image_for_game(saved_path, user_question=caption)
+                if vision_block:
+                    media_desc += f"\n\n{vision_block}\n\n[Instruction: Use the Vision analysis above as the primary source. Do not run PIL/code to re-analyze the image — answer directly from Vision. This is the authoritative description.]"
+                    # Record a receipt so the claim verifier sees this as grounded
+                    try:
+                        from nally.tools.receipts import receipt_store
+                        import uuid
+                        receipt_store.record(
+                            tool_call_id=f"vision_{uuid.uuid4().hex[:8]}",
+                            tool="vision_analyze",
+                            args={"image": str(saved_path), "question": caption[:200]},
+                            result=vision_block[:2000],
+                            success=True,
+                            duration_ms=1500,
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug(f"Bot vision analyze failed: {e}")
+        combined = build_agent_input(caption, media_desc)
+        if not combined.strip():
+            combined = media_desc or "[User sent a file]"
+    except Exception as e:
+        logger.error(f"Bot media download failed: {e}")
+        combined = caption or "[User sent a file — download failed]"
+        if not combined.strip():
+            await message.reply_text("Failed to process that file.")
+            return
+
+    # Progressive placeholder
+    try:
+        sent_msg = await _send_with_retry(message.reply_text, "Thinking...")
+    except Exception:
+        sent_msg = None
+
+    _clear_stream_events(session_id)
+
+    async def _do_request():
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                f"{_web_base_url()}/api/telegram/message",
+                json={"session_id": session_id, "text": combined, "chat_id": chat.id},
+            )
+            return resp.json().get("response", "")
+
+    request_task = asyncio.create_task(_do_request())
+    last_event_id = 0
+    collected_text = ""
+    while not request_task.done():
+        await asyncio.sleep(2)
+        events = _read_stream_events(session_id, after_id=last_event_id)
+        for eid, etype, payload in events:
+            last_event_id = eid
+            try:
+                import json as _json
+                data = _json.loads(payload) if payload else {}
+            except Exception:
+                data = {}
+            if etype == "response":
+                chunk_text = data.get("text", "")
+                if chunk_text:
+                    collected_text = chunk_text
+            elif etype == "tool_call":
+                tool_name = data.get("name", "?")
+                collected_text = f"Using {tool_name}..."
+        if sent_msg and collected_text:
+            try:
+                html_text = md_to_telegram_html(collected_text)
+                await sent_msg.edit_text(html_text[:4000], parse_mode="HTML")
+            except Exception:
+                try:
+                    await sent_msg.edit_text(collected_text[:4000])
+                except Exception:
+                    pass
+
+    try:
+        response = request_task.result()
+    except Exception as e:
+        logger.error(f"HTTP to web server failed (media): {e}")
+        response = f"Web server unreachable: {e}"
+
+    _clear_stream_events(session_id)
+
+    if not response or response == "__EXIT__":
+        return
+
+    text_response = response.get("text", "") if isinstance(response, dict) else response
+
+    # Outbound files
+    try:
+        from .media import parse_outbound_files, strip_file_markers, send_attachments_bot
+        out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
+        if out_files:
+            cleaned = strip_file_markers(text_response)
+            if not cleaned.strip():
+                cleaned = "Here you go:"
+            text_response = cleaned
+    except Exception as e:
+        logger.debug(f"Bot media outbound parse failed: {e}")
+        out_files = []
+
+    final_html = md_to_telegram_html(text_response)
+    if sent_msg:
+        _edit_ok = False
+        try:
+            await sent_msg.edit_text(final_html[:4000], parse_mode="HTML")
+            _edit_ok = True
+        except Exception:
+            try:
+                await sent_msg.edit_text(text_response[:4000])
+                _edit_ok = True
+            except Exception:
+                sent_msg = None
+                _edit_ok = False
+        if _edit_ok:
+            if out_files:
+                try:
+                    await send_attachments_bot(context.bot, chat.id, out_files)
+                except Exception as e:
+                    logger.error(f"Bot send attachments (media) failed: {e}")
+            return
+
+    chunks = _split_message(final_html)
+    for chunk in chunks:
+        try:
+            await _send_with_retry(message.reply_text, chunk, parse_mode="HTML")
+        except Exception:
+            try:
+                await _send_with_retry(message.reply_text, chunk)
+            except Exception as e:
+                logger.error(f"Telegram media reply failed: {e}")
+    if out_files:
+        try:
+            await send_attachments_bot(context.bot, chat.id, out_files)
+        except Exception as e:
+            logger.error(f"Bot send attachments fallback (media) failed: {e}")
 
 
 async def _send_voice_response(message, text: str):
@@ -779,6 +1088,7 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
         Application.builder()
         .token(token)
         .request(request)
+        .concurrent_updates(True)
         .build()
     )
 
@@ -819,6 +1129,9 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
 
     # Voice messages (STT)
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
+
+    # Photos / documents (with caption handling)
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_media))
 
     # Text messages
     app.add_handler(

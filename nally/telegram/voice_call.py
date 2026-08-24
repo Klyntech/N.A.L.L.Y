@@ -200,6 +200,45 @@ async def ensure_voice_chat_group(client) -> tuple[int, str]:
     return _voice_chat_group_id, _voice_chat_invite_link
 
 
+async def ensure_private_voice_group(client, user_id: int) -> tuple[int, str]:
+    """Ensure a private supergroup for a specific user (1:1 call isolation).
+
+    Beta: each 1:1 call gets its own private group so two simultaneous 1:1
+    calls don't hear each other. State per user in voice_chat_group_{user_id}.json
+    """
+    state_file = DATA_DIR / f"voice_chat_group_{user_id}.json"
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text())
+            gid = state["group_id"]
+            link = state.get("invite_link")
+            logger.info(f"Using existing private voice group for {user_id}: {gid}")
+            return gid, link
+        except Exception:
+            pass
+
+    # Create new private supergroup for this user
+    logger.info(f"Creating private voice group for user {user_id}...")
+    result = await client(
+        CreateChannelRequest(
+            title=f"Nally Voice {user_id}",
+            about=f"Private voice chat for user {user_id} — Nally beta 1:1",
+            megagroup=True,
+        )
+    )
+    group = result.chats[0]
+    gid = group.id
+    try:
+        invite_result = await client(ExportChatInviteRequest(peer=gid, expire_seconds=86400))
+        link = invite_result.link
+    except Exception:
+        link = None
+
+    state_file.write_text(json.dumps({"group_id": gid, "invite_link": link}))
+    logger.info(f"Created private voice group for {user_id}: {gid}")
+    return gid, link
+
+
 async def start_group_voice_chat(tg_call, client, group_id: int):
     """Start a voice chat in the group and join it."""
     from pytgcalls.types import MediaStream, GroupCallConfig
