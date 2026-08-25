@@ -448,7 +448,7 @@ class AgentState(TypedDict):
     last_error: Optional[str]
     tool_calls_total: int
     thread_id: str
-    plan: Optional[Any]
+    plan: Optional[Dict[str, Any]]
     plan_status: str
     step_results: Dict[str, str]
     current_step_index: int

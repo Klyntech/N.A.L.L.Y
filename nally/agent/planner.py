@@ -98,6 +98,14 @@ class PlanStep:
             "error": self.error,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PlanStep":
+        step = cls(id=data["id"], goal=data["goal"])
+        step.status = StepStatus(data.get("status", "pending"))
+        step.result = data.get("result")
+        step.error = data.get("error")
+        return step
+
 
 class Plan:
     __slots__ = ("created_at", "critique", "goal", "revision_count", "status", "steps", "summary")
@@ -121,6 +129,47 @@ class Plan:
             "summary": self.summary,
             "critique": self.critique,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Plan":
+        plan = cls(
+            goal=data["goal"],
+            steps=[PlanStep.from_dict(s) for s in data.get("steps", [])],
+        )
+        plan.status = PlanStatus(data.get("status", "active"))
+        plan.revision_count = data.get("revision_count", 0)
+        plan.created_at = data.get("created_at", plan.created_at)
+        plan.summary = data.get("summary")
+        plan.critique = data.get("critique")
+        return plan
+
+
+def _get_plan(state: Dict[str, Any]) -> Optional[Plan]:
+    """Extract a Plan object from state, converting from dict if needed.
+
+    The checkpointer (msgpack/SQLite) serializes state values.  We store
+    Plan as a plain dict so the checkpointer never sees a live Plan object.
+    This helper restores the Plan on every read.
+    """
+    raw = state.get("plan")
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return Plan.from_dict(raw)
+    if isinstance(raw, Plan):
+        return raw
+    logger.warning(f"Unexpected plan type in state: {type(raw).__name__}")
+    return None
+
+
+def _plan_to_state(state: Dict[str, Any], plan: Optional[Plan]) -> Dict[str, Any]:
+    """Return a state patch that stores the plan as a dict for checkpointing.
+
+    If *plan* is None the patch sets ``"plan": None``; otherwise the dict
+    produced by ``Plan.to_dict()`` is stored so that the msgpack checkpointer
+    can serialise it without error.
+    """
+    return {**state, "plan": plan.to_dict() if plan is not None else None}
 
 
 # ── Classification ────────────────────────────────────────
@@ -327,7 +376,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     messages = state.get("messages", [])
     thread_id = state.get("thread_id", "default")
-    existing_plan = state.get("plan")
+    existing_plan = _get_plan(state)
 
     # Abort check
     try:
@@ -417,8 +466,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         return {
-            **state,
-            "plan": plan,
+            **_plan_to_state(state, plan),
             "plan_status": "executing",
             "current_step_index": 0,
             "step_results": state.get("step_results", {}),
@@ -443,13 +491,13 @@ def critique_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     from ..events.bus import event_bus
 
-    plan = state.get("plan")
+    plan = _get_plan(state)
     if not plan:
         return {**state, "plan_status": "none"}
 
     if plan.revision_count >= PLAN_MAX_REVISIONS:
         logger.warning("Critique skipped: revision limit reached, approving plan as-is")
-        return {**state, "plan_status": "executing"}
+        return {**_plan_to_state(state, plan), "plan_status": "executing"}
 
     span = _span("plan_critique", {"goal": plan.goal, "step_count": len(plan.steps)})
     try:
@@ -473,10 +521,10 @@ def critique_node(state: Dict[str, Any]) -> Dict[str, Any]:
             plan.status = PlanStatus.REVISING
             plan.critique = verdict["reason"]
             event_bus.publish("plan_critiqued", {"verdict": "revise", "reason": plan.critique})
-            return {**state, "plan_status": "critique_revising", "plan": plan}
+            return {**_plan_to_state(state, plan), "plan_status": "critique_revising"}
 
         event_bus.publish("plan_critiqued", {"verdict": "approve"})
-        return {**state, "plan_status": "executing"}
+        return {**_plan_to_state(state, plan), "plan_status": "executing"}
 
     except Exception as e:
         logger.warning(f"Plan critique failed ({e}), approving plan as-is")
@@ -502,7 +550,7 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     from ..events.bus import event_bus
 
-    plan = state.get("plan")
+    plan = _get_plan(state)
     if not plan or plan.status != PlanStatus.ACTIVE:
         return state
 
@@ -514,7 +562,7 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
         if check_abort(thread_id):
             clear_abort(thread_id)
-            return {**state, "plan_status": "none"}
+            return {**_plan_to_state(state, plan), "plan_status": "none"}
     except Exception:
         pass
 
@@ -555,7 +603,7 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
             },
         )
 
-        return {**state, "step_results": step_results}
+        return {**_plan_to_state(state, plan), "step_results": step_results}
 
     except Exception as e:
         step.status = StepStatus.FAILED
@@ -571,7 +619,7 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
             },
         )
 
-        return state
+        return {**_plan_to_state(state, plan)}
 
 
 def replan_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -591,7 +639,7 @@ def replan_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _replan_decision(state: Dict[str, Any]) -> Dict[str, Any]:
-    plan = state.get("plan")
+    plan = _get_plan(state)
     if not plan:
         return state
 
@@ -604,25 +652,25 @@ def _replan_decision(state: Dict[str, Any]) -> Dict[str, Any]:
 
     if iteration >= max_iterations:
         plan.status = PlanStatus.COMPLETE
-        return {**state, "iteration": iteration, "plan_status": "complete", "plan": plan}
+        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": "complete"}
 
     # All done — no pending, no failed
     if not pending and not failed:
         plan.status = PlanStatus.COMPLETE
-        return {**state, "iteration": iteration, "plan_status": "complete", "plan": plan}
+        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": "complete"}
 
     # Too many revisions — give up
     if plan.revision_count >= PLAN_MAX_REVISIONS:
         plan.status = PlanStatus.COMPLETE
-        return {**state, "iteration": iteration, "plan_status": "complete", "plan": plan}
+        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": "complete"}
 
     # Has failures — revise the plan
     if failed:
         plan.status = PlanStatus.REVISING
-        return {**state, "iteration": iteration, "plan_status": "revising", "plan": plan}
+        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": "revising"}
 
     # Still has pending steps — keep executing
-    return {**state, "iteration": iteration}
+    return {**_plan_to_state(state, plan), "iteration": iteration}
 
 
 def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -632,7 +680,7 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     from ..events.bus import event_bus
     from .llm import llm
 
-    plan = state.get("plan")
+    plan = _get_plan(state)
     step_results = state.get("step_results", {})
 
     if not plan:
@@ -682,8 +730,7 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         return {
-            **state,
-            "plan": plan,
+            **_plan_to_state(state, plan),
             "plan_status": "complete",
             "messages": [AIMessage(content=response)],
         }
@@ -692,8 +739,7 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("Synthesis LLM call timed out, using fallback")
         fallback = _fallback_synthesis(plan, step_results)
         return {
-            **state,
-            "plan": plan,
+            **_plan_to_state(state, plan),
             "plan_status": "complete",
             "messages": [AIMessage(content=fallback)],
         }
@@ -701,8 +747,7 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Synthesis failed: {e}")
         fallback = _fallback_synthesis(plan, step_results)
         return {
-            **state,
-            "plan": plan,
+            **_plan_to_state(state, plan),
             "plan_status": "complete",
             "messages": [AIMessage(content=fallback)],
         }
@@ -725,7 +770,8 @@ def _execute_step(step: PlanStep, state: Dict[str, Any]) -> str:
     # Build context from previous step results
     context_lines = []
     step_results = state.get("step_results", {})
-    for s in state.get("plan", Plan("")).steps:
+    parent_plan = _get_plan(state) or Plan("")
+    for s in parent_plan.steps:
         if s.status == StepStatus.COMPLETED and s.id in step_results:
             context_lines.append(f"  [{s.id}] {s.goal}: {step_results[s.id][:300]}")
 

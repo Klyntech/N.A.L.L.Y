@@ -178,17 +178,20 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
         return state
 
     # Extract plan from state
-    plan = state.get("plan")
+    plan_raw = state.get("plan")
+    plan = None
+    if plan_raw:
+        if isinstance(plan_raw, dict):
+            from .planner import Plan
+            plan = Plan.from_dict(plan_raw)
+        elif hasattr(plan_raw, "goal") and hasattr(plan_raw, "steps"):
+            plan = plan_raw
     plan_summary = ""
     steps = []
 
     if plan:
-        if hasattr(plan, "goal") and hasattr(plan, "steps"):
-            plan_summary = f"Task: {plan.goal}"
-            steps = [s.goal for s in plan.steps if hasattr(s, "goal")]
-        elif isinstance(plan, dict):
-            plan_summary = plan.get("goal", "Complex task")
-            steps = [s.get("goal", "") for s in plan.get("steps", [])]
+        plan_summary = f"Task: {plan.goal}"
+        steps = [s.goal for s in plan.steps]
     else:
         # No plan — extract from messages
         messages = state.get("messages", [])
@@ -248,7 +251,7 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
                                 step.goal = edited_lines[i]
                     except Exception:
                         pass
-                return {**state, "plan": plan, "plan_status": "executing"}
+                return {**state, "plan": plan.to_dict() if plan is not None else None, "plan_status": "executing"}
 
             # Approved — proceed
             return {**state, "plan_status": "executing"}

@@ -10,6 +10,8 @@ from nally.agent.planner import (
     PlanStatus,
     PlanStep,
     StepStatus,
+    _get_plan,
+    _plan_to_state,
     classify_by_patterns,
     critique_node,
     parse_plan_response,
@@ -169,7 +171,9 @@ class TestCritiqueNode:
         result = critique_node(state)
 
         assert result["plan_status"] == "executing"
-        assert result["plan"].critique is None
+        # Plan is stored as dict in state for checkpoint serialization
+        assert isinstance(result["plan"], dict)
+        assert result["plan"]["critique"] is None
 
     @patch("nally.agent.llm.llm")
     def test_revise_verdict(self, mock_llm):
@@ -180,8 +184,9 @@ class TestCritiqueNode:
         result = critique_node(state)
 
         assert result["plan_status"] == "critique_revising"
-        assert result["plan"].status == PlanStatus.REVISING
-        assert result["plan"].critique == "Missing a testing step"
+        assert isinstance(result["plan"], dict)
+        assert result["plan"]["status"] == "revising"
+        assert result["plan"]["critique"] == "Missing a testing step"
 
     @patch("nally.agent.llm.llm")
     def test_skip_when_revision_limit_reached(self, mock_llm):
@@ -254,4 +259,139 @@ class TestPlannerNodeCritique:
         assert "reviewed and needs revision" in prompt_arg
         assert "Missing a testing step" in prompt_arg
         # A new plan was returned (revision count incremented)
-        assert result["plan"].revision_count == 1
+        assert isinstance(result["plan"], dict)
+        assert result["plan"]["revision_count"] == 1
+
+
+# ── Serialization Round-Trip ───────────────────────────────
+
+
+class TestPlanSerializationRoundTrip:
+    """Verify Plan.to_dict() / Plan.from_dict() are inverse operations
+    and that dicts (as stored in LangGraph state) survive msgpack-style
+    serialization without TypeError."""
+
+    def _make_full_plan(self):
+        s1 = PlanStep(id="step_1", goal="Create endpoints")
+        s1.status = StepStatus.COMPLETED
+        s1.result = "Created 5 endpoints"
+
+        s2 = PlanStep(id="step_2", goal="Add auth")
+        s2.status = StepStatus.FAILED
+        s2.error = "OAuth provider down"
+
+        s3 = PlanStep(id="step_3", goal="Write tests")
+        # PENDING by default
+
+        plan = Plan(goal="build an API", steps=[s1, s2, s3])
+        plan.status = PlanStatus.ACTIVE
+        plan.revision_count = 2
+        plan.summary = "Partial progress"
+        plan.critique = "Missing error handling"
+        return plan
+
+    def test_to_dictProducesPlainTypes(self):
+        """to_dict() output contains only JSON-safe types (str/int/list/dict/None)."""
+        plan = self._make_full_plan()
+        d = plan.to_dict()
+        assert isinstance(d, dict)
+        assert isinstance(d["steps"], list)
+        for step in d["steps"]:
+            assert isinstance(step, dict)
+            for v in step.values():
+                assert isinstance(v, (str, int, type(None)))
+
+    def test_from_dictRoundTrip(self):
+        """Plan -> to_dict -> from_dict recovers all fields."""
+        original = self._make_full_plan()
+        recovered = Plan.from_dict(original.to_dict())
+
+        assert recovered.goal == original.goal
+        assert recovered.status == original.status
+        assert recovered.revision_count == original.revision_count
+        assert recovered.summary == original.summary
+        assert recovered.critique == original.critique
+        assert recovered.created_at == original.created_at
+        assert len(recovered.steps) == len(original.steps)
+
+        for orig_s, recv_s in zip(original.steps, recovered.steps):
+            assert recv_s.id == orig_s.id
+            assert recv_s.goal == orig_s.goal
+            assert recv_s.status == orig_s.status
+            assert recv_s.result == orig_s.result
+            assert recv_s.error == orig_s.error
+
+    def test_get_planFromDictState(self):
+        """_get_plan converts a dict in state back to a Plan object."""
+        plan = self._make_full_plan()
+        state = {"plan": plan.to_dict()}
+        result = _get_plan(state)
+        assert isinstance(result, Plan)
+        assert result.goal == plan.goal
+
+    def test_get_planFromNone(self):
+        """_get_plan returns None when plan is None."""
+        assert _get_plan({"plan": None}) is None
+        assert _get_plan({}) is None
+
+    def test_get_planPassthroughLiveObject(self):
+        """_get_plan passes through a live Plan object unchanged."""
+        plan = self._make_full_plan()
+        result = _get_plan({"plan": plan})
+        assert result is plan
+
+    def test_plan_to_stateStoresDict(self):
+        """_plan_to_state always stores a dict (or None), never a Plan."""
+        plan = self._make_full_plan()
+        state = _plan_to_state({}, plan)
+        assert isinstance(state["plan"], dict)
+        assert state["plan"]["goal"] == plan.goal
+
+        state_none = _plan_to_state({}, None)
+        assert state_none["plan"] is None
+
+    def test_msgpackSerializable(self):
+        """The dict produced by Plan.to_dict() can survive msgpack round-trip.
+
+        This is the actual failure mode: SqliteSaver uses msgpack, which
+        cannot serialize arbitrary Python objects.
+        """
+        try:
+            import msgpack
+        except ImportError:
+            self.skipTest("msgpack not installed")
+
+        plan = self._make_full_plan()
+        state = _plan_to_state({}, plan)
+
+        # This would raise TypeError for live Plan objects
+        packed = msgpack.packb(state["plan"])
+        unpacked = msgpack.unpackb(packed, raw=False)
+
+        # Recover plan from the msgpack output
+        recovered = Plan.from_dict(unpacked)
+        assert recovered.goal == plan.goal
+        assert len(recovered.steps) == 3
+        assert recovered.steps[0].status == StepStatus.COMPLETED
+        assert recovered.steps[1].status == StepStatus.FAILED
+
+    def test_sqliteCheckpointRoundTrip(self):
+        """Simulate a LangGraph SqliteSaver checkpoint save + load cycle."""
+        import sqlite3
+
+        plan = self._make_full_plan()
+        state = _plan_to_state({}, plan)
+
+        # Simulate what the checkpointer does: serialize and deserialize
+        # SqliteSaver stores blobs (pickled or msgpacked).
+        # We test with json as a simpler proxy that has the same type constraints.
+        import json as _json
+
+        serialized = _json.dumps(state["plan"])
+        deserialized = _json.loads(serialized)
+        recovered = Plan.from_dict(deserialized)
+
+        assert recovered.goal == plan.goal
+        assert recovered.steps[0].result == "Created 5 endpoints"
+        assert recovered.steps[1].error == "OAuth provider down"
+
