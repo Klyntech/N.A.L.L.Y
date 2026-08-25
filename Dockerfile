@@ -25,10 +25,12 @@ COPY --from=builder /install /usr/local
 # Copy application code
 COPY nally/ ./nally/
 COPY web/ ./web/
+COPY skills/ ./skills/
 COPY main.py .
+COPY run_tg_user.py run_bot_standalone.py run_tg_call.py ./
 
-# Create data directory
-RUN mkdir -p data logs && chown -R nally:nally /app
+# Create data directories (generated is needed for image gen output)
+RUN mkdir -p data/generated logs && chown -R nally:nally /app
 
 USER nally
 

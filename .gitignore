@@ -49,10 +49,6 @@ temp_*.py
 node_modules/
 npm-debug.log*
 
-# Docker
-Dockerfile
-docker-compose.yml
-
 # Stray runtime artifacts
 _bot.err
 _bot.log
