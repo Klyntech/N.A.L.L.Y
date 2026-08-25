@@ -5,6 +5,7 @@ Inspired by Jarvis from Iron Man
 """
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -210,9 +211,15 @@ def run_web(port=5000):
     # Start Telegram user account (Telethon) as a separate process
     # Voice calls are handled inside user.py (same process, same Telethon client)
     tg_user_proc = None
-    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID
+    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID, DATA_DIR
 
-    if TELEGRAM_USER_ID:
+    _tg_session = DATA_DIR / "telegram_user" / "nally_user.session"
+
+    if TELEGRAM_USER_ID and os.getenv("NALLY_TELEGRAM_USER_ENABLED", "1") == "0":
+        print("[skip] NALLY_TELEGRAM_USER_ENABLED=0 — Telegram user account disabled.")
+    elif TELEGRAM_USER_ID and not _tg_session.exists():
+        print(f"[skip] No Telethon session file at {_tg_session} — run locally first to authenticate.")
+    elif TELEGRAM_USER_ID:
         tg_user_proc = subprocess.Popen(
             [sys.executable, "run_tg_user.py"],
             cwd=str(Path(__file__).parent),
