@@ -100,7 +100,11 @@ class StartupDisplay:
         # Build status line
         parts = []
         if port:
-            parts.append(f"http://localhost:{port}")
+            from ..config import NALLY_BASE_URL
+            if NALLY_BASE_URL:
+                parts.append(NALLY_BASE_URL)
+            else:
+                parts.append(f"http://localhost:{port}")
         if provider and model:
             parts.append(f"{provider.upper()}/{model}")
         status_text = "  -  ".join(parts) if parts else ""

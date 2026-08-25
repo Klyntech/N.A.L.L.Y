@@ -88,7 +88,14 @@ _start_time = time.time()
 
 
 def _web_base_url() -> str:
-    """Base URL of the web server the standalone bot forwards to."""
+    """Base URL of the web server the standalone bot forwards to.
+
+    Reads NALLY_BASE_URL first (e.g. https://nally.onrender.com).
+    Falls back to http://localhost:<port> for local dev.
+    """
+    from ..config import NALLY_BASE_URL
+    if NALLY_BASE_URL:
+        return NALLY_BASE_URL
     port = os.getenv("NALLY_PORT", os.getenv("PORT", "5000"))
     return f"http://localhost:{port}"
 

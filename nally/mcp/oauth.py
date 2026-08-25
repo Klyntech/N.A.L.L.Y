@@ -20,6 +20,21 @@ import httpx
 
 logger = logging.getLogger("nally.mcp.oauth")
 
+
+def _base_url() -> str:
+    """Return the public base URL for OAuth redirects.
+
+    Reads NALLY_BASE_URL (e.g. https://nally.onrender.com).
+    Falls back to http://localhost:5000 for local dev.
+    """
+    import os as _os
+    from ..config import NALLY_BASE_URL
+    if NALLY_BASE_URL:
+        return NALLY_BASE_URL
+    port = _os.getenv("NALLY_PORT", _os.getenv("PORT", "5000"))
+    return f"http://localhost:{port}"
+
+
 # Lazy MCP SDK imports — only fail at runtime if mcp is actually used
 try:
     from mcp.client.auth.oauth2 import OAuthClientProvider
@@ -230,7 +245,7 @@ async def create_oauth_provider(
     callback_handler = await _make_callback_handler(service)
 
     client_metadata = OAuthClientMetadata(
-        redirect_uris=["http://localhost:5000/api/oauth/callback"],
+        redirect_uris=[f"{_base_url()}/api/oauth/callback"],
         client_name=f"Nally ({service})",
         scope=scope,
     )
@@ -361,7 +376,7 @@ def clear_oauth_state(db_path: str, service: str) -> None:
 NOTION_AUTH_ENDPOINT_FALLBACK = "https://mcp.notion.com/authorize"
 NOTION_TOKEN_ENDPOINT_FALLBACK = "https://mcp.notion.com/token"
 NOTION_REGISTER_ENDPOINT_FALLBACK = "https://mcp.notion.com/register"
-NOTION_REDIRECT_URI = "http://localhost:5000/api/oauth/notion/callback"
+NOTION_REDIRECT_URI = f"{_base_url()}/api/oauth/notion/callback"
 
 
 async def discover_notion_metadata(mcp_server_url: str = "https://mcp.notion.com/mcp") -> dict:
@@ -436,7 +451,7 @@ async def start_notion_oauth(db_path: str) -> str:
             register_endpoint,
             json={
                 "client_name": "Nally",
-                "client_uri": "http://localhost:5000",
+                "client_uri": _base_url(),
                 "redirect_uris": [NOTION_REDIRECT_URI],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
@@ -534,7 +549,7 @@ async def exchange_notion_code(code: str, db_path: str) -> bool:
 
 GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
-GOOGLE_REDIRECT_URI = "http://localhost:5000/api/oauth/google/callback"
+GOOGLE_REDIRECT_URI = f"{_base_url()}/api/oauth/google/callback"
 
 GOOGLE_SCOPES = {
     "gmail": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
@@ -650,7 +665,7 @@ async def exchange_google_code(code: str, db_path: str) -> bool:
 HIGGSFIELD_AUTH_ENDPOINT = "https://mcp.higgsfield.ai/oauth2/authorize"
 HIGGSFIELD_TOKEN_ENDPOINT = "https://mcp.higgsfield.ai/oauth2/token"
 HIGGSFIELD_REGISTER_ENDPOINT = "https://mcp.higgsfield.ai/oauth2/register"
-HIGGSFIELD_REDIRECT_URI = "http://localhost:5000/api/oauth/higgsfield/callback"
+HIGGSFIELD_REDIRECT_URI = f"{_base_url()}/api/oauth/higgsfield/callback"
 
 
 async def start_higgsfield_oauth(db_path: str) -> str:
@@ -665,7 +680,7 @@ async def start_higgsfield_oauth(db_path: str) -> str:
             HIGGSFIELD_REGISTER_ENDPOINT,
             json={
                 "client_name": "Nally",
-                "client_uri": "http://localhost:5000",
+                "client_uri": _base_url(),
                 "redirect_uris": [HIGGSFIELD_REDIRECT_URI],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],

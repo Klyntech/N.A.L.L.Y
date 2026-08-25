@@ -1089,26 +1089,31 @@ def tool_executor(state: AgentState) -> AgentState:
                     except Exception as e:
                         logger.error(f"approval_gate: emit failed for tc_id={tool_id}: {e}")
                 else:
-                    logger.warning(f"approval_gate: emit is None for '{tool_name}' — approval buttons won't appear")
+                    # No emit — approval buttons cannot appear (e.g. headless, CLI, or
+                    # same-process webhook where the bot handles its own emit).
+                    # Auto-approve so the agent doesn't block for 30 minutes.
+                    logger.info(f"approval_gate: emit is None for '{tool_name}' — auto-approving (no UI for buttons)")
+                    _save_pending_approval(tool_id, "approved")
+                    approved = True
+                    result_approved = True
 
-                logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}' (timeout: {APPROVAL_TIMEOUT}s)")
+                if not approved:
+                    logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}' (timeout: {APPROVAL_TIMEOUT}s)")
 
-                # Poll SQLite every 2s — no thread blocking, cross-process safe.
-                _poll_interval = 2
-                _polls = (APPROVAL_TIMEOUT or 1800) // _poll_interval
-                approved = False
-                result_approved = False
-                for _i in range(_polls):
-                    if _check_abort(thread_id):
-                        _save_pending_approval(tool_id, "aborted")
-                        _finish(False, "aborted by user")
-                        return ToolMessage(content="Aborted by user.", tool_call_id=tool_id)
-                    status = _get_approval_status(tool_id)
-                    if status in ("approved", "denied"):
-                        result_approved = (status == "approved")
-                        approved = True
-                        break
-                    time.sleep(_poll_interval)
+                    # Poll SQLite every 2s — no thread blocking, cross-process safe.
+                    _poll_interval = 2
+                    _polls = (APPROVAL_TIMEOUT or 1800) // _poll_interval
+                    for _i in range(_polls):
+                        if _check_abort(thread_id):
+                            _save_pending_approval(tool_id, "aborted")
+                            _finish(False, "aborted by user")
+                            return ToolMessage(content="Aborted by user.", tool_call_id=tool_id)
+                        status = _get_approval_status(tool_id)
+                        if status in ("approved", "denied"):
+                            result_approved = (status == "approved")
+                            approved = True
+                            break
+                        time.sleep(_poll_interval)
 
             if not approved or not result_approved:
                 _save_pending_approval(tool_id, "denied")

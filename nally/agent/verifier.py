@@ -49,23 +49,32 @@ class ClaimFinding:
 
 # ── Claim Patterns ────────────────────────────────────────
 
-# Patterns that match agent claims about completed actions
+# Negative context: if a claim appears after these words, skip it (it's conditional/negated/hypothetical)
+_NEGATIVE_LOOKBEHIND = re.compile(
+    r"(?:"
+    r"(?:^|\s)(?:don't|doesn't|didn't|won't|wouldn't|couldn't|shouldn't|can't|not|never|no)\s+"
+    r"|(?:if|when|unless|whether|could|would|should|might|may|let me|i (?:will|would|can|could|might|may|shall|should)\s+)"
+    r")",
+    re.IGNORECASE,
+)
+
+# Patterns that match agent claims about completed actions (past tense only)
 _ACTION_CLAIMS = [
-    # File operations
+    # File operations — past tense only
     (r"(?:I |we )?(?:deleted|removed|wiped|erased)\s+(?:the\s+)?(?:file|folder|directory)", "file_ops", "delete"),
     (r"(?:I |we )?(?:created|wrote|made|added|generated)\s+(?:the\s+)?(?:file|folder)", "file_ops", "write"),
     (r"(?:I |we )?(?:moved|renamed|copied)\s+(?:the\s+)?(?:file|folder)", "file_ops", "move/rename"),
     (r"(?:I |we )?(?:read|opened|checked|looked at)\s+(?:the\s+)?(?:file|folder)", "read_file", "read"),
     # Command execution
-    (r"(?:I |we )?(?:ran|executed|ran the command|ran the script)", "run_command", "execute"),
+    (r"(?:I |we )?(?:ran|executed)\s+(?:the\s+)?(?:command|script|tests?|test suite|suite)", "run_command", "execute"),
     # Email
     (r"(?:I |we )?(?:sent|emailed|mailed)\s+(?:the\s+)?(?:email|message)", "gmail_send", "send"),
     # Web search
-    (r"(?:I |we )?(?:searched|looked up|found)\s+(?:the\s+)?(?:info|results|answer)", "web_search", "search"),
+    (r"(?:I |we )?(?:searched|looked up)\s+(?:the\s+)?(?:info|results|answer)", "web_search", "search"),
     # Memory
-    (r"(?:I |we )?(?:saved|stored|remembered)", "remember", "store"),
+    (r"(?:I |we )?(?:saved|stored)\s+(?:that|this|it|the)", "remember", "store"),
     # Phone calls
-    (r"(?:I |we )?(?:made|placed|initiated|started|dialed)\s+(?:a\s+)?(?:call|phone call)", "make_call", "call"),
+    (r"(?:I |we )?(?:made|placed|initiated|dialed)\s+(?:a\s+)?(?:call|phone call)", "make_call", "call"),
     (r"(?:I |we )?(?:checked|looked up|got)\s+(?:the\s+)?(?:call status|status of)", "get_call_status", "status"),
     (r"(?:I |we )?(?:ended|hung up|terminated)\s+(?:the\s+)?call", "hangup_call", "hangup"),
     (r"(?:I |we )?(?:listed|fetched|retrieved)\s+(?:the\s+)?(?:call log|recent calls|call history)", "list_calls", "list"),
@@ -89,24 +98,16 @@ _COMPLETION_CLAIMS = [
     r"(?:everything|all|the whole thing)\s+(?:is\s+)?(?:done|complete|finished|ready)",
 ]
 
-# Success/failure claim patterns
+# Success/failure claim patterns — only match when explicitly about tool/task outcomes
 _SUCCESS_PATTERNS = [
-    r"(?:was |were )?(?:successfully |done |completed |finished )",
-    r"\bdone\b",
-    r"\bcomplete\b",
+    r"(?:was |were )?(?:successfully )",
+    r"(?:the\s+)?(?:file|command|script|task|operation)\s+(?:was |were )?(?:done|completed|finished)",
     r"\bsuccess(?:ful(?:ly)?)?\b",
-    r"\bpass(?:ed|es)?\b",
-    r"\bgreen\b",
-    r"\bok\b",
 ]
 
 _FAILURE_PATTERNS = [
-    r"\bfailed?\b",
-    r"\berror\b",
-    r"\bbroken\b",
-    r"\bcrashed?\b",
-    r"\bdenied\b",
-    r"\brefused\b",
+    r"(?:the\s+)?(?:file|command|script|task|operation)\s+(?:failed|errored|broke|crashed)",
+    r"(?:was |were )?(?:denied|refused|blocked)",
 ]
 
 
@@ -210,10 +211,16 @@ class ClaimVerifier:
         for pattern, expected_tool, action in _ACTION_CLAIMS:
             matches = re.finditer(pattern, text_lower)
             for match in matches:
+                # Skip claims in negative/conditional/hypothetical context
+                start = max(0, match.start() - 30)
+                prefix = text_lower[start:match.start()]
+                if _NEGATIVE_LOOKBEHIND.search(prefix):
+                    continue
+
                 # Get surrounding context for the claim
-                start = max(0, match.start() - 20)
-                end = min(len(text), match.end() + 40)
-                context = text[start:end].strip()
+                ctx_start = max(0, match.start() - 20)
+                ctx_end = min(len(text), match.end() + 40)
+                context = text[ctx_start:ctx_end].strip()
                 claims.append((context, expected_tool, action))
 
         return claims
@@ -250,41 +257,81 @@ class ClaimVerifier:
             )
 
     def _verify_outcome_claims(self, text: str, receipts: List[Receipt]) -> List[ClaimFinding]:
-        """Check if the agent claims success when tools failed, or vice versa."""
+        """Check if the agent claims success when tools failed, or vice versa.
+
+        First checks tool-specific patterns ("the file_ops succeeded") for
+        precision. Falls back to generic success/failure patterns ("successfully")
+        only when the action claim itself contains the success word — avoids
+        false positives from casual "ok", "done", "complete" in conversation.
+        """
         findings = []
         text_lower = text.lower()
-
-        # Find success claims
-        has_success_claim = any(re.search(p, text_lower) for p in _SUCCESS_PATTERNS)
-        has_failure_claim = any(re.search(p, text_lower) for p in _FAILURE_PATTERNS)
 
         if not receipts:
             return findings
 
-        # Check if any receipt failed
         failed_receipts = [r for r in receipts if not r.success]
         success_receipts = [r for r in receipts if r.success]
 
-        # Agent claims success but tool failed
-        if has_success_claim and failed_receipts:
-            failed_tools = [r.tool for r in failed_receipts]
-            findings.append(
-                ClaimFinding(
-                    claim="Agent claims success",
-                    verdict=Verdict.CONTRADICTED,
-                    evidence=f"Agent claims success but these tools failed: {', '.join(failed_tools)}",
-                )
-            )
+        if not failed_receipts and not success_receipts:
+            return findings
 
-        # Agent claims failure but tool succeeded (less common, still check)
-        if has_failure_claim and not failed_receipts and success_receipts:
-            findings.append(
-                ClaimFinding(
-                    claim="Agent claims failure",
-                    verdict=Verdict.CONTRADICTED,
-                    evidence="Agent claims failure but all tools succeeded",
+        # Check for tool-specific success claims: "the {tool_name} succeeded" etc.
+        for receipt in failed_receipts:
+            tool = receipt.tool
+            tool_success_patterns = [
+                rf"(?:the\s+)?{re.escape(tool)}\s+(?:succeeded?|completed?|finished?|worked|passed)",
+                rf"(?:the\s+)?{re.escape(tool)}\s+(?:was |were )?(?:successful|done|completed|finished)",
+            ]
+            if any(re.search(p, text_lower) for p in tool_success_patterns):
+                findings.append(
+                    ClaimFinding(
+                        claim=f"Agent claims {tool} succeeded",
+                        verdict=Verdict.CONTRADICTED,
+                        evidence=f"Receipt {receipt.tool_call_id[:12]} shows {tool} failed: {receipt.result[:100]}",
+                    )
                 )
-            )
+
+        # Check for tool-specific failure claims: "the {tool_name} failed" etc.
+        if not failed_receipts and success_receipts:
+            for receipt in success_receipts:
+                tool = receipt.tool
+                tool_failure_patterns = [
+                    rf"(?:the\s+)?{re.escape(tool)}\s+(?:failed|errored|broke|crashed)",
+                    rf"(?:the\s+)?{re.escape(tool)}\s+(?:was |were )?(?:denied|refused|blocked)",
+                ]
+                if any(re.search(p, text_lower) for p in tool_failure_patterns):
+                    findings.append(
+                        ClaimFinding(
+                            claim=f"Agent claims {tool} failed",
+                            verdict=Verdict.CONTRADICTED,
+                            evidence=f"Receipt {receipt.tool_call_id[:12]} shows {tool} succeeded",
+                        )
+                    )
+
+        # Fallback: generic success/failure patterns (only "successfully" and
+        # "success" — the broad patterns like "ok"/"done" are removed).
+        if not findings:
+            has_success = any(re.search(p, text_lower) for p in _SUCCESS_PATTERNS)
+            has_failure = any(re.search(p, text_lower) for p in _FAILURE_PATTERNS)
+
+            if has_success and failed_receipts:
+                failed_tools = [r.tool for r in failed_receipts]
+                findings.append(
+                    ClaimFinding(
+                        claim="Agent claims success",
+                        verdict=Verdict.CONTRADICTED,
+                        evidence=f"Agent claims success but these tools failed: {', '.join(failed_tools)}",
+                    )
+                )
+            elif has_failure and not failed_receipts and success_receipts:
+                findings.append(
+                    ClaimFinding(
+                        claim="Agent claims failure",
+                        verdict=Verdict.CONTRADICTED,
+                        evidence="Agent claims failure but all tools succeeded",
+                    )
+                )
 
         return findings
 
@@ -357,6 +404,9 @@ class ClaimVerifier:
         If the agent says "I completed X" or "the website is done" but there
         are no successful tool calls in the receipts, the completion claim is
         unsupported. If there are only failed receipts, it's contradicted.
+        
+        Skips negated/conditional sentences like "I haven't completed" or
+        "the task won't be done until".
         """
         findings = []
         text_lower = text.lower()
@@ -364,6 +414,22 @@ class ClaimVerifier:
         has_completion_claim = any(re.search(p, text_lower) for p in _COMPLETION_CLAIMS)
 
         if not has_completion_claim:
+            return findings
+
+        # Check if the completion claim is in a negated context
+        for pattern in _COMPLETION_CLAIMS:
+            for match in re.finditer(pattern, text_lower):
+                start = max(0, match.start() - 30)
+                prefix = text_lower[start:match.start()]
+                if _NEGATIVE_LOOKBEHIND.search(prefix):
+                    continue
+                # If we get here, there's a non-negated completion claim — break and check receipts
+                break
+            else:
+                continue
+            break
+        else:
+            # All completion claims were negated
             return findings
 
         if not receipts:
