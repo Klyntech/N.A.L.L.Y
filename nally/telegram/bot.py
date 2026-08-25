@@ -65,11 +65,12 @@ class _GetAddrInfoFilter(_logging.Filter):
         return True
 
 # Install on the noisy loggers (httpx/httpcore/telegram)
-for _lname in ("telegram.ext._updater", "telegram.request", "telegram.request._httpxrequest", "httpx", "httpcore", "httpx._transports.default", "httpcore._async.connection_pool"):
+# Suppress Telegram library loggers to WARNING to stop stack trace spam.
+# The library uses CamelCase logger names (telegram.ext.Updater, not telegram.ext._updater).
+for _lname in ("telegram.ext.Updater", "telegram.request.BaseRequest", "telegram.request.HTTPXRequest", "httpx", "httpcore"):
     try:
         _logging.getLogger(_lname).addFilter(_GetAddrInfoFilter())
-        if _lname.startswith("httpx") or _lname.startswith("httpcore"):
-            _logging.getLogger(_lname).setLevel(_logging.WARNING)
+        _logging.getLogger(_lname).setLevel(_logging.WARNING)
     except Exception:
         pass
 # Also quiet Telethon's network spam a bit (keep WARNING, not INFO for connect retries)

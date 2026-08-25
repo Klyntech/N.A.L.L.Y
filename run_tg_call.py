@@ -254,11 +254,14 @@ async def main():
                     except Exception as e:
                         # If group call already active, just join media
                         logger.debug(f"group_voice_start_fallback: {e}")
-                        try:
-                            await _join_call_media(group_id)
-                        except Exception as je:
-                            logger.warning(f"group_join_media_failed: {je}")
-                            raise
+                    # Switch to ExternalMedia.AUDIO mode so send_frame() works.
+                    # start_group_voice_chat() uses file-play mode which doesn't
+                    # allow raw PCM frame injection via send_frame().
+                    try:
+                        await _join_call_media(group_id)
+                    except Exception as je:
+                        logger.warning(f"group_join_media_failed: {je}")
+                        raise
                     session = GroupSession(group_id, tg_call=tg_call, use_pipeline=True)
                     active_sessions[group_id] = session
                     try:
@@ -337,11 +340,12 @@ async def main():
                     await start_group_voice_chat(tg_call, telethon_client, group_id)
                 except Exception as e:
                     logger.debug(f"outgoing_group_start_fallback: {e}")
-                    try:
-                        await _join_call_media(group_id)
-                    except Exception as je:
-                        logger.warning(f"outgoing_group_join_failed: {je}")
-                        raise
+                # Switch to ExternalMedia.AUDIO mode so send_frame() works.
+                try:
+                    await _join_call_media(group_id)
+                except Exception as je:
+                    logger.warning(f"outgoing_group_join_failed: {je}")
+                    raise
                 session = GroupSession(group_id, tg_call=tg_call, use_pipeline=True)
                 active_sessions[group_id] = session
                 try:

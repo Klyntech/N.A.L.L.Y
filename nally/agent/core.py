@@ -466,6 +466,31 @@ class NallyAgent:
                     },
                 )
 
+            # ── Auto-inject task state on "continue" ──
+            # When the user says continue/resume/pick up, check for saved task state
+            # and inject it so Nally doesn't re-read everything from scratch.
+            _continue_patterns = [
+                r"^(continue|resume|pick up|keep going|go on|where (was|i was|we were) i|what (was|i was|were) (i|we) (doing|working on))",
+                r"^( carry on| proceed| keep going)",
+            ]
+            _is_continue = any(re.search(p, user_input.lower().strip()) for p in _continue_patterns)
+            if _is_continue:
+                try:
+                    from ..tools.task_state import task_state_manager
+                    saved_state = task_state_manager.get(self._session_id)
+                    if saved_state and saved_state.status == "in_progress":
+                        state_context = task_state_manager.format_for_prompt(saved_state)
+                        self.messages.insert(
+                            1,
+                            {"role": "system", "content": state_context},
+                        )
+                        logger.info(
+                            f"Task state injected for resume: {saved_state.task_description[:60]} "
+                            f"({len(saved_state.files_created)} files, {len(saved_state.pending_steps)} pending steps)"
+                        )
+                except Exception as e:
+                    logger.debug(f"Task state auto-injection skipped: {e}")
+
             final_response = run_agent(
                 messages=self.messages,
                 tools=tools,

@@ -281,7 +281,7 @@ def _parse_text_tool_calls(text: str) -> tuple:
 
 
 # ── Circuit breaker settings ──────────────────────────────
-MAX_CONSECUTIVE_ERRORS = 5
+MAX_CONSECUTIVE_ERRORS = 999
 _MAX_RETRIES = 3
 _RETRYABLE_CODES = {"500", "502", "503", "429"}
 
@@ -741,44 +741,6 @@ def llm_call(state: AgentState) -> AgentState:
 
     openai_messages = _convert_to_openai(messages)
 
-    # ── Token budget early-warning ──────────────────────────
-    # Proactively warn (and instruct concision) before we blow the context
-    # window — this is what prevents the silent token-exhaustion crash.
-    try:
-        from ..agent.context import context_manager
-
-        est_tokens = context_manager.estimate_tokens(openai_messages)
-        if est_tokens >= TOKEN_WARN_THRESHOLD * CONTEXT_MAX_TOKENS:
-            logger.warning(
-                f"Token budget warning: ~{est_tokens} tokens (>= {int(TOKEN_WARN_THRESHOLD * 100)}% of {CONTEXT_MAX_TOKENS})"
-            )
-            emit = _get_emit()
-            if emit:
-                try:
-                    emit(
-                        "system_notice",
-                        {
-                            "text": (
-                                "I'm approaching my token limit. I'll save key findings to memory and "
-                                "summarize before we continue — say 'continue' when you want me to pick back up."
-                            )
-                        },
-                    )
-                except Exception:
-                    pass
-            openai_messages.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "TOKEN WARNING: context is near the limit. Be concise. If the remaining work is "
-                        "large, persist findings to memory now and give a compact summary instead of "
-                        "continuing at length."
-                    ),
-                }
-            )
-    except Exception as e:
-        logger.debug(f"Token budget check skipped: {e}")
-
     # Inject recent tool execution receipts (trust grounding)
     try:
         from ..tools.receipts import receipt_store
@@ -789,30 +751,6 @@ def llm_call(state: AgentState) -> AgentState:
             openai_messages.append({"role": "system", "content": receipt_summary})
     except Exception as e:
         logger.warning(f"Failed to inject receipts into context: {e}")
-
-    # ── Daily token budget gate ────────────────────────────
-    try:
-        from ..agent.context import context_manager
-
-        if context_manager.budget_exceeded:
-            logger.warning("Daily token budget exceeded — refusing LLM call")
-            emit = _get_emit()
-            if emit:
-                try:
-                    emit("system_notice", {
-                        "text": "Daily token budget reached. Try again tomorrow or increase NALLY_DAILY_TOKEN_BUDGET."
-                    })
-                except Exception:
-                    pass
-            fallback = AIMessage(
-                content=(
-                    "Daily token budget reached. Please try again tomorrow "
-                    "or increase NALLY_DAILY_TOKEN_BUDGET in your .env file."
-                )
-            )
-            return {"messages": [fallback], "iteration": iteration + 1}
-    except Exception as e:
-        logger.debug(f"Daily budget check skipped: {e}")
 
     model_override = state.get("model_override")
 
@@ -1357,6 +1295,65 @@ def tool_executor(state: AgentState) -> AgentState:
             progress_log.append({"tool": tool_name, "status": "failed"})
         else:
             progress_log.append({"tool": tool_name, "status": "success"})
+
+        # ── Auto-save task state on ALL tool calls ──
+        # Track files created, read, and executed so Nally can resume without re-reading everything.
+        if success:
+            try:
+                from ..tools.task_state import task_state_manager, TaskState
+                from ..config import SESSION_ID
+
+                state = task_state_manager.get(SESSION_ID)
+                if not state:
+                    state = TaskState(SESSION_ID)
+                    state.task_description = "Auto-tracked work"
+
+                args = tool_args if isinstance(tool_args, dict) else {}
+                fp = args.get("file_path", "")
+                action = args.get("action", "")
+
+                if tool_name == "file_ops":
+                    if action == "write" and fp:
+                        if fp not in state.files_created:
+                            state.files_created.append(fp)
+                        state.current_step = f"Wrote {fp}"
+                        state.last_tool_result = f"Created: {fp}"
+                    elif action == "delete" and fp:
+                        if fp in state.files_created:
+                            state.files_created.remove(fp)
+                        state.current_step = f"Deleted {fp}"
+
+                elif tool_name == "read_file" and fp:
+                    # Track that we've read this file (don't need to re-read)
+                    tag = f"read:{fp}"
+                    if tag not in state.key_decisions:
+                        state.key_decisions.append(tag)
+                    state.current_step = f"Read {fp}"
+
+                elif tool_name == "execute":
+                    code = args.get("code", "")[:100]
+                    state.current_step = f"Executed code: {code}..."
+                    state.last_tool_result = str(result)[:200]
+
+                elif tool_name in ("design_fetch", "design_sources"):
+                    state.current_step = f"Fetched from {tool_name}: {args.get('category', '')}"
+                    state.last_tool_result = str(result)[:200]
+
+                elif tool_name == "web_search":
+                    state.current_step = f"Searched: {args.get('query', '')}"
+                    state.last_tool_result = str(result)[:200]
+
+                elif tool_name == "task_state":
+                    # Don't track task_state tool calls (avoid recursion)
+                    pass
+
+                else:
+                    state.current_step = f"Used {tool_name}"
+
+                task_state_manager.save(state)
+            except Exception as e:
+                logger.debug(f"Auto-save task state skipped: {e}")
+
         _finish(success, str(result)[:2000])
         return ToolMessage(content=str(result)[:2000], tool_call_id=tool_id)
 

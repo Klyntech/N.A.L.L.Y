@@ -325,12 +325,14 @@ class DeepgramStreamingSTT:
             # Critical: Deepgram requires BINARY audio within ~10s.
             # Text KeepAlive alone does NOT prevent NET-0001 — we must send
             # real binary audio immediately.  Send 100ms of silence (1600
-            # samples @16k = 3200 bytes) and mark it as real audio so the
-            # keepalive loop knows binary has been sent.
+            # samples @16k = 3200 bytes) to satisfy the timer.
+            # NOTE: Do NOT set _last_real_audio_ts here — that timestamp
+            # tracks *user* audio for the pipeline's stt_no_transcripts
+            # watchdog. Setting it here makes the watchdog think real audio
+            # has been flowing for 20s, triggering a false reconnect.
             with contextlib.suppress(Exception):
                 silence_100ms = b"\x00\x00" * (self.sample_rate // 10)  # 100ms @16k
                 await self._socket.send_media(silence_100ms)
-                self._last_real_audio_ts = time.monotonic()
                 self._last_audio_sent_ts = time.monotonic()
             with contextlib.suppress(Exception):
                 await self._socket.send_keep_alive()
@@ -485,21 +487,29 @@ class DeepgramStreamingSTT:
         otherwise.
         """
         silence_100ms = b"\x00\x00" * (self.sample_rate // 10)  # 100ms @16k = 3200 bytes
+        _last_log = 0.0
         try:
             while self._connected and self._socket is not None:
                 now = time.monotonic()
                 silence_needed = (
-                    self._last_real_audio_ts == 0.0  # should not happen now — we send 100ms at connect
+                    self._last_real_audio_ts == 0.0
                     or (now - self._last_real_audio_ts) > 2.0
                 )
                 try:
                     if silence_needed:
-                        # Always send BINARY audio + KeepAlive so both timers reset.
                         await self._socket.send_media(silence_100ms)
                         await self._socket.send_keep_alive()
                     else:
-                        # Got recent real audio — just a text KeepAlive is enough.
                         await self._socket.send_keep_alive()
+                    # Throttled diagnostic log (every 10s) so we can verify
+                    # keepalive is actually firing during debugging.
+                    if now - _last_log >= 10.0:
+                        _last_log = now
+                        since_real = round(now - self._last_real_audio_ts, 1) if self._last_real_audio_ts else "none"
+                        logger.debug(
+                            "deepgram_keepalive_sent",
+                            extra={"silence_mode": silence_needed, "since_real_audio_s": since_real},
+                        )
                 except Exception as e:
                     logger.warning(f"deepgram_keepalive_failed: {type(e).__name__}: {e}", extra={"error": str(e)})
                     break

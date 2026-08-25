@@ -58,6 +58,17 @@ def _load_all_registered():
 
     registry.register(FetchTool())
 
+    # --- Design Sources (2 tools — curated design source library) ---
+    from .design_fetch import DesignFetchTool, DesignSourcesTool
+
+    registry.register(DesignSourcesTool())
+    registry.register(DesignFetchTool())
+
+    # --- Task State (1 tool — save/resume multi-step work) ---
+    from .task_state import TaskStateTool
+
+    registry.register(TaskStateTool())
+
     # --- Image Generation (1 tool) ---
     from .imagegen import ImageGen
 

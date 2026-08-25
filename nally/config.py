@@ -25,6 +25,18 @@ DATA_DIR = BASE_DIR / "data"
 PLUGINS_DIR = BASE_DIR / "plugins"
 ALLOWED_PLUGINS: list[str] = []  # e.g. ["my_tools.py", "custom_agent.py"]
 
+# Project directories — where Nally looks for projects
+# Scanned on startup + periodically. The LLM uses this to resolve project names to paths.
+_project_dirs_raw = os.getenv("NALLY_PROJECT_SCAN_DIRS", "")
+if _project_dirs_raw:
+    PROJECT_SCAN_DIRS: list[str] = [d.strip() for d in _project_dirs_raw.split(",") if d.strip()]
+else:
+    PROJECT_SCAN_DIRS = [
+        str(Path.home() / "Desktop"),
+        str(Path.home() / "Documents"),
+        str(Path.home() / "Downloads"),
+    ]
+
 # MCP servers (Model Context Protocol)
 # Gmail uses direct REST API tools (nally/tools/gmail.py) but shares the same
 # OAuth token storage — listed here so the web UI can initiate the OAuth flow.
@@ -124,40 +136,40 @@ CONTEXT_RECENT_MESSAGES = 10
 CONTEXT_COMPRESSION_THRESHOLD = 20
 CONTEXT_MAX_OUTPUT_TOKENS = 4096
 MAX_MEMORIES_TO_INJECT = 12
-MAX_TOOL_CALLS = int(os.getenv("NALLY_MAX_TOOL_CALLS", "50"))
-MAX_ITERATIONS_PER_TURN = int(os.getenv("NALLY_MAX_ITERATIONS", "25"))
+MAX_TOOL_CALLS = int(os.getenv("NALLY_MAX_TOOL_CALLS", "9999"))
+MAX_ITERATIONS_PER_TURN = int(os.getenv("NALLY_MAX_ITERATIONS", "999"))
 MAX_TOOL_OUTPUT = int(os.getenv("NALLY_MAX_TOOL_OUTPUT", "50000"))
 
 # ── Agent safety ──────────────────────────────────────────
 
-MAX_AGENT_WALL_TIME = int(os.getenv("NALLY_MAX_AGENT_WALL_TIME", "300"))
-RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "50"))
-DUPLICATE_TOOL_THRESHOLD = 3
+MAX_AGENT_WALL_TIME = int(os.getenv("NALLY_MAX_AGENT_WALL_TIME", "9999"))
+RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "999"))
+DUPLICATE_TOOL_THRESHOLD = 10
 
 # Per-class wall time overrides (seconds). Falls back to MAX_AGENT_WALL_TIME.
 WALL_TIME_OVERRIDES = {
-    "COMPLEX": 900,
-    "CREATIVE": 900,
-    "HIGH_STAKES": 600,
-    "KNOWLEDGE": 300,
-    "SIMPLE": 300,
-    "AMBIGUOUS": 450,
+    "COMPLEX": 9999,
+    "CREATIVE": 9999,
+    "HIGH_STAKES": 9999,
+    "KNOWLEDGE": 9999,
+    "SIMPLE": 9999,
+    "AMBIGUOUS": 9999,
 }
 
 # Daily token budget (resets at midnight UTC). 0 = unlimited.
 # Gates plan-and-execute and other token-heavy features.
-DAILY_TOKEN_BUDGET = int(os.getenv("NALLY_DAILY_TOKEN_BUDGET", "500000"))
+DAILY_TOKEN_BUDGET = int(os.getenv("NALLY_DAILY_TOKEN_BUDGET", "0"))
 
 # Hard circuit breakers (kill infinite loops / runaway spawns)
 # Max nested sub-agent levels: agent -> subagent -> subagent is depth 2; a 3rd level is refused.
-MAX_SUBAGENT_DEPTH = int(os.getenv("NALLY_MAX_SUBAGENT_DEPTH", "2"))
+MAX_SUBAGENT_DEPTH = int(os.getenv("NALLY_MAX_SUBAGENT_DEPTH", "4"))
 # Max attempts for a single tool call before reporting the exact error (no infinite retry).
-TOOL_RETRY_LIMIT = int(os.getenv("NALLY_TOOL_RETRY_LIMIT", "3"))
+TOOL_RETRY_LIMIT = int(os.getenv("NALLY_TOOL_RETRY_LIMIT", "15"))
 # Max failed tool calls per turn before the agent halts and asks the user how to
 # proceed (prevents burning the wall-clock budget on a looping failure).
-MAX_TOOL_FAILURES_PER_TURN = int(os.getenv("NALLY_MAX_TOOL_FAILURES_PER_TURN", "8"))
+MAX_TOOL_FAILURES_PER_TURN = int(os.getenv("NALLY_MAX_TOOL_FAILURES_PER_TURN", "999"))
 # Fraction of CONTEXT_MAX_TOKENS at which Nally proactively warns and summarizes.
-TOKEN_WARN_THRESHOLD = float(os.getenv("NALLY_TOKEN_WARN_THRESHOLD", "0.8"))
+TOKEN_WARN_THRESHOLD = float(os.getenv("NALLY_TOKEN_WARN_THRESHOLD", "0.95"))
 
 # How long (seconds) the agent waits for the user to approve a gated tool call
 # before declining. Telegram inline buttons can arrive late (polling/webhook
@@ -167,11 +179,11 @@ APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
 # ── Planning ─────────────────────────────────────────────
 
 _plan_env = os.getenv("NALLY_PLAN_ENABLED", "true").lower() == "true"
-PLAN_ENABLED = _plan_env and DAILY_TOKEN_BUDGET > 0
-PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
-PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
-PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "300"))
-PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "15"))
+PLAN_ENABLED = _plan_env
+PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "999"))
+PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "999"))
+PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "9999"))
+PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "999"))
 
 # ── Harness v2 (Intent Classification + Pipeline Routing) ─
 
@@ -199,6 +211,12 @@ try:
     HARNESS_PIPELINES = {**_default_pipelines, **(_json.loads(_pipelines_env) if _pipelines_env else {})}
 except (_json.JSONDecodeError, ValueError):
     HARNESS_PIPELINES = _default_pipelines
+
+# ── Design Sources ──────────────────────────────────────
+# Curated library of 40+ design source websites (CSS/HTML/JS code).
+# Enabled by default — Nally fetches components from these before writing from scratch.
+
+DESIGN_SOURCES_ENABLED = os.getenv("NALLY_DESIGN_SOURCES_ENABLED", "true").lower() == "true"
 
 # ── Thinking Engine ─────────────────────────────────
 
@@ -352,7 +370,7 @@ IDENTITY:
 - You are NALLY — Clinton's personal AI assistant, built in Lagos, Nigeria
 - You are not a generic chatbot. You are a specialized AI with memory, tools, and personality
 - Built with FastAPI, LangGraph, SQLite, and MCP integrations
-- You have 40+ tools: code execution, file operations, web search, memory, image generation, MCP servers
+- You have 40+ tools: code execution, file operations, web search, memory, image generation, MCP servers, design source library
 - Your personality: direct, analytical, warm, no-nonsense
 - Your creator: Clinton Onyedikachi Chukwuma, 17, Lagos, developer + law student
 - You know Clinton well — his goals, projects, interests, his work style
@@ -419,6 +437,9 @@ TOOLS (18 total -- use them, don't explain them):
 - gmail_draft: save a draft email without sending. safe.
 - gmail_mark_read: mark a Gmail thread as read or unread. safe.
 - gmail_delete: delete or trash a Gmail thread. destructive. requires approval.
+- design_sources: list all available design source websites by category. safe. Use this first to find the right source.
+- design_fetch: fetch CSS/HTML/JS code from curated design source websites. safe. Use before writing components from scratch.
+- task_state: save and resume multi-step task progress. safe. Use save after each major step, resume to pick up where you left off.
 
 CREATIVITY MODE (applies to brainstorming, naming, writing, design ideas, and open-ended "what if" thinking -- not to facts, code behavior, or task verification):
 - When asked for ideas, generate a real range -- at least one conventional and one unexpected option. Have a favorite and say which one and why.
@@ -513,6 +534,16 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
         "\n- If uncertain whether something worked, say 'I attempted X' — not 'I did X'."
         "\n- NEVER claim you lack access to a tool. You have run_command, read_file, file_ops, run_code, web_search, and other tools. If a tool call fails or times out, say it failed — do NOT claim the tool doesn't exist or that you can't use it."
     )
+
+    # Inject project registry — so LLM knows where projects live on disk
+    try:
+        from nally.agent.project_registry import registry
+
+        project_list = registry.format_for_system_prompt()
+        if project_list:
+            prompt += f"\n\n{project_list}"
+    except Exception:
+        pass  # Project registry not available yet
 
     # Voice chat capability — only inject if enabled
     try:

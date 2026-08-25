@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from ..config import DATA_DIR
+
 
 class Pattern:
     """Represents a pattern with handler and specificity"""
@@ -381,8 +383,11 @@ def handle_read_file(match):
 def handle_create_folder(match):
     name = match.group(1) if match.lastindex else "new_folder"
     try:
-        Path(name).mkdir(parents=True, exist_ok=True)
-        return f"Created folder: {name}"
+        from ..tools.files import _resolve_project_path
+
+        resolved = _resolve_project_path(name)
+        Path(resolved).mkdir(parents=True, exist_ok=True)
+        return f"Created folder: {resolved}"
     except Exception:
         return f"Couldn't create folder: {name}"
 
@@ -390,16 +395,19 @@ def handle_create_folder(match):
 def handle_delete_file(match):
     path = match.group(1) if match.lastindex else ""
     try:
-        p = Path(path)
+        from ..tools.files import _resolve_project_path
+
+        resolved = _resolve_project_path(path)
+        p = Path(resolved)
         if not p.exists():
-            return f"File not found: {path}"
+            return f"File not found: {resolved}"
         if p.is_dir():
             import shutil
 
             shutil.rmtree(p)
         else:
             p.unlink()
-        return f"Deleted: {path}"
+        return f"Deleted: {resolved}"
     except Exception:
         return f"Couldn't delete: {path}"
 
@@ -547,7 +555,7 @@ def handle_add_todo(match):
     try:
         import json
 
-        todos_file = Path("todos.json")
+        todos_file = DATA_DIR / "todos.json"
         todos = []
         if todos_file.exists():
             todos = json.loads(todos_file.read_text())
@@ -562,7 +570,7 @@ def handle_list_todos(match):
     try:
         import json
 
-        todos_file = Path("todos.json")
+        todos_file = DATA_DIR / "todos.json"
         if not todos_file.exists():
             return "No todos yet."
         todos = json.loads(todos_file.read_text())
@@ -583,7 +591,7 @@ def handle_set_reminder(match):
     try:
         import json
 
-        reminders_file = Path("reminders.json")
+        reminders_file = DATA_DIR / "reminders.json"
         reminders = []
         if reminders_file.exists():
             reminders = json.loads(reminders_file.read_text())
@@ -706,7 +714,7 @@ def handle_screenshot(match):
         from PIL import ImageGrab
 
         screenshot = ImageGrab.grab()
-        filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filename = DATA_DIR / f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         screenshot.save(filename)
         return f"Screenshot saved: {filename}"
     except Exception:
@@ -766,7 +774,7 @@ def handle_window_screenshot(match):
         screenshot = ImageGrab.grab(bbox=bbox)
 
         safe_name = window_name.replace(" ", "_")[:20]
-        filename = f"screenshot_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filename = DATA_DIR / f"screenshot_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         screenshot.save(filename)
         return f"Screenshot of '{window_name}' saved: {filename}"
     except ImportError:

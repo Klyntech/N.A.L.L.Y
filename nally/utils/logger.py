@@ -68,13 +68,12 @@ class _DnsSpamFilter(_logging.Filter):
 # Install globally once at import time
 try:
     for _lname in (
-        "telegram.ext._updater",
+        "telegram.ext.Updater",
         "telegram.request",
-        "telegram.request._httpxrequest",
+        "telegram.request.BaseRequest",
+        "telegram.request.HTTPXRequest",
         "httpx",
         "httpcore",
-        "httpx._transports.default",
-        "httpcore._async.connection_pool",
         "telethon.network.mtprotosender",
         "telethon.network.connection.connection",
     ):

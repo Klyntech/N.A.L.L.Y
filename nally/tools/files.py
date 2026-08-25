@@ -8,14 +8,18 @@ from .registry import Tool
 MAX_WRITE_SIZE = 500_000  # 500KB max write
 
 # ── Path safety ───────────────────────────────────────────
-# Only these roots are writable. Path.home() deliberately excluded
-# to block ~/.ssh, ~/.aws, .gitconfig, browser profiles, etc.
-_ALLOWED_ROOTS = [
-    Path.cwd(),  # project directory
-    Path.home() / "Desktop",
-    Path.home() / "Documents",
-    Path.home() / "Downloads",
-]
+# Only these roots are writable. Uses BASE_DIR (consistent) instead of
+# Path.cwd() (which varies by how the process was launched).
+def _get_allowed_roots():
+    """Build allowed roots list. Called at runtime, not import time."""
+    from ..config import BASE_DIR
+
+    return [
+        BASE_DIR,  # N.A.L.L.Y project root
+        Path.home() / "Desktop",
+        Path.home() / "Documents",
+        Path.home() / "Downloads",
+    ]
 
 
 def _is_safe_write_path(path: Path) -> bool:
@@ -25,13 +29,39 @@ def _is_safe_write_path(path: Path) -> bool:
     Returns True if the resolved path is under any allowed root.
     """
     resolved = path.resolve()
-    for root in _ALLOWED_ROOTS:
+    for root in _get_allowed_roots():
         try:
             resolved.relative_to(root.resolve())
             return True
         except ValueError:
             continue
     return False
+
+
+def _resolve_project_path(file_path: str) -> str:
+    """Resolve a project name in the file path to its full path.
+
+    If the LLM sends 'Millwright/index.html', resolve to
+    'C:/Users/chuki/Desktop/Millwright/index.html'.
+    """
+    if not file_path:
+        return file_path
+
+    from ..agent.project_registry import registry
+
+    parts = Path(file_path).parts
+    if not parts:
+        return file_path
+
+    # Check if the first component is a known project name
+    first = parts[0]
+    resolved = registry.resolve(first)
+    if resolved:
+        # Replace first component with resolved path
+        rest = Path(*parts[1:]) if len(parts) > 1 else Path("")
+        return str(Path(resolved) / rest)
+
+    return file_path
 
 
 def _validate_file(path: Path, content: str) -> str:
@@ -190,6 +220,10 @@ class FileOps(Tool):
             return 'Error: action is required. Send: {"action": "write", "file_path": "path", "content": "text"}'
         # Accept `path` as an alias for `file_path` (model sometimes sends `path`)
         file_path = file_path or path
+        # Resolve project names to full paths
+        file_path = _resolve_project_path(file_path)
+        if destination:
+            destination = _resolve_project_path(destination)
         try:
             if action == "write":
                 if not file_path:
