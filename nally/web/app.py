@@ -728,9 +728,14 @@ async def tg_message(request: Request):
 
     session_id = data["session_id"]
     emit = _make_emit_standalone(data["chat_id"], session_id=session_id)
-    response = await asyncio.to_thread(
-        session_manager.process, session_id, data["text"], emit=emit
-    )
+    try:
+        response = await asyncio.wait_for(
+            asyncio.to_thread(session_manager.process, session_id, data["text"], emit=emit),
+            timeout=300.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"Telegram message timed out for session {session_id}")
+        response = "Request timed out after 5 minutes. Try a simpler task or say 'continue'."
     return {"response": response}
 
 

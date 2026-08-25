@@ -518,7 +518,11 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{_web_base_url()}/api/telegram/approve",
                     json={"tc_id": full_tc_id, "approved": approved},
                 )
-                resolved = resp.json().get("resolved", False)
+                if resp.status_code == 200:
+                    resolved = resp.json().get("resolved", False)
+                else:
+                    logger.warning(f"Approval HTTP returned {resp.status_code}")
+                    resolved = False
         except Exception as e:
             logger.error(f"Approval HTTP failed: {e}")
             resolved = False
@@ -676,6 +680,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{_web_base_url()}/api/telegram/message",
                 json={"session_id": session_id, "text": text, "chat_id": chat.id},
             )
+            if resp.status_code != 200:
+                return f"Web server error (HTTP {resp.status_code})"
             return resp.json().get("response", "")
 
     request_task = asyncio.create_task(_do_request())
@@ -946,6 +952,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{_web_base_url()}/api/telegram/message",
                 json={"session_id": session_id, "text": combined, "chat_id": chat.id},
             )
+            if resp.status_code != 200:
+                return f"Web server error (HTTP {resp.status_code})"
             return resp.json().get("response", "")
 
     request_task = asyncio.create_task(_do_request())

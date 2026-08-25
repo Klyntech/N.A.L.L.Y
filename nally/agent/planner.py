@@ -401,6 +401,16 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # Build planning prompt
     is_revision = existing_plan and existing_plan.status == PlanStatus.REVISING
 
+    # Goal deduplication: if an active plan already exists for the same goal,
+    # don't re-plan. This prevents the infinite planner->critique->replan loop
+    # when steps keep failing for the same reason.
+    if existing_plan and not is_revision and existing_plan.status == PlanStatus.ACTIVE:
+        if existing_plan.goal == user_text or (
+            existing_plan.goal and user_text in existing_plan.goal
+        ):
+            logger.info(f"Planner dedup: existing plan covers goal, skipping re-plan")
+            return {**_plan_to_state(state, existing_plan), "plan_status": "executing"}
+
     if is_revision and existing_plan.critique:
         prompt = (
             f"The plan for '{user_text}' was reviewed and needs revision:\n"

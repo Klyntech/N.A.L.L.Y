@@ -359,7 +359,8 @@ class TestPlanSerializationRoundTrip:
         try:
             import msgpack
         except ImportError:
-            self.skipTest("msgpack not installed")
+            import pytest
+            pytest.skip("msgpack not installed")
 
         plan = self._make_full_plan()
         state = _plan_to_state({}, plan)

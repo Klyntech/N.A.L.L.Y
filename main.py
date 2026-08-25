@@ -228,12 +228,26 @@ def run_web(port=5000):
     else:
         print("[warn] TELEGRAM_USER_ID not set — Telegram user account not started.")
 
+    import signal
     import uvicorn
 
     from nally.web.app import app
 
+    # Graceful shutdown: Render sends SIGTERM on deploy. Give in-flight
+    # requests time to complete before uvicorn starts its shutdown sequence.
+    def _handle_sigterm(sig, frame):
+        print("[shutdown] SIGTERM received — draining in-flight requests...")
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
     try:
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            log_level="warning",
+            timeout_graceful_shutdown=30,
+        )
     finally:
         _kill_bot()
         _kill_tg_user()

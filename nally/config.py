@@ -142,18 +142,18 @@ MAX_TOOL_OUTPUT = int(os.getenv("NALLY_MAX_TOOL_OUTPUT", "50000"))
 
 # ── Agent safety ──────────────────────────────────────────
 
-MAX_AGENT_WALL_TIME = int(os.getenv("NALLY_MAX_AGENT_WALL_TIME", "9999"))
-RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "999"))
+MAX_AGENT_WALL_TIME = int(os.getenv("NALLY_MAX_AGENT_WALL_TIME", "300"))
+RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "50"))
 DUPLICATE_TOOL_THRESHOLD = 10
 
 # Per-class wall time overrides (seconds). Falls back to MAX_AGENT_WALL_TIME.
 WALL_TIME_OVERRIDES = {
-    "COMPLEX": 9999,
-    "CREATIVE": 9999,
-    "HIGH_STAKES": 9999,
-    "KNOWLEDGE": 9999,
-    "SIMPLE": 9999,
-    "AMBIGUOUS": 9999,
+    "COMPLEX": 600,
+    "CREATIVE": 300,
+    "HIGH_STAKES": 300,
+    "KNOWLEDGE": 300,
+    "SIMPLE": 120,
+    "AMBIGUOUS": 300,
 }
 
 # Daily token budget (resets at midnight UTC). 0 = unlimited.
@@ -180,10 +180,10 @@ APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
 
 _plan_env = os.getenv("NALLY_PLAN_ENABLED", "true").lower() == "true"
 PLAN_ENABLED = _plan_env
-PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "999"))
-PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "999"))
-PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "9999"))
-PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "999"))
+PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
+PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
+PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "300"))
+PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "15"))
 
 # ── Harness v2 (Intent Classification + Pipeline Routing) ─
 
