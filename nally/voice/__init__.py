@@ -13,8 +13,11 @@ Speech Pipeline (speech_pipeline.py):
 """
 
 
-def run_voice_loop(session_id: str = "voice:default"):
-    """Launch the push-to-talk voice loop. Blocks until user exits."""
+def run_voice_loop(session_id=None):
+    """Launch the push-to-talk voice loop. Blocks until user exits.
+
+    session_id defaults to the owner's shared brain session.
+    """
     from .loop import run_voice_loop as _run
 
     return _run(session_id)

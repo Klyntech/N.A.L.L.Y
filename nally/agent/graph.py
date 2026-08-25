@@ -964,6 +964,32 @@ def llm_call(state: AgentState) -> AgentState:
         except Exception as e:
             logger.warning(f"Claim verification failed: {e}")
 
+    # ── Output Guardrails ──
+    if ai_message.content and not ai_message.tool_calls:
+        try:
+            from .guardrails import guardrail_engine
+            output_results = guardrail_engine.check_output(
+                ai_message.content,
+                context={
+                    "receipts": [r for r in (receipt_store.get_recent(limit=20) if 'receipt_store' in dir() else [])],
+                    "failed_tools": [f.get("tool") for f in state.get("tool_failures", [])],
+                },
+            )
+            if guardrail_engine.should_block(output_results):
+                for r in output_results:
+                    if r.verdict.value == "block":
+                        ai_message.content = f"[Blocked by guardrail] {r.message}"
+                        break
+            else:
+                # Apply any modifications
+                ai_message.content = guardrail_engine.get_modified_content(output_results, ai_message.content)
+                # Log warnings
+                for r in output_results:
+                    if r.verdict.value == "warn":
+                        logger.warning(f"Output guardrail warning: {r.message}")
+        except Exception as e:
+            logger.debug(f"Output guardrails skipped: {e}")
+
     if emit and assistant_msg.tool_calls:
         for tc in assistant_msg.tool_calls:
             try:
@@ -1068,6 +1094,21 @@ def tool_executor(state: AgentState) -> AgentState:
                     pass
 
         decision = permission_gate.check(tool_name, tool_args)
+
+        # ── Tool Guardrails ──
+        try:
+            from .guardrails import guardrail_engine
+            tool_results = guardrail_engine.check_tool(tool_name, tool_args)
+            if guardrail_engine.should_block(tool_results):
+                blocked_msg = f"Tool '{tool_name}' blocked by guardrail: "
+                for r in tool_results:
+                    if r.verdict.value == "block":
+                        blocked_msg += r.message
+                        break
+                _finish(False, "blocked by guardrail")
+                return ToolMessage(content=blocked_msg, tool_call_id=tool_id)
+        except Exception as e:
+            logger.debug(f"Tool guardrails skipped: {e}")
 
         if decision.value == "deny":
             logger.info(f"Permission denied: '{tool_name}' {tool_args}")
@@ -1524,10 +1565,12 @@ def create_agent_graph():
             route_after_replan,
             synthesize_node,
         )
+        from .human_checkpoint import human_checkpoint_node
 
         graph.add_node("classify", classify_node)
         graph.add_node("planner", planner_node)
         graph.add_node("critique", critique_node)
+        graph.add_node("human_checkpoint", human_checkpoint_node)
         graph.add_node("execute_step", execute_step_node)
         graph.add_node("replan", replan_node)
         graph.add_node("synthesize", synthesize_node)
@@ -1542,12 +1585,15 @@ def create_agent_graph():
         # planner -> critique (review before execution)
         graph.add_edge("planner", "critique")
 
-        # critique routes: revise plan or proceed to execution
+        # critique routes: revise plan or proceed to human checkpoint
         graph.add_conditional_edges(
             "critique",
             route_after_critique,
-            {"execute_step": "execute_step", "planner": "planner"},
+            {"execute_step": "human_checkpoint", "planner": "planner"},
         )
+
+        # human_checkpoint -> execute_step (after user approves)
+        graph.add_edge("human_checkpoint", "execute_step")
 
         # execute_step -> replan (always)
         graph.add_edge("execute_step", "replan")
@@ -1652,6 +1698,10 @@ def run_agent(
             lc_messages.append(ToolMessage(content=content, tool_call_id=msg.get("tool_call_id", "")))
 
     _set_emit(emit)
+
+    # Wrap emit in typed emitter for projection support
+    from .streaming import EventEmitter
+    _emitter = EventEmitter(emit_fn=emit)
 
     # Use a fresh thread_id per invocation to prevent checkpointer message
     # accumulation. The NallyAgent manages its own history — the checkpointer

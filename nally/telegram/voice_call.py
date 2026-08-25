@@ -297,13 +297,20 @@ class VoiceCallSession:
 
     def __init__(self, chat_id: int, tg_call=None, use_pipeline: bool = True):
         self._chat_id = chat_id
-        self._session_id = f"tg_voice:{chat_id}"
+        # Identity, not channel: calls share the owner's brain session with
+        # text/web; only the route key stays call-specific.
+        from ..agent.identity import resolve_session
+
+        ref = resolve_session("tg_voice", chat_id=chat_id)
+        self._session_id = ref.session_id
+        self._route_key = ref.route_key
         self._tg_call = tg_call
         self._loop = asyncio.get_event_loop()
         self._pending_approval: Optional[dict] = None
         self._active = False
         self._use_pipeline = use_pipeline
         self._pipeline = None
+        self._started_at = time.monotonic()
 
         # pytgcalls uses the raw chat_id for both play() and send_frame():
         # the user id for 1:1 calls, or the -100... supergroup id for group
@@ -468,6 +475,13 @@ class VoiceCallSession:
             if reply:
                 self._voice_history.append({"role": "user", "content": text})
                 self._voice_history.append({"role": "assistant", "content": reply})
+                # Mandatory persist: commit the turn into the shared brain so
+                # text/web/Telethon see this call in history. Latency-critical
+                # streaming already finished — the commit runs off-loop.
+                try:
+                    await asyncio.to_thread(self._commit_turn, text, reply)
+                except Exception as e:
+                    logger.warning("voice_commit_turn_failed", extra={"error": str(e)})
                 return
         except Exception as e:
             # If the fast path already yielded partial tokens, don't also
@@ -490,6 +504,85 @@ class VoiceCallSession:
         except Exception as e:
             logger.error(f"agent_failed: {type(e).__name__}: {e}", extra={"session_id": self._session_id, "error": str(e)})
             yield "Sorry, I ran into an error. Please try again."
+
+    # ── Shared-brain persistence ──
+
+    def _commit_turn(self, user_text: str, reply: str):
+        """Commit a fast-path turn into the shared session brain (blocking)."""
+        from ..agent.sessions import session_manager
+
+        session_manager.commit_turn(self._session_id, user_text, reply)
+
+    def _seed_history_from_brain(self):
+        """Seed the short prompt window from shared history so a call picks
+        up where text/web left off. Runs once, best-effort."""
+        if self._voice_history:
+            return
+        try:
+            from ..agent.sessions import session_manager
+
+            hist = session_manager.get_history(self._session_id)
+            msgs = [m for m in hist if m.get("role") in ("user", "assistant")][-8:]
+            self._voice_history.extend(msgs)
+            if msgs:
+                logger.info(
+                    "voice_history_seeded",
+                    extra={"call_id": self._chat_id, "turns": len(msgs)},
+                )
+        except Exception as e:
+            logger.debug(f"voice history seed failed: {type(e).__name__}: {e}")
+
+    def _write_call_episode(self):
+        """Best-effort light episode at hangup: 1-3 sentences on topics and
+        decisions from the call — long-term recall, not a transcript copy.
+
+        Skipped for short calls (<30s) or pure greeting/chitchat. Never
+        blocks stop(): runs in a daemon thread and swallows all errors.
+        """
+        try:
+            elapsed = time.monotonic() - getattr(self, "_started_at", time.monotonic())
+            user_turns = [
+                m for m in self._voice_history if m.get("role") == "user"
+            ]
+            substance = sum(len(m.get("content", "")) for m in user_turns)
+            if elapsed < 30 or not user_turns or substance < 120:
+                return
+
+            transcript = "\n".join(
+                f"{'User' if m.get('role') == 'user' else 'Nally'}: {m.get('content', '')}"
+                for m in self._voice_history[-12:]
+            )
+
+            def _write():
+                try:
+                    from ..agent.llm import llm
+                    from ..memory import memory_store
+
+                    summary = llm.simple_chat(
+                        user_message=(
+                            "Summarize this voice call in 1-3 sentences: what was "
+                            "discussed and any decisions or outcomes. Just the "
+                            "summary, nothing else.\n\n" + transcript
+                        ),
+                        system_prompt=(
+                            "You summarize voice calls tersely for long-term "
+                            "memory. Output only the summary."
+                        ),
+                    )
+                    summary = (summary or "").strip()
+                    if summary:
+                        memory_store.add_episode(
+                            topic="Telegram voice call",
+                            what_happened=summary,
+                            tags=["voice-call"],
+                        )
+                        logger.info("call_episode_recorded", extra={"call_id": self._chat_id})
+                except Exception as e:
+                    logger.debug(f"call episode write failed: {type(e).__name__}: {e}")
+
+            threading.Thread(target=_write, daemon=True).start()
+        except Exception as e:
+            logger.debug(f"call episode skipped: {type(e).__name__}: {e}")
 
     async def _process_transcript(self, text: str) -> str:
         """Run the user's transcript through the agent brain; return reply text."""
@@ -624,6 +717,14 @@ class VoiceCallSession:
         self._active = True
         self._heartbeat_task = None
 
+        # Pull recent shared-brain history into the short prompt window so
+        # the call continues the cross-platform conversation (best-effort,
+        # off-loop).
+        try:
+            await asyncio.to_thread(self._seed_history_from_brain)
+        except Exception:
+            pass
+
         # 2. Start pipeline BEFORE greeting so Deepgram warms while greeting
         # plays.  This ensures the first user utterance isn't lost and the
         # Deepgram socket gets binary audio within 1-2s (avoids NET-0001).
@@ -754,3 +855,5 @@ class VoiceCallSession:
             with contextlib.suppress(Exception):
                 asyncio.run_coroutine_threadsafe(self._pipeline.stop(), self._loop)
             self._pipeline = None
+        # Light episode for long-term recall (best-effort, never blocks).
+        self._write_call_episode()

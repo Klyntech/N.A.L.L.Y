@@ -6,15 +6,16 @@ from nally.tools.imagegen import CONTENT_ROUTER
 def test_content_router_models_match_30f0235():
     """Stale-branch commits must not silently revert CONTENT_ROUTER models.
 
-    Commit 30f0235 set these 5 entries to real free Pollinations models.
-    Commit 9a8a16c accidentally reverted them all to 'flux'. This test
-    catches any future recurrence.
+    Originally commit 30f0235 set these to gpt-image variants; hardened for
+    free-tier reliability per 2026-08: all content types now default to 'flux'
+    (reliable, fast, free). generate_pollinations() also has fallback for
+    legacy gpt-* names. This test guards the hardened defaults.
     """
-    assert CONTENT_ROUTER["photo"]["model"] == "gpt-image-2"
-    assert CONTENT_ROUTER["3d"]["model"] == "gptimage-large"
-    assert CONTENT_ROUTER["product"]["model"] == "gptimage"
-    assert CONTENT_ROUTER["text"]["model"] == "gptimage-large"
-    assert CONTENT_ROUTER["default"]["model"] == "zimage"
+    assert CONTENT_ROUTER["photo"]["model"] == "flux"
+    assert CONTENT_ROUTER["3d"]["model"] == "flux"
+    assert CONTENT_ROUTER["product"]["model"] == "flux"
+    assert CONTENT_ROUTER["text"]["model"] == "flux"
+    assert CONTENT_ROUTER["default"]["model"] == "flux"
 
 
 def test_content_router_flux_entries_unchanged():

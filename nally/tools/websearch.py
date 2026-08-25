@@ -17,6 +17,7 @@ try:
 except ImportError:
     DDGS = None
 from .registry import Tool
+from ._retry import retry_transient
 
 logger = logging.getLogger("nally.tools.websearch")
 
@@ -98,7 +99,7 @@ def _search_parallel(query: str, num_results: int = 3) -> str | None:
         logger.info(f"Parallel.ai monthly limit reached ({count}/{PARALLEL_MONTHLY_LIMIT}), using fallback")
         return None
 
-    try:
+    def _do_search():
         # Build search queries — generate 2 diverse queries from the user's question
         words = query.split()[:6]
         search_queries = [
@@ -121,24 +122,37 @@ def _search_parallel(query: str, num_results: int = 3) -> str | None:
         )
 
         if resp.status_code != 200:
+            # Raise on non-200 so retry_transient can detect transient errors (5xx, 429)
+            resp.raise_for_status()
+
+        return resp.json()
+
+    try:
+        result, exc = retry_transient(
+            _do_search,
+            max_attempts=3,
+            backoff_base=1.0,
+            logger_name="nally.tools.websearch.parallel",
+        )
+
+        if exc:
             _quota_lock.release()
-            logger.warning(f"Parallel.ai search failed: {resp.status_code} {resp.text[:200]}")
+            logger.warning(f"Parallel.ai search failed after retries: {type(exc).__name__}: {exc}")
             return None
 
-        data = resp.json()
         _increment_monthly_count(db_path, "parallel")
         _quota_lock.release()
 
         # Format results
-        results = data.get("results", [])
+        results = result.get("results", [])
         if not results:
             return "No results found."
 
         parts = []
-        for i, result in enumerate(results[:num_results], 1):
-            title = result.get("title", "Untitled")
-            url = result.get("url", "")
-            excerpts = result.get("excerpts", [])
+        for i, r in enumerate(results[:num_results], 1):
+            title = r.get("title", "Untitled")
+            url = r.get("url", "")
+            excerpts = r.get("excerpts", [])
             snippet = excerpts[0][:300] if excerpts else ""
             parts.append(f"[{i}] {title}\n{url}\n{snippet}")
 

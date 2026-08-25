@@ -180,7 +180,7 @@ def handle_open_app(match):
             try:
                 subprocess.Popen(f"start {app_cmd}{ext}", shell=True)
                 return f"Opening {app_name}."
-            except:
+            except Exception:
                 continue
         return f"Couldn't open {app_name}. The app may not be installed."
 
@@ -195,7 +195,7 @@ def handle_open_browser(match):
     try:
         os.startfile(browsers.get(browser.lower(), browser))
         return f"Opening {browser}."
-    except:
+    except Exception:
         return f"Couldn't open {browser}."
 
 
@@ -203,7 +203,7 @@ def handle_open_explorer(match):
     try:
         subprocess.Popen("explorer", shell=True)
         return "Opening File Explorer."
-    except:
+    except Exception:
         return "Couldn't open File Explorer."
 
 
@@ -211,7 +211,7 @@ def handle_open_terminal(match):
     try:
         subprocess.Popen("cmd", shell=True)
         return "Opening Command Prompt."
-    except:
+    except Exception:
         return "Couldn't open Command Prompt."
 
 
@@ -219,7 +219,7 @@ def handle_open_settings(match):
     try:
         os.startfile("ms-settings:")
         return "Opening Settings."
-    except:
+    except Exception:
         return "Couldn't open Settings."
 
 
@@ -227,7 +227,7 @@ def handle_open_task_manager(match):
     try:
         subprocess.Popen("taskmgr", shell=True)
         return "Opening Task Manager."
-    except:
+    except Exception:
         return "Couldn't open Task Manager."
 
 
@@ -239,7 +239,7 @@ def handle_weather(match):
 
         response = requests.get(f"https://wttr.in/{city}?format=3", timeout=5)
         return response.text.strip()
-    except:
+    except Exception:
         return f"Couldn't get weather for {city}."
 
 
@@ -249,7 +249,7 @@ def handle_weather_condition(match):
 
         response = requests.get("https://wttr.in/?format=%C+%t", timeout=5)
         return f"Current conditions: {response.text.strip()}"
-    except:
+    except Exception:
         return "Couldn't get weather info."
 
 
@@ -268,7 +268,7 @@ def handle_set_volume(match):
         return f"Volume set to {level}%."
     except ImportError:
         return "Volume control requires pycaw. Run: pip install pycaw comtypes"
-    except:
+    except Exception:
         return "Couldn't set volume."
 
 
@@ -284,7 +284,7 @@ def handle_volume_up(match):
         new_level = min(1.0, current + 0.1)
         volume.SetMasterVolumeLevelScalar(new_level, None)
         return f"Volume up to {int(new_level * 100)}%."
-    except:
+    except Exception:
         return "Couldn't adjust volume."
 
 
@@ -300,7 +300,7 @@ def handle_volume_down(match):
         new_level = max(0.0, current - 0.1)
         volume.SetMasterVolumeLevelScalar(new_level, None)
         return f"Volume down to {int(new_level * 100)}%."
-    except:
+    except Exception:
         return "Couldn't adjust volume."
 
 
@@ -314,7 +314,7 @@ def handle_mute(match):
         volume = interface.QueryInterface(IAudioEndpointVolume)
         volume.SetMute(1, None)
         return "Muted."
-    except:
+    except Exception:
         return "Couldn't mute."
 
 
@@ -328,7 +328,7 @@ def handle_unmute(match):
         volume = interface.QueryInterface(IAudioEndpointVolume)
         volume.SetMute(0, None)
         return "Unmuted."
-    except:
+    except Exception:
         return "Couldn't unmute."
 
 
@@ -342,7 +342,7 @@ def handle_get_volume(match):
         volume = interface.QueryInterface(IAudioEndpointVolume)
         level = volume.GetMasterVolumeLevelScalar() * 100
         return f"Volume is at {int(level)}%."
-    except:
+    except Exception:
         return "Couldn't get volume."
 
 
@@ -360,7 +360,7 @@ def handle_list_files(match):
         if not items:
             return "Directory is empty."
         return "\n".join(items[:20]) + ("\n..." if len(items) > 20 else "")
-    except:
+    except Exception:
         return f"Couldn't list files in {path}."
 
 
@@ -374,7 +374,7 @@ def handle_read_file(match):
             return "File is too large to read."
         content = p.read_text(encoding="utf-8")
         return content[:2000] + ("..." if len(content) > 2000 else "")
-    except:
+    except Exception:
         return f"Couldn't read {path}."
 
 
@@ -383,7 +383,7 @@ def handle_create_folder(match):
     try:
         Path(name).mkdir(parents=True, exist_ok=True)
         return f"Created folder: {name}"
-    except:
+    except Exception:
         return f"Couldn't create folder: {name}"
 
 
@@ -400,7 +400,7 @@ def handle_delete_file(match):
         else:
             p.unlink()
         return f"Deleted: {path}"
-    except:
+    except Exception:
         return f"Couldn't delete: {path}"
 
 
@@ -419,7 +419,7 @@ def handle_find_file(match):
         if results:
             return "Found:\n" + "\n".join(results)
         return f"Couldn't find '{name}'."
-    except:
+    except Exception:
         return f"Error searching for {name}."
 
 
@@ -438,7 +438,7 @@ def handle_open_folder(match):
     try:
         os.startfile(str(path))
         return f"Opening {name}."
-    except:
+    except Exception:
         return f"Couldn't open {name}."
 
 
@@ -457,7 +457,7 @@ def handle_file_size(match):
             return f"Size: {size / 1024**2:.1f} MB"
         else:
             return f"Size: {size / 1024**3:.1f} GB"
-    except:
+    except Exception:
         return f"Couldn't get size of {path}."
 
 
@@ -470,7 +470,7 @@ def handle_system_info(match):
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
         return f"CPU: {cpu}% | RAM: {mem.percent}% ({mem.used // 1024**3:.1f}/{mem.total // 1024**3:.1f}GB) | Disk: {disk.percent}%"
-    except:
+    except Exception:
         return "Couldn't get system info."
 
 
@@ -480,7 +480,7 @@ def handle_cpu_usage(match):
 
         cpu = psutil.cpu_percent(interval=0.5)
         return f"CPU usage: {cpu}%"
-    except:
+    except Exception:
         return "Couldn't get CPU info."
 
 
@@ -490,7 +490,7 @@ def handle_memory_usage(match):
 
         mem = psutil.virtual_memory()
         return f"Memory: {mem.percent}% used ({mem.used // 1024**3:.1f}GB / {mem.total // 1024**3:.1f}GB)"
-    except:
+    except Exception:
         return "Couldn't get memory info."
 
 
@@ -500,7 +500,7 @@ def handle_disk_usage(match):
 
         disk = psutil.disk_usage("/")
         return f"Disk: {disk.percent}% used ({disk.used // 1024**3:.1f}GB / {disk.total // 1024**3:.1f}GB)"
-    except:
+    except Exception:
         return "Couldn't get disk info."
 
 
@@ -512,7 +512,7 @@ def handle_calculate(match):
     try:
         result = eval(expr, {"__builtins__": {}}, {})
         return f"{expr.strip()} = {result}"
-    except:
+    except Exception:
         return f"Couldn't calculate: {expr}"
 
 
@@ -524,7 +524,7 @@ def handle_search(match):
 
         webbrowser.open(f"https://www.google.com/search?q={query}")
         return f"Searching for: {query}"
-    except:
+    except Exception:
         return "Couldn't open search."
 
 
@@ -537,7 +537,7 @@ def handle_open_url(match):
 
         webbrowser.open(url)
         return f"Opening {url}"
-    except:
+    except Exception:
         return f"Couldn't open {url}."
 
 
@@ -554,7 +554,7 @@ def handle_add_todo(match):
         todos.append({"task": task, "done": False, "created": datetime.now().isoformat()})
         todos_file.write_text(json.dumps(todos, indent=2))
         return f"Added to todo: {task}"
-    except:
+    except Exception:
         return "Couldn't add todo."
 
 
@@ -573,7 +573,7 @@ def handle_list_todos(match):
             status = "✓" if todo.get("done") else "○"
             lines.append(f"{i}. {status} {todo['task']}")
         return "\n".join(lines)
-    except:
+    except Exception:
         return "Couldn't read todos."
 
 
@@ -590,7 +590,7 @@ def handle_set_reminder(match):
         reminders.append({"message": message, "time": time_str, "created": datetime.now().isoformat()})
         reminders_file.write_text(json.dumps(reminders, indent=2))
         return f"Reminder set: {message}"
-    except:
+    except Exception:
         return "Couldn't set reminder."
 
 
@@ -709,7 +709,7 @@ def handle_screenshot(match):
         filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         screenshot.save(filename)
         return f"Screenshot saved: {filename}"
-    except:
+    except Exception:
         return "Screenshot requires PIL. Run: pip install Pillow"
 
 
@@ -779,7 +779,7 @@ def handle_lock(match):
     try:
         subprocess.Popen("rundll32.exe user32.dll,LockWorkStation", shell=True)
         return "Locking computer."
-    except:
+    except Exception:
         return "Couldn't lock computer."
 
 
@@ -787,7 +787,7 @@ def handle_shutdown(match):
     try:
         subprocess.Popen("shutdown /s /t 60", shell=True)
         return "Shutting down in 60 seconds."
-    except:
+    except Exception:
         return "Couldn't initiate shutdown."
 
 
@@ -795,7 +795,7 @@ def handle_restart(match):
     try:
         subprocess.Popen("shutdown /r /t 60", shell=True)
         return "Restarting in 60 seconds."
-    except:
+    except Exception:
         return "Couldn't initiate restart."
 
 
@@ -803,7 +803,7 @@ def handle_cancel_shutdown(match):
     try:
         subprocess.Popen("shutdown /a", shell=True)
         return "Shutdown cancelled."
-    except:
+    except Exception:
         return "Couldn't cancel shutdown."
 
 
@@ -811,7 +811,7 @@ def handle_sleep(match):
     try:
         subprocess.Popen("rundll32.exe powrprof.dll,SetSuspendState 0,1,0", shell=True)
         return "Putting computer to sleep."
-    except:
+    except Exception:
         return "Couldn't put computer to sleep."
 
 
@@ -839,7 +839,7 @@ def handle_close_app(match):
     try:
         subprocess.run(f"taskkill /im {app_cmd}.exe /f", shell=True, capture_output=True)
         return f"Closed {app_name}."
-    except:
+    except Exception:
         return f"Couldn't close {app_name}. It may not be running."
 
 
@@ -853,7 +853,7 @@ def handle_minimize_app(match):
             windows[0].minimize()
             return f"Minimized {app_name}."
         return f"Couldn't find {app_name} window."
-    except:
+    except Exception:
         return "Minimize requires pygetwindow."
 
 
@@ -867,7 +867,7 @@ def handle_maximize_app(match):
             windows[0].maximize()
             return f"Maximized {app_name}."
         return f"Couldn't find {app_name} window."
-    except:
+    except Exception:
         return "Maximize requires pygetwindow."
 
 
@@ -881,7 +881,7 @@ def handle_focus_app(match):
             windows[0].activate()
             return f"Focused {app_name}."
         return f"Couldn't find {app_name} window."
-    except:
+    except Exception:
         return "Focus requires pygetwindow."
 
 
@@ -896,7 +896,7 @@ def handle_set_brightness(match):
             capture_output=True,
         )
         return f"Brightness set to {level}%."
-    except:
+    except Exception:
         return "Couldn't set brightness. May not be supported on this device."
 
 
@@ -916,7 +916,7 @@ def handle_brightness_up(match):
             capture_output=True,
         )
         return f"Brightness: {current}% -> {new_level}%."
-    except:
+    except Exception:
         return "Couldn't adjust brightness."
 
 
@@ -936,7 +936,7 @@ def handle_brightness_down(match):
             capture_output=True,
         )
         return f"Brightness: {current}% -> {new_level}%."
-    except:
+    except Exception:
         return "Couldn't adjust brightness."
 
 

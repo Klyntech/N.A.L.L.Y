@@ -110,6 +110,14 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
+    # Identity, not channel: whatever path the client used, all web sockets
+    # share the owner's single brain session. The client-facing id is only a
+    # route key; rooms register under the brain session so multi-tab sync,
+    # plan events and aborts all target the shared brain.
+    from ..agent.identity import resolve_session
+
+    session_id = resolve_session("web").session_id
+
     cid = await ws_manager.connect(websocket, session_id)
 
     # Subscribe to event bus for plan events

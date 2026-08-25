@@ -63,6 +63,12 @@ def _load_all_registered():
 
     registry.register(ImageGen())
 
+    # --- Vision (2 tools — full image capability) ---
+    from .vision import AnalyzeImage, EditImage
+
+    registry.register(AnalyzeImage())
+    registry.register(EditImage())
+
     # --- Phone Calls (5 tools — AgenticCalling API) ---
     from . import phone
 
@@ -74,8 +80,8 @@ def _load_all_registered():
     gmail.register()
 
     # --- Memory (3 tools) ---
-    from ..memory.store_v2 import memory_tools_v2 as mem_tools
-    from ..memory.store_v2 import memory_v2 as mem_store
+    from ..memory import memory_store as mem_store
+    from ..memory import memory_tools_v2 as mem_tools
 
     for tool_def in mem_tools.to_tool_list():
         func = tool_def["function"]
@@ -100,6 +106,8 @@ def _load_all_registered():
                         key = kwargs.get("key", "")
                         value = kwargs.get("value", "")
                         category = kwargs.get("category", "general")
+                        if not key.strip() or not str(value).strip():
+                            return f"Error: key and value are required and must be non-empty. Got key='{key}' value='{value}'"
                         return self.mem_store.remember(key, value, category)
 
                 elif self.name == "recall":

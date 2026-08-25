@@ -37,7 +37,7 @@ CORE_TOOLS = {
 }
 
 # Tools always included in filtered results regardless of query
-ALWAYS_ON = {"system_health", "web_search", "mcp_status"}
+ALWAYS_ON = {"system_health", "web_search", "mcp_status", "run_command", "read_file", "file_ops"}
 
 
 def _tokenize(text: str) -> Set[str]:
@@ -72,13 +72,14 @@ class ToolFilter:
 
         self._ready = True
 
-    def select(self, query: str) -> List[dict]:
+    def select(self, query: str, task_class: str = "") -> List[dict]:
         """Return OpenAI tool schemas relevant to the query.
 
         Strategy: keyword overlap between query and tool index.
         - Strong match (>=2 tokens): return matched tools + core
         - Weak/no match: return core tools only (avoids bloating context
           with 200+ MCP tool schemas when they're not relevant)
+        - Complex/High-Stakes tasks: return core + all matched (broader set)
         """
         if not self._ready or not self._tool_keywords:
             return self._all_schemas
@@ -100,6 +101,12 @@ class ToolFilter:
         # Sort by overlap count, take top matches
         scored.sort(key=lambda x: x[1], reverse=True)
 
+        # Complex/High-Stakes tasks get broader tool set (all matched + core)
+        if task_class in ("COMPLEX", "HIGH_STAKES"):
+            always_on = ALWAYS_ON
+            selected_names = always_on | {name for name, _ in scored}
+            return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
+
         # Weak match (1 token) → return core + top 10 matched (not all)
         if scored[0][1] < 2:
             always_on = ALWAYS_ON
@@ -107,7 +114,7 @@ class ToolFilter:
             return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
 
         # Strong match → return matched tools + core
-        always_on = {"system_health", "web_search", "mcp_status"}
+        always_on = ALWAYS_ON
         selected_names = always_on | {name for name, _ in scored}
 
         return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]

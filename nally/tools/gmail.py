@@ -1,6 +1,7 @@
 """Gmail Direct — bypasses the broken Google MCP server, uses Gmail REST API directly."""
 
 import logging
+import threading
 
 import httpx
 
@@ -8,6 +9,9 @@ from ..config import DATA_DIR
 from .registry import Tool, registry
 
 logger = logging.getLogger("nally.gmail")
+
+# Mutex to prevent concurrent OAuth token refresh (Google refresh tokens are single-use)
+_token_lock = threading.Lock()
 
 
 def _run_async(coro):
@@ -37,7 +41,11 @@ def _gmail_error_msg(data: dict) -> str:
 
 
 async def _get_token() -> str | None:
-    """Get a valid Gmail access token, refreshing if expired."""
+    """Get a valid Gmail access token, refreshing if expired.
+
+    Uses a mutex to prevent concurrent refresh attempts — Google OAuth
+    refresh tokens are single-use and a race would invalidate both requests.
+    """
     import time
 
     from ..mcp.oauth import SQLiteTokenStorage
@@ -63,11 +71,24 @@ async def _get_token() -> str | None:
         if age < token.expires_in * 0.8:
             return token.access_token
 
-    # Token expired or age unknown — try refresh
+    # Token expired or age unknown — try refresh (with mutex to prevent races)
     if token.refresh_token:
-        refreshed = await _refresh_google_token(token.refresh_token)
-        if refreshed:
-            return refreshed
+        with _token_lock:
+            # Double-check after acquiring lock — another thread may have refreshed
+            conn = sqlite3.connect(db)
+            row = conn.execute("SELECT updated_at FROM mcp_oauth WHERE service = 'gmail'").fetchone()
+            conn.close()
+            if row and token.expires_in:
+                age = time.time() - row[0]
+                if age < token.expires_in * 0.8:
+                    # Another thread refreshed it — re-read the token
+                    token = await storage.get_tokens()
+                    if token:
+                        return token.access_token
+
+            refreshed = await _refresh_google_token(token.refresh_token)
+            if refreshed:
+                return refreshed
 
     # Refresh failed — return stale token (will get auth error)
     return token.access_token
@@ -129,7 +150,10 @@ async def _gmail_get(path: str, params: dict = None) -> dict:
         r = await client.get(
             f"{GMAIL_API}{path}", headers={"Authorization": f"Bearer {token}"}, params=params, timeout=15
         )
-        return r.json()
+        try:
+            return r.json()
+        except Exception:
+            return {"error": f"Gmail API returned non-JSON (HTTP {r.status_code}): {r.text[:200]}"}
 
 
 async def _gmail_post(path: str, body: dict = None) -> dict:
@@ -143,7 +167,10 @@ async def _gmail_post(path: str, body: dict = None) -> dict:
             json=body or {},
             timeout=15,
         )
-        return r.json()
+        try:
+            return r.json()
+        except Exception:
+            return {"error": f"Gmail API returned non-JSON (HTTP {r.status_code}): {r.text[:200]}"}
 
 
 async def _gmail_delete(path: str) -> dict:
@@ -158,7 +185,10 @@ async def _gmail_delete(path: str) -> dict:
         )
         if r.status_code == 204:
             return {"ok": True}
-        return r.json()
+        try:
+            return r.json()
+        except Exception:
+            return {"error": f"Gmail API returned non-JSON (HTTP {r.status_code}): {r.text[:200]}"}
 
 
 class GmailSearch(Tool):

@@ -82,6 +82,13 @@ _FABRICATED_LIMITS = [
     r"\d+\s*(?:of|out of|\/)\s*\d+\s*(?:free |remaining )?(?:minutes?|calls?|credits?)",
 ]
 
+# Patterns for task completion claims (agent says it finished something)
+_COMPLETION_CLAIMS = [
+    r"(?:I |we )?(?:have |already )?(?:completed?|finished?|done|built|created|deployed|set up|installed)",
+    r"(?:the\s+)?(?:website|app|bot|project|page|site|tool|system)\s+(?:is\s+)?(?:now\s+)?(?:done|complete|ready|live|running|deployed)",
+    r"(?:everything|all|the whole thing)\s+(?:is\s+)?(?:done|complete|finished|ready)",
+]
+
 # Success/failure claim patterns
 _SUCCESS_PATTERNS = [
     r"(?:was |were )?(?:successfully |done |completed |finished )",
@@ -183,6 +190,15 @@ class ClaimVerifier:
                 result.findings.append(f)
                 if f.verdict == Verdict.UNSUPPORTED:
                     result.unsupported_count += 1
+
+        # Check for completion claims (agent says "I completed X" but no tool evidence)
+        completion_findings = self._verify_completion_claims(llm_response, receipts)
+        for f in completion_findings:
+            result.findings.append(f)
+            if f.verdict == Verdict.UNSUPPORTED:
+                result.unsupported_count += 1
+            elif f.verdict == Verdict.BACKED:
+                result.backed_count += 1
 
         return result
 
@@ -332,6 +348,56 @@ class ClaimVerifier:
                             tool=tool_name,
                         )
                     )
+
+        return findings
+
+    def _verify_completion_claims(self, text: str, receipts: List[Receipt]) -> List[ClaimFinding]:
+        """Detect agent claiming task completion without tool evidence.
+        
+        If the agent says "I completed X" or "the website is done" but there
+        are no successful tool calls in the receipts, the completion claim is
+        unsupported. If there are only failed receipts, it's contradicted.
+        """
+        findings = []
+        text_lower = text.lower()
+
+        has_completion_claim = any(re.search(p, text_lower) for p in _COMPLETION_CLAIMS)
+
+        if not has_completion_claim:
+            return findings
+
+        if not receipts:
+            findings.append(
+                ClaimFinding(
+                    claim="Agent claims task completion",
+                    verdict=Verdict.UNSUPPORTED,
+                    evidence="Agent claims completion but no tools were called — no evidence of work done",
+                )
+            )
+            return findings
+
+        success_receipts = [r for r in receipts if r.success]
+        failed_receipts = [r for r in receipts if not r.success]
+
+        if not success_receipts and failed_receipts:
+            # Agent claims completion but ALL tools failed
+            failed_tools = [r.tool for r in failed_receipts]
+            findings.append(
+                ClaimFinding(
+                    claim="Agent claims task completion",
+                    verdict=Verdict.CONTRADICTED,
+                    evidence=f"Agent claims completion but all tools failed: {', '.join(failed_tools)}",
+                )
+            )
+        elif success_receipts:
+            # Agent claims completion and at least one tool succeeded — backed
+            findings.append(
+                ClaimFinding(
+                    claim="Agent claims task completion",
+                    verdict=Verdict.BACKED,
+                    evidence=f"{len(success_receipts)} tool(s) succeeded, supporting completion claim",
+                )
+            )
 
         return findings
 

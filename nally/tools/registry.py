@@ -7,6 +7,7 @@ import threading
 from typing import Dict, List, Optional
 
 from ..config import ALLOWED_PLUGINS, MAX_TOOL_OUTPUT, PLUGINS_DIR
+from ..core.errors import ToolError
 
 VALID_PERMISSIONS = {"safe", "destructive", "read_only", "write"}
 
@@ -98,6 +99,21 @@ class ToolRegistry:
         """
         tool = self.tools.get(name)
         if not tool:
+            # Lazy-load: if tools haven't been loaded yet (e.g., early agent call
+            # before web lifespan), try to load now. This prevents the
+            # "Tool 'run_code' not found" race seen in receipts.
+            try:
+                from . import _loaded, load_all_tools
+
+                if not _loaded:
+                    load_all_tools()
+                    tool = self.tools.get(name)
+            except Exception:
+                pass
+        if not tool:
+            # Still not found — give a helpful hint for the two core tools
+            if name in ("run_code", "run_command", "read_file", "file_ops"):
+                return f"Error: Tool '{name}' not found (registry not yet initialized — try again, or check load_all_tools() was called)", False
             return f"Error: Tool '{name}' not found", False
 
         try:
@@ -107,6 +123,12 @@ class ToolRegistry:
                 result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
             success = _result_is_success(name, result)
             return result, success
+        except ToolError as e:
+            logger.warning(f"Tool '{name}' raised ToolError: {e.code}: {e.message}")
+            result = e.to_llm_format()
+            if len(result) > MAX_TOOL_OUTPUT:
+                result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
+            return result, False
         except Exception as e:
             logger.error(f"Tool '{name}' execution failed: {type(e).__name__}: {e}")
             return f"Error executing {name}: {type(e).__name__}: {e}", False
@@ -157,6 +179,9 @@ def _result_is_success(tool_name: str, result: str) -> bool:
     if not r:
         return True
     if r[:5].lower() == "error":
+        return False
+    # ToolError.to_llm_format() starts with "Error: <message>"
+    if r.startswith("Error:"):
         return False
     if tool_name == "run_command":
         m = re.search(r"Exit code:\s*(\d+)\s*$", r)

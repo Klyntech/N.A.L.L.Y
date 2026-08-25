@@ -234,6 +234,8 @@ class MemoryRepository:
         Args:
             ttl_days: If set, memory auto-expires after this many days.
         """
+        if not key.strip() or not str(value).strip():
+            return f"Error: key and value are required and must be non-empty. Got key='{key}' value='{value}'"
         # Warn when storing profile facts with unrecognized keys
         if category == "profile" and key not in RECOGNIZED_PROFILE_KEYS:
             import logging
@@ -315,7 +317,7 @@ class MemoryRepository:
             if search:
                 # FTS5 tokenized search with LIKE fallback
                 rows = self._fts_search(conn, search, min_confidence, limit)
-                if rows is not None:
+                if rows:
                     return {row["key"]: row["value"] for row in rows}
                 # Fallback to LIKE if FTS unavailable or empty
                 like_pattern = f"%{search}%"
@@ -627,6 +629,46 @@ class MemoryRepository:
                     msg["tool_call_id"] = tcid
                 messages.append(msg)
             return messages
+
+    def merge_sessions_into(
+        self,
+        source_session_ids: List[str],
+        target_session_id: str,
+        limit: int = 200,
+    ) -> int:
+        """Copy messages from old per-channel sessions into the unified one.
+
+        Time-sorted across sources, capped at the last `limit` messages.
+        Skipped entirely when the target already has history (idempotent) or
+        no source rows exist. Old rows are left in place. Returns count copied.
+        """
+        if not source_session_ids:
+            return 0
+        with self._connection() as conn:
+            existing = conn.execute(
+                "SELECT COUNT(*) FROM conversation_messages WHERE session_id = ?",
+                (target_session_id,),
+            ).fetchone()[0]
+            if existing:
+                return 0
+            placeholders = ",".join("?" * len(source_session_ids))
+            rows = conn.execute(
+                f"SELECT role, content, tool_calls, tool_call_id FROM conversation_messages "
+                f"WHERE session_id IN ({placeholders}) ORDER BY timestamp ASC, id ASC",
+                tuple(source_session_ids),
+            ).fetchall()
+            if not rows:
+                return 0
+            rows = rows[-limit:]
+            now = self._now()
+            conn.executemany(
+                "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (target_session_id, r["role"], r["content"], r["tool_calls"], r["tool_call_id"], now)
+                    for r in rows
+                ],
+            )
+            return len(rows)
 
     def get_last_session_id(self) -> Optional[str]:
         """Get the most recent session ID."""

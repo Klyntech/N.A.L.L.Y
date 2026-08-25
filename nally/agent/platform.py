@@ -66,18 +66,36 @@ def format_platform_context() -> str:
 
 
 def detect_interface(session_id: str) -> str:
-    """Derive the chat interface label from the session ID."""
-    if session_id.startswith("web:"):
-        return "Web"
-    if session_id.startswith("telegram:"):
-        return "Telegram"
-    if session_id.startswith("voice:"):
-        return "Voice"
-    if session_id.startswith("voip:"):
-        return "VoIP"
+    """Derive the chat interface label from the session id or channel label.
+
+    Legacy session-id prefixes are still recognized for backward compat;
+    new code passes an explicit human label instead (see agent/identity.py).
+    """
+    if not session_id:
+        return "CLI"
+    for prefix, label in (
+        ("web:", "Web"),
+        ("telegram:", "Telegram"),
+        ("tg_user:", "Telegram user account"),
+        ("tg_voice:", "Telegram voice call"),
+        ("group:", "Telegram group"),
+        ("user:", None),  # shared owner session — label comes from caller
+        ("voice:", "Voice"),
+        ("voip:", "VoIP"),
+    ):
+        if session_id.startswith(prefix):
+            return label or "Shared session"
     return "CLI"
 
 
-def format_interface_context(session_id: str) -> str:
-    """Return a short line identifying the interaction channel."""
-    return f"Interaction channel: {detect_interface(session_id)}"
+def format_interface_context(interface: str) -> str:
+    """Return a short line identifying the interaction channel.
+
+    Accepts either a raw human label (preferred — passed via SessionRef.channel)
+    or a legacy session id whose prefix is sniffed.
+    """
+    if interface and ":" in interface:
+        label = detect_interface(interface)
+    else:
+        label = interface or "CLI"
+    return f"Interaction channel: {label}"

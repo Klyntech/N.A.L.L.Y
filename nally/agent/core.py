@@ -239,6 +239,24 @@ class NallyAgent:
         # Prefix user message with temporal context (no extra messages accumulated)
         now = datetime.now(timezone.utc)
         ts_prefix = f"[Current time: {now.strftime('%Y-%m-%d %H:%M UTC')} | Day: {now.strftime('%A')}]\n\n"
+
+        # ── Input Guardrails ──
+        try:
+            from .guardrails import guardrail_engine
+            input_results = guardrail_engine.check_input(user_input)
+            if guardrail_engine.should_block(input_results):
+                blocked_msg = "I can't process that request. It appears to be outside my scope."
+                for r in input_results:
+                    if r.verdict.value == "block":
+                        blocked_msg = f"I can't process that request: {r.message}"
+                        break
+                self.messages.append({"role": "user", "content": ts_prefix + user_input})
+                self.messages.append({"role": "assistant", "content": blocked_msg})
+                self._save_history()
+                return blocked_msg
+        except Exception as e:
+            logger.debug(f"Input guardrails skipped: {e}")
+
         self.messages.append({"role": "user", "content": ts_prefix + user_input})
 
         # ── Harness v2: Intent Classification ──
@@ -372,34 +390,28 @@ class NallyAgent:
             except Exception as e:
                 logger.warning(f"Design skill injection failed: {e}")
 
-        # Smart context management
+        # Smart context management — single pass
         self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
         self.messages = context_manager.compact(self.messages)
 
-        # Hard ceiling: if still too large after prune+compact, force-truncate
-        # Leave 200k headroom for memory/history injections + tool schemas + output
-        estimated = context_manager.estimate_tokens(self.messages)
-        if estimated > 600_000:
-            logger.warning(f"Context too large ({estimated} tokens), force-truncating")
-            self.messages = context_manager.prune(self.messages, max_tokens=400_000)
-            self.messages = context_manager.compact(self.messages)
-
+        # Memory and history injections
         self.messages = context_manager.inject_memories(user_input, self.messages)
         self.messages = context_manager.inject_conversation_history(self.messages)
 
-        # Final safety check: prune again after injections to stay under limit
+        # Final safety check: prune once more if injections pushed us over
         estimated = context_manager.estimate_tokens(self.messages)
         if estimated > MAX_CONTEXT_TOKENS:
             logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
             self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
-        # Build tool set
+        # Build tool set — pass task class for broader selection on complex tasks
         try:
             from ..tools.filter import tool_filter
 
             if not tool_filter._ready:
                 tool_filter.build_index(registry.tools)
-            tools = tool_filter.select(user_input)
+            _task_class = _classification.task_class.value if _classification else ""
+            tools = tool_filter.select(user_input, task_class=_task_class)
         except ImportError:
             tools = [t.to_openai_schema() for t in registry.tools.values()]
 
@@ -431,6 +443,27 @@ class NallyAgent:
                 self.messages.insert(
                     1,
                     {"role": "system", "content": f"[SCRATCHPAD] Objective: {_scratchpad.objective}\nConstraints: {_scratchpad.constraints or ''}"},
+                )
+
+            # Confirmation gate: force plan-before-execute for complex tasks
+            if _classification and _classification.task_class.value in ("COMPLEX", "HIGH_STAKES"):
+                self.messages.insert(
+                    1,
+                    {
+                        "role": "system",
+                        "content": (
+                            "[EXECUTION MODE: PLAN FIRST]\n"
+                            "This task is classified as COMPLEX or HIGH_STAKES.\n"
+                            "BEFORE executing any tool calls, you MUST:\n"
+                            "1. Present a brief plan (3-5 bullet points) of what you will do\n"
+                            "2. Ask the user: 'Should I proceed?'\n"
+                            "3. WAIT for user confirmation before executing\n"
+                            "4. If the user says yes/proceed/go, execute the plan\n"
+                            "5. If the user says no/cancel/stop, stop and ask what they want instead\n\n"
+                            "Do NOT start executing tools until the user confirms. "
+                            "The plan should be concise — one line per step."
+                        ),
+                    },
                 )
 
             final_response = run_agent(

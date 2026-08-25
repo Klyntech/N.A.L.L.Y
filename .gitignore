@@ -35,6 +35,7 @@ Thumbs.db
 
 # Project-specific
 data/
+NALLYMAKES/
 *.db
 logs/
 *.log
@@ -62,3 +63,9 @@ server_err.log
 test_chat.json
 test_file.txt
 test_write.txt
+
+# Benchmark results
+tests/benchmark/results/
+bench_*.py
+bench_*.txt
+bench_*.sh

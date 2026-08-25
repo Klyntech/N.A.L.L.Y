@@ -153,12 +153,22 @@ def _split_message(text: str, limit: int = MAX_MSG_LEN) -> list:
     return chunks
 
 
-def _extract_session_id(update: Update) -> str:
-    """Build a session ID from the Telegram update."""
+def _extract_session_ref(update: Update):
+    """Resolve a Telegram update to (brain session, route key, channel label).
+
+    DMs land on the owner's shared session (same brain as web/voice); groups
+    keep their own per-group session.
+    """
+    from ..agent.identity import resolve_session
+
     chat = update.effective_chat
-    if chat.type == "group" or chat.type == "supergroup":
-        return f"telegram:group:{chat.id}"
-    return f"telegram:{chat.id}"
+    is_group = chat.type in ("group", "supergroup")
+    return resolve_session("telegram", chat_id=chat.id, is_group=is_group)
+
+
+def _extract_session_id(update: Update) -> str:
+    """Brain session id for this update (see _extract_session_ref)."""
+    return _extract_session_ref(update).session_id
 
 
 def _clean_message_text(text: str) -> str:
@@ -854,7 +864,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat = update.effective_chat
-    session_id = _extract_session_id(update)
+    ref = _extract_session_ref(update)
+    session_id = ref.session_id
 
     # Beta: handle all group media, mention optional
     caption = message.caption or message.text or ""
@@ -880,7 +891,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     combined = caption
     try:
         from .media import save_bot_media, build_agent_input, analyze_image_for_game
-        saved_path, media_desc = await save_bot_media(context.bot, message, session_id)
+        saved_path, media_desc = await save_bot_media(context.bot, message, ref.route_key)
         if saved_path and saved_path.suffix.lower() in {".jpg",".jpeg",".png",".webp",".gif",".bmp"}:
             try:
                 # Game-aware vision + OCR (uses Muse Spark vision when available)

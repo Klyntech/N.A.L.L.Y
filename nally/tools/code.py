@@ -15,12 +15,16 @@ CODE_TIMEOUT = int(os.environ.get("NALLY_CMD_TIMEOUT", "60"))
 # Thread lock for stdout/stderr hijacking (not thread-safe otherwise)
 _code_exec_lock = threading.Lock()
 
+# Custom exception for exec() timeout
+class _ExecTimeout(Exception):
+    pass
+
 
 class RunCode(Tool):
     def __init__(self):
         super().__init__(
             name="run_code",
-            description="Execute Python code or run a Python file",
+            description="Execute short in-memory Python snippets only (ephemeral, no file persistence). For file-based tasks like 'Save to X.py and run it', use file_ops + run_command instead.",
             permission="destructive",
             parameters={
                 "action": {
@@ -52,6 +56,15 @@ class RunCode(Tool):
         if not code:
             return "Error: code is required for execute"
 
+        # Use a mutable container to signal timeout from the timer thread
+        _timed_out = [False]
+
+        def _timeout_handler():
+            _timed_out[0] = True
+
+        timer = threading.Timer(CODE_TIMEOUT, _timeout_handler)
+        timer.start()
+
         with _code_exec_lock:
             old_stdout = sys.stdout
             old_stderr = sys.stderr
@@ -61,6 +74,8 @@ class RunCode(Tool):
             sys.stderr = stderr_capture
             try:
                 exec(code, {"__builtins__": __builtins__})
+                if _timed_out[0]:
+                    return f"Code execution timed out after {CODE_TIMEOUT} seconds"
                 output = stdout_capture.getvalue()
                 error = stderr_capture.getvalue()
                 if error:
@@ -70,6 +85,8 @@ class RunCode(Tool):
                 output = stdout_capture.getvalue()
                 return f"Output:\n{output}\nScript called sys.exit()"
             except Exception as e:
+                if _timed_out[0]:
+                    return f"Code execution timed out after {CODE_TIMEOUT} seconds"
                 output = stdout_capture.getvalue()
                 error = stderr_capture.getvalue()
                 parts = []
@@ -80,6 +97,7 @@ class RunCode(Tool):
                 parts.append(f"Exception: {type(e).__name__}: {e}")
                 return "\n".join(parts)
             finally:
+                timer.cancel()
                 sys.stdout = old_stdout
                 sys.stderr = old_stderr
 

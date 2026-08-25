@@ -360,8 +360,11 @@ async def _handle_voice_note(event, sender_id: int):
             # await msg.reply(f"Got it: {text[:500]}")
 
             # Agent
+            from ..agent.identity import resolve_session
             from ..agent.sessions import session_manager
-            session_id = f"tg_user:{sender_id}"
+
+            ref = resolve_session("tg_user", sender_id=sender_id)
+            session_id = ref.session_id
             emit = _make_auto_approve_emit()
             # Use record-audio indicator during agent processing + TTS
             async with client.action(sender_id, "record-audio"):
@@ -427,6 +430,13 @@ async def _handle_message(event: events.NewMessage.Event):
     if not _owner_id and sender_id:
         _owner_id = sender_id
         logger.info(f"Owner auto-detected from first DM: {_owner_id}")
+        # Sync the shared session-identity resolver
+        try:
+            from ..agent.identity import note_owner
+
+            note_owner(sender_id)
+        except Exception:
+            pass
     # Note: Beta allows any sender — no owner-only gate
     # Previous single-user check removed for beta multi-user support
 
@@ -485,10 +495,12 @@ async def _handle_message(event: events.NewMessage.Event):
                         return
 
                 # Process through agent with typing indicator
+                from ..agent.identity import resolve_session
                 from ..agent.sessions import session_manager
                 from .media import parse_outbound_files, strip_file_markers, send_attachments_telethon
 
-                session_id = f"tg_user:{sender_id}"
+                ref = resolve_session("tg_user", sender_id=sender_id)
+                session_id = ref.session_id
                 emit = _make_auto_approve_emit()
                 response = await asyncio.to_thread(session_manager.process, session_id, combined, emit=emit)
 
@@ -550,10 +562,12 @@ async def _handle_message(event: events.NewMessage.Event):
 
     # Process through agent (text)
     try:
+        from ..agent.identity import resolve_session
         from ..agent.sessions import session_manager
         from .media import parse_outbound_files, strip_file_markers, send_attachments_telethon
 
-        session_id = f"tg_user:{sender_id}"
+        ref = resolve_session("tg_user", sender_id=sender_id)
+        session_id = ref.session_id
         emit = _make_auto_approve_emit()
 
         # Typing indicator while agent works
@@ -663,6 +677,15 @@ async def start():
         if me:
             _owner_id = me.id
             logger.info(f"Owner ID auto-detected: {_owner_id}")
+
+    # Sync the shared session-identity resolver (config or detected owner)
+    try:
+        from ..agent.identity import note_owner
+
+        if _owner_id:
+            note_owner(_owner_id)
+    except Exception:
+        pass
 
     me = await client.get_me()
     if me:

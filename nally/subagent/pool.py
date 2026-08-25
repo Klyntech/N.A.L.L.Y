@@ -33,6 +33,7 @@ class SubAgentPool:
         emit: Optional[Callable] = None,
         model: Optional[str] = None,
         depth: Optional[int] = None,
+        conversation_messages: Optional[List[Dict]] = None,
     ) -> Optional[str]:
         """Spawn a single sub-agent.
 
@@ -62,6 +63,8 @@ class SubAgentPool:
         agent = SubAgent(goal=goal, context=context, model=model, depth=depth + 1)
         agent.set_trace_context(parent_id, run_id)
         agent.set_callback(emit)
+        if conversation_messages:
+            agent.set_conversation_context(conversation_messages)
         agent.start(emit)
 
         with self._lock:

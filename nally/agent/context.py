@@ -85,21 +85,30 @@ class ContextManager:
         return total
 
     def prune(self, messages: List[Dict], max_tokens: int = 150000) -> List[Dict]:
-        """Truncate large tool outputs and remove oldest non-essential messages"""
-        # Step 1: Truncate large tool results
+        """Truncate large tool outputs and remove oldest non-essential messages.
+        
+        Preserves: system messages, user messages, and recent messages.
+        Only removes old assistant/tool messages when over budget.
+        """
+        # Step 1: Truncate large tool results (1500 chars — enough for meaningful data)
         for msg in messages:
             if isinstance(msg, dict) and msg.get("role") == "tool":
                 content = msg.get("content", "")
-                if isinstance(content, str) and len(content) > 500:
-                    msg["content"] = content[:500] + "\n... [truncated]"
+                if isinstance(content, str) and len(content) > 1500:
+                    msg["content"] = content[:1500] + "\n... [truncated]"
 
-        # Step 2: If still over budget, remove oldest non-system messages
+        # Step 2: If still over budget, remove oldest non-system, non-user messages
+        # NEVER remove user messages — they contain the original request
         while self.estimate_tokens(messages) > max_tokens and len(messages) > 10:
+            removed = False
             for i, msg in enumerate(messages):
-                if isinstance(msg, dict) and msg.get("role") not in ("system",) and 0 < i < len(messages) - 10:
+                role = msg.get("role") if isinstance(msg, dict) else None
+                # Only remove old assistant or tool messages, never user or system
+                if role in ("assistant", "tool") and 0 < i < len(messages) - 10:
                     messages.pop(i)
+                    removed = True
                     break
-            else:
+            if not removed:
                 break
         return messages
 
@@ -141,7 +150,11 @@ class ContextManager:
         return compacted
 
     def _summarize_messages(self, messages: List[Dict]) -> str:
-        """Create a summary of old messages"""
+        """Create a summary of old messages.
+        
+        Preserves full user messages (they contain the original request context).
+        Summarizes assistant responses and tool results more aggressively.
+        """
         parts = []
         topics = set()
 
@@ -150,10 +163,9 @@ class ContextManager:
             content = msg.get("content", "")
 
             if role == "user":
-                # Extract key points from user messages
+                # Keep FULL user messages — they're the most important context
                 if isinstance(content, str):
-                    # Get first 200 chars of each user message
-                    snippet = content[:200].strip()
+                    snippet = content.strip()
                     if snippet:
                         parts.append(f"User asked: {snippet}")
 
@@ -182,14 +194,14 @@ class ContextManager:
 
                 # Track assistant responses (shorter)
                 if isinstance(content, str) and content.strip():
-                    snippet = content[:100].strip()
+                    snippet = content[:200].strip()
                     if snippet:
                         parts.append(f"Nally responded: {snippet}")
 
             elif role == "tool":
                 # Track tool results (very short)
                 if isinstance(content, str) and content.strip():
-                    snippet = content[:80].strip()
+                    snippet = content[:150].strip()
                     if snippet:
                         parts.append(f"Tool result: {snippet}")
 
@@ -197,10 +209,12 @@ class ContextManager:
         topic_str = ", ".join(topics) if topics else "general"
         summary_parts = [f"Topics discussed: {topic_str}"]
 
-        # Add key exchanges (limit to keep summary short)
+        # Add key exchanges — user messages always included, assistant/tool sampled
         if parts:
-            # Take every other part to get a balanced view
-            selected = parts[::2][:10]  # Every other, max 10
+            user_parts = [p for p in parts if p.startswith("User asked:")]
+            other_parts = [p for p in parts if not p.startswith("User asked:")]
+            # All user messages, every other assistant/tool message (max 15)
+            selected = user_parts + other_parts[::2][:15]
             summary_parts.extend(selected)
 
         return "\n".join(summary_parts)
@@ -208,9 +222,9 @@ class ContextManager:
     def inject_memories(self, query: str, messages: List[Dict]) -> List[Dict]:
         """Search memories and inject relevant ones into context"""
         try:
-            from ..memory.store_v2 import memory_v2
+            from ..memory import memory_store
 
-            memories = memory_v2.recall(search=query, min_confidence=0.5, limit=MAX_MEMORIES)
+            memories = memory_store.recall(search=query, min_confidence=0.5, limit=MAX_MEMORIES)
         except Exception as e:
             logger.debug(f"Memory recall failed: {e}")
             return messages
@@ -220,7 +234,7 @@ class ContextManager:
             keywords = [w for w in re.split(r'[^a-zA-Z0-9_]+', query) if len(w) >= 3 and w.lower() not in _STOPWORDS]
             if keywords:
                 keyword_query = " ".join(keywords[:5])
-                kw_mems = memory_v2.recall(search=keyword_query, min_confidence=0.5, limit=5)
+                kw_mems = memory_store.recall(search=keyword_query, min_confidence=0.5, limit=5)
                 if kw_mems and isinstance(kw_mems, dict):
                     if not memories:
                         memories = {}
@@ -232,7 +246,7 @@ class ContextManager:
 
         # Always inject high-priority category memories (projects, auto_facts)
         try:
-            from ..memory.store_v2 import memory_v2 as mv2
+            from ..memory import memory_store as mv2
             for cat in ("project", "auto_fact"):
                 cat_mems = mv2.recall(category=cat, min_confidence=0.5, limit=5)
                 if cat_mems and isinstance(cat_mems, dict):
@@ -272,9 +286,9 @@ class ContextManager:
     def inject_conversation_history(self, messages: List[Dict]) -> List[Dict]:
         """Inject recent conversation summaries"""
         try:
-            from ..memory.store_v2 import memory_v2
+            from ..memory import memory_store
 
-            summaries_text = memory_v2.get_conversation_summaries_text(3)
+            summaries_text = memory_store.get_conversation_summaries_text(3)
         except Exception as e:
             logger.debug(f"Conversation history injection failed: {e}")
             return messages

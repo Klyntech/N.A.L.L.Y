@@ -8,6 +8,7 @@ inline via the emit("confirmation_required", ...) callback.
 
 import logging
 import time
+from typing import Optional
 
 import numpy as np
 
@@ -103,13 +104,20 @@ def _handle_approval(data: dict):
 # ── Main loop ──────────────────────────────────────────────
 
 
-def run_voice_loop(session_id: str = "voice:default"):
+def run_voice_loop(session_id: Optional[str] = None):
     """Blocking push-to-talk voice loop.
 
     Keys:
         SPACE (hold) — record while held, release to send
         Ctrl+C       — exit
+
+    Defaults to the owner's shared brain session so voice turns land in the
+    same history as web/Telegram (identity, not channel).
     """
+    if session_id is None or session_id == "voice:default":
+        from ..agent.identity import resolve_session
+
+        session_id = resolve_session("voice").session_id
     missing = _check_dependencies()
     if missing:
         print(f"Voice mode requires packages not installed: {', '.join(missing)}")

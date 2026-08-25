@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from nally.agent import get_agent
+from nally.agent.identity import owner_session_id
 from nally.agent.sessions import session_manager
 from nally.config import (
     ACTIVE_MODEL,
@@ -465,7 +466,7 @@ async def status():
 
 @app.get("/api/me")
 async def me(_auth=Depends(verify_auth)):
-    return {"authenticated": True, "session": "web:default"}
+    return {"authenticated": True, "session": owner_session_id()}
 
 
 @app.get("/api/traces")
@@ -514,7 +515,11 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
                 yield 'data: {"event": "done"}\n\n'
             return StreamingResponse(voice_redirect(), media_type="text/event-stream")
 
+    # Identity, not channel: web chat shares the owner's single brain session
+    # with Telegram/voice. The client-supplied session_id is kept only for
+    # backward compatibility and is not used to isolate the brain.
     session_id = request.session_id
+    brain_session = owner_session_id()
     tab_id = request.tab_id
     queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
@@ -530,8 +535,8 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
     async def event_generator():
 
         # Check if session is busy — queue the message
-        if session_manager.is_busy(session_id):
-            pos = session_manager.queue_message(session_id, message)
+        if session_manager.is_busy(brain_session):
+            pos = session_manager.queue_message(brain_session, message)
             if pos < 0:
                 yield 'data: {"type": "error", "text": "Queue full — try again shortly."}\n\n'
             else:
@@ -541,7 +546,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
         def run_agent():
             try:
-                response = session_manager.process(session_id, message, emit=stream_event)
+                response = session_manager.process(brain_session, message, emit=stream_event)
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
             except NallyError as e:
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
@@ -553,7 +558,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         # Clear any prior abort flag for this session
         from ..core.abort import clear_abort
 
-        clear_abort(session_id)
+        clear_abort(brain_session)
 
         # Broadcast user message immediately to other tabs
         broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id})
@@ -562,10 +567,10 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
         while True:
             # Check for abort
-            if check_abort(session_id):
+            if check_abort(brain_session):
                 from ..core.abort import clear_abort
 
-                clear_abort(session_id)
+                clear_abort(brain_session)
                 yield 'data: {"type": "error", "text": "Operation aborted by user."}\n\n'
                 yield 'data: {"event": "done"}\n\n'
                 return
@@ -640,7 +645,7 @@ async def sse_events(request: Request):
 async def history(_auth=Depends(verify_auth)):
     messages = [
         {"role": msg.get("role", "unknown"), "content": msg.get("content", "")}
-        for msg in session_manager.get_history("web:default")
+        for msg in session_manager.get_history(owner_session_id())
     ]
     return {"messages": [m for m in messages if m.get("role") not in ("system", "tool")]}
 
@@ -650,7 +655,7 @@ async def history(_auth=Depends(verify_auth)):
 
 @app.post("/api/clear")
 async def clear(_auth=Depends(verify_auth)):
-    agent = session_manager.get("web:default")
+    agent = session_manager.get(owner_session_id(), channel="Web")
     agent.clear_history()
     broadcast_manager.broadcast("history_cleared", {})
     return {"status": "cleared"}
@@ -669,6 +674,44 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
         "approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved}
     )
     return {"ok": True}
+
+
+# ── API: Human Checkpoint ────────────────────────────────
+
+
+class CheckpointRequest(BaseModel):
+    thread_id: str
+    action: str  # "approve", "reject", "edit"
+    edited_plan: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@app.post("/api/checkpoint")
+async def checkpoint_response(request: CheckpointRequest, _auth=Depends(verify_auth)):
+    from nally.agent.human_checkpoint import resolve_checkpoint
+
+    await asyncio.to_thread(
+        resolve_checkpoint,
+        request.thread_id,
+        request.action,
+        request.edited_plan,
+        request.reason,
+    )
+    broadcast_manager.broadcast(
+        "checkpoint_resolved",
+        {"thread_id": request.thread_id, "action": request.action},
+    )
+    return {"ok": True}
+
+
+@app.get("/api/checkpoint/{thread_id}")
+async def get_checkpoint_status(thread_id: str, _auth=Depends(verify_auth)):
+    from nally.agent.human_checkpoint import get_checkpoint
+
+    cp = await asyncio.to_thread(get_checkpoint, thread_id)
+    if not cp:
+        return {"status": "none"}
+    return cp.to_dict()
 
 
 # ── API: Telegram (bot runs as a separate process) ────────
@@ -702,27 +745,31 @@ async def tg_approve(request: Request):
 
 
 # ── API: Abort ────────────────────────────────────────────
+#
+# Abort is whole-brain: one shared session means an abort from any channel
+# stops the active run for that session everywhere.
 
 
-def check_abort(session_id: str = "web:default") -> bool:
+def check_abort(session_id: Optional[str] = None) -> bool:
     from ..core.abort import check_abort as _check
 
-    return _check(session_id)
+    return _check(session_id or owner_session_id())
 
 
 @app.post("/api/abort")
-async def abort_session(session_id: str = "web:default", _auth=Depends(verify_auth)):
+async def abort_session(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
     from ..core.abort import set_abort
 
-    set_abort(session_id)
+    # Whole-brain abort — any channel stops the shared session.
+    set_abort(owner_session_id())
     return {"status": "aborted"}
 
 
 @app.post("/api/abort/clear")
-async def abort_clear(session_id: str = "web:default", _auth=Depends(verify_auth)):
+async def abort_clear(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
     from ..core.abort import clear_abort
 
-    clear_abort(session_id)
+    clear_abort(owner_session_id())
     return {"status": "cleared"}
 
 

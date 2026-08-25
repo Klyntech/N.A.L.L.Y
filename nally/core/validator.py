@@ -79,6 +79,22 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
     except ValueError:
         _error("PORT", f"Invalid port value: '{port_str}'. Must be an integer.")
 
+    # ── Optional dependencies ──────────────────────────────
+    # Warn about missing optional packages so users know what to install.
+
+    optional_deps = [
+        ("psutil", "psutil", "system_health tool (CPU/memory/disk monitoring)"),
+        ("duckduckgo_search", "duckduckgo-search", "web search fallback (DuckDuckGo)"),
+        ("pytesseract", "pytesseract", "OCR in vision analysis"),
+        ("readability", "readability-lxml", "better article extraction in fetch tool"),
+        ("PIL", "Pillow", "image generation and editing"),
+    ]
+    for module_name, pip_name, feature in optional_deps:
+        try:
+            __import__(module_name)
+        except ImportError:
+            _warning("DEPENDENCIES", f"Optional: {pip_name} not installed — needed for {feature}")
+
     # ── Database (optional) ────────────────────────────────
 
     database_url = os.getenv("DATABASE_URL", "")

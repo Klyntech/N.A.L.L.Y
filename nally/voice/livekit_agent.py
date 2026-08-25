@@ -187,8 +187,12 @@ class SipCall:
         self._ctx = ctx
         self._participant = participant
         self._source = source
-        # Unique per caller — one session each, so history/memory is per caller.
-        self._session_id = f"voip:{participant.identity}"
+        # Identity, not channel: the owner's calls share one brain session
+        # with text/web/Telegram; non-owner callers get their own session.
+        from ..agent.identity import resolve_session
+
+        self._ref = resolve_session("voip", sender_id=participant.identity)
+        self._session_id = self._ref.session_id
         self._loop = asyncio.get_event_loop()
         self._pending_approval: Optional[dict] = None
         self._play_task: Optional[asyncio.Task] = None

@@ -19,14 +19,220 @@ from ..config import (
 )
 from ..utils.logger import logger
 
-# OpenCode free models in fallback order (fastest first)
+# OpenCode free models in fallback order (fastest first) — Muse Spark 1.2 Contributor Free is primary
 OPENCODE_FREE_MODELS = [
+    "muse-spark-1.2-contributor-free",
     "hy3-free",
     "nemotron-3.5-lightning-free",
     "nemotron-3-ultra-free",
-    "ling-3.0-tiny-free",
+    "ling-3.0-flash-free",
     "laguna-s-2.1-free",
 ]
+
+def _is_muse_spark(model: str) -> bool:
+    return "muse-spark" in (model or "").lower()
+
+
+def _chat_tools_to_responses_tools(tools: list | None) -> list | None:
+    """Convert chat.completions tools (type/function wrapper) to responses tools (flat)."""
+    if not tools:
+        return None
+    out = []
+    for t in tools:
+        if not isinstance(t, dict):
+            continue
+        # Already flat responses style?
+        if t.get("type") == "function" and "name" in t and "function" not in t:
+            out.append(t)
+            continue
+        # Chat style: {type: function, function: {name, description, parameters}}
+        fn = t.get("function") or {}
+        name = fn.get("name") or t.get("name")
+        if not name:
+            continue
+        item = {"type": "function", "name": name}
+        if fn.get("description"):
+            item["description"] = fn["description"]
+        if fn.get("parameters"):
+            item["parameters"] = fn["parameters"]
+        elif t.get("parameters"):
+            item["parameters"] = t["parameters"]
+        out.append(item)
+    return out if out else None
+
+
+def _openai_messages_to_responses(messages: list) -> tuple[str | None, list]:
+    """Split OpenAI chat messages into (instructions, input_list) for responses API."""
+    instructions_parts = []
+    input_list = []
+    for m in messages:
+        role = m.get("role")
+        content = m.get("content", "")
+        if role == "system":
+            if isinstance(content, list):
+                # multimodal system? join texts
+                txt = " ".join(c.get("text","") for c in content if isinstance(c, dict))
+                instructions_parts.append(txt)
+            elif content:
+                instructions_parts.append(str(content))
+        elif role == "user":
+            # Handle multimodal content (list with text + image_url) — convert to responses format
+            if isinstance(content, list):
+                converted = []
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    ptype = part.get("type")
+                    if ptype == "text":
+                        converted.append({"type": "input_text", "text": part.get("text", "")})
+                    elif ptype == "image_url":
+                        # chat format: {"type":"image_url","image_url":{"url":"data:..."}}
+                        url = part.get("image_url")
+                        if isinstance(url, dict):
+                            url = url.get("url", "")
+                        if url:
+                            converted.append({"type": "input_image", "image_url": url})
+                    elif ptype == "input_text":
+                        converted.append({"type": "input_text", "text": part.get("text", "")})
+                    elif ptype == "input_image":
+                        # already responses format
+                        img_url = part.get("image_url")
+                        if img_url:
+                            converted.append({"type": "input_image", "image_url": img_url})
+                    elif part.get("text"):
+                        converted.append({"type": "input_text", "text": part.get("text","")})
+                # If conversion produced nothing, fallback to string
+                if converted:
+                    input_list.append({"role": "user", "content": converted})
+                else:
+                    input_list.append({"role": "user", "content": str(content)})
+            else:
+                input_list.append({"role": "user", "content": str(content) if content is not None else ""})
+        elif role == "assistant":
+            # Content
+            tool_calls = m.get("tool_calls")
+            if content:
+                # Responses history: assistant messages can be represented as role assistant
+                # but for tool-call history we also need function_call items.
+                # We add a message item first, then function_calls separately below.
+                # If there's no tool_calls, just a single assistant message.
+                if not tool_calls:
+                    input_list.append({"role": "assistant", "content": str(content)})
+                else:
+                    # Add commentary as assistant message if non-empty, then function_calls
+                    if str(content).strip():
+                        input_list.append({"role": "assistant", "content": str(content)})
+            if tool_calls:
+                for tc in tool_calls:
+                    # tc can be dict with id/name/args or object
+                    if isinstance(tc, dict):
+                        tc_id = tc.get("id", "")
+                        tc_name = tc.get("name") or tc.get("function", {}).get("name", "")
+                        tc_args = tc.get("args") or tc.get("function", {}).get("arguments", "")
+                        if isinstance(tc_args, dict):
+                            tc_args = json.dumps(tc_args)
+                    else:
+                        tc_id = getattr(tc, "id", "")
+                        tc_name = getattr(getattr(tc, "function", None), "name", "") or getattr(tc, "name", "")
+                        tc_args = getattr(getattr(tc, "function", None), "arguments", "") or ""
+                        if isinstance(tc_args, dict):
+                            tc_args = json.dumps(tc_args)
+                    if tc_name:
+                        input_list.append({
+                            "type": "function_call",
+                            "call_id": tc_id,
+                            "name": tc_name,
+                            "arguments": tc_args if isinstance(tc_args, str) else json.dumps(tc_args),
+                        })
+        elif role == "tool":
+            # Tool output -> function_call_output
+            tool_call_id = m.get("tool_call_id", "")
+            # responses expects call_id
+            input_list.append({
+                "type": "function_call_output",
+                "call_id": tool_call_id,
+                "output": str(content) if content is not None else "",
+            })
+        else:
+            # Fallback: treat as user
+            input_list.append({"role": role, "content": str(content) if content is not None else ""})
+    instructions = "\n\n".join(instructions_parts) if instructions_parts else None
+    # If input_list is single user string, responses also accepts plain string; keep list for uniformity
+    return instructions, input_list
+
+
+def _responses_to_chat_completion(resp):
+    """Wrap a Responses API response into a ChatCompletion-like object for Nally's graph."""
+    from openai.types.chat import ChatCompletion, ChatCompletionMessage
+    from openai.types.chat.chat_completion import Choice
+    from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall, Function
+
+    # Extract text — output_text is the aggregated final assistant text
+    text = getattr(resp, "output_text", None) or ""
+    # Fallback: collect from output messages
+    if not text:
+        parts = []
+        for item in getattr(resp, "output", []) or []:
+            if getattr(item, "type", None) == "message" and getattr(item, "content", None):
+                for c in item.content:
+                    if getattr(c, "type", None) == "output_text" and getattr(c, "text", None):
+                        parts.append(c.text)
+        text = "".join(parts)
+
+    # Extract tool calls
+    tool_calls = []
+    for item in getattr(resp, "output", []) or []:
+        if getattr(item, "type", None) == "function_call":
+            name = getattr(item, "name", "") or ""
+            args = getattr(item, "arguments", "") or "{}"
+            call_id = getattr(item, "call_id", "") or getattr(item, "id", "") or f"call_{len(tool_calls)}"
+            if not name:
+                continue
+            # Ensure args is string JSON
+            if not isinstance(args, str):
+                try:
+                    args = json.dumps(args)
+                except Exception:
+                    args = "{}"
+            tool_calls.append(
+                ChatCompletionMessageToolCall(
+                    id=call_id,
+                    type="function",
+                    function=Function(name=name, arguments=args),
+                )
+            )
+
+    # Build ChatCompletionMessage
+    msg_kwargs = {"role": "assistant", "content": text or ""}
+    if tool_calls:
+        msg_kwargs["tool_calls"] = tool_calls
+
+    # Usage mapping — responses has input_tokens/output_tokens
+    # ChatCompletion expects usage but we handle tracking separately
+    message = ChatCompletionMessage(**msg_kwargs)
+    choice = Choice(finish_reason="tool_calls" if tool_calls else "stop", index=0, message=message)
+    # Construct minimal ChatCompletion
+    # We need to provide id, created, model, object — use resp fields where possible
+    chat_resp = ChatCompletion(
+        id=getattr(resp, "id", "resp"),
+        choices=[choice],
+        created=int(getattr(resp, "created_at", 0) or 0),
+        model=getattr(resp, "model", "muse-spark-1.2-contributor-free"),
+        object="chat.completion",
+    )
+    # Attach usage for tracking if present — mimic chat usage shape
+    usage = getattr(resp, "usage", None)
+    if usage:
+        # Create a simple object with prompt_tokens/completion_tokens for context_manager
+        class _Usage:
+            pass
+        u = _Usage()
+        u.prompt_tokens = getattr(usage, "input_tokens", 0) or 0
+        u.completion_tokens = getattr(usage, "output_tokens", 0) or 0
+        u.total_tokens = getattr(usage, "total_tokens", 0) or (u.prompt_tokens + u.completion_tokens)
+        chat_resp.usage = u  # type: ignore
+    return chat_resp
+
 
 # Rate limit error signatures
 _RATE_LIMIT_INDICATORS = [
@@ -183,9 +389,67 @@ class NallyLLM:
                 return m
         return None
 
+    def _create_via_responses(self, kwargs: dict):
+        """Call responses.create for Muse Spark and wrap to ChatCompletion."""
+        model = kwargs.get("model")
+        messages = kwargs.get("messages", [])
+        tools = kwargs.get("tools")
+        temperature = kwargs.get("temperature", 0.7)
+        max_tokens = kwargs.get("max_tokens", 4096)
+        extra_body = kwargs.get("extra_body", {}) or {}
+        cache_key = extra_body.get("prompt_cache_key", "default")
+
+        instructions, input_list = _openai_messages_to_responses(messages)
+        # Responses API expects input as list or string; use list for fidelity
+        # If single user string and no history, we can keep string, but list works too
+        # Ensure input_list is not empty
+        if not input_list:
+            input_list = [{"role": "user", "content": "Hello"}]
+
+        resp_tools = _chat_tools_to_responses_tools(tools)
+
+        # Build responses kwargs — map max_tokens -> max_output_tokens
+        # Muse Spark reasoning can be heavy; ensure at least 512 for reasoning, 2000 for vision
+        max_out = max(512, max_tokens)
+        # If input contains image, bump to 2500 to allow reasoning + vision output (1200 was incomplete in tests)
+        try:
+            has_image = any(
+                isinstance(item.get("content"), list) and any(p.get("type") == "input_image" for p in item["content"])
+                for item in input_list if isinstance(item, dict)
+            )
+            if has_image:
+                max_out = max(max_out, 2500)
+        except Exception:
+            pass
+
+        r_kwargs = {
+            "model": model,
+            "max_output_tokens": max_out,
+            "temperature": temperature,
+        }
+        if instructions:
+            r_kwargs["instructions"] = instructions
+        # input must be list for history fidelity; single item can be string but list is safer
+        r_kwargs["input"] = input_list
+        if resp_tools:
+            r_kwargs["tools"] = resp_tools
+            r_kwargs["tool_choice"] = kwargs.get("tool_choice", "auto")
+        # Preserve prompt caching
+        if cache_key:
+            r_kwargs["prompt_cache_key"] = cache_key
+            r_kwargs["prompt_cache_retention"] = extra_body.get("prompt_cache_retention", "24h")
+
+        # For reasoning models, OpenCode expects reasoning.effort via extra_body? Pi shows thinkingLevelMap.
+        # Muse Spark is high-effort by default; we don't override.
+
+        client = self._get_active_client()
+        resp = client.responses.create(**r_kwargs)
+        return _responses_to_chat_completion(resp)
+
     def _create_completion(self, kwargs: dict):
         """Call chat.completions.create with automatic model fallback on rate limits.
 
+        Muse Spark models are routed via responses API (their native endpoint).
         On a detected rate-limit error, rotates to the next healthy model in
         OPENCODE_FREE_MODELS and retries. Clears the model from the failed set
         on success so it can be retried in a later request.
@@ -194,15 +458,21 @@ class NallyLLM:
         last_exc = None
         while True:
             try:
-                result = self._get_active_client().chat.completions.create(**kwargs)
+                if _is_muse_spark(model):
+                    result = self._create_via_responses(kwargs)
+                else:
+                    result = self._get_active_client().chat.completions.create(**kwargs)
                 self._failed_models.discard(model)
                 return result
             except Exception as e:
-                if self._is_rate_limit(e):
+                # If muse-spark via responses fails with 500 internal, treat as fallback-eligible too
+                err_str = str(e).lower()
+                is_internal_500 = "500" in err_str and "internal server error" in err_str
+                if self._is_rate_limit(e) or is_internal_500:
                     next_model = self._next_fallback_model(model)
                     if next_model:
                         logger.warning(
-                            f"Model {model} rate-limited; falling back to {next_model}"
+                            f"Model {model} failed ({type(e).__name__}: {str(e)[:120]}); falling back to {next_model}"
                         )
                         model = next_model
                         kwargs["model"] = model
@@ -211,7 +481,7 @@ class NallyLLM:
                     last_exc = e
                     break
                 raise
-        logger.error(f"All OpenCode free models rate-limited (last: {last_exc})")
+        logger.error(f"All OpenCode free models rate-limited/failed (last: {last_exc})")
         raise last_exc
 
     def chat(self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default", max_tokens: int = 4096) -> dict:
@@ -252,6 +522,16 @@ class NallyLLM:
 
     def stream_chat(self, messages: list, temperature: float = 0.7, cache_key: str = "default"):
         model = self._select_model(messages)
+        # Muse Spark uses responses API which doesn't support chat streaming — emulate via single response
+        if _is_muse_spark(model):
+            resp = self.chat(messages, temperature=temperature, cache_key=cache_key, max_tokens=2048)
+            text = resp.choices[0].message.content or ""
+            # Yield in small chunks to preserve streaming UX
+            if text:
+                # Split into ~50 char chunks
+                for i in range(0, len(text), 80):
+                    yield text[i:i+80]
+            return
 
         response = self._create_completion(
             {
@@ -281,6 +561,21 @@ class NallyLLM:
         {'type': 'tool_call', 'id': '...', 'name': '...', 'args': {...}} for tool calls
         """
         model = self._select_model(messages, tools)
+        # Muse Spark via responses doesn't support chat streaming — emulate
+        if _is_muse_spark(model):
+            resp = self.chat(messages, tools=tools, temperature=temperature, cache_key=cache_key, max_tokens=16384 if tools else 4096)
+            msg = resp.choices[0].message
+            if msg.content:
+                yield {"type": "content", "text": msg.content}
+            if getattr(msg, "tool_calls", None):
+                for tc in msg.tool_calls:
+                    # tc can be ChatCompletionMessageToolCall
+                    try:
+                        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    except Exception:
+                        args = {}
+                    yield {"type": "tool_call", "id": tc.id, "name": tc.function.name, "args": args}
+            return
 
         kwargs = {
             "model": model,
@@ -364,6 +659,20 @@ class NallyLLM:
         self, model: str, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default", max_tokens: int = 2048
     ) -> dict:
         """Chat with a specific model (bypasses routing)"""
+        # Muse Spark requires responses API
+        if _is_muse_spark(model):
+            kwargs = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "extra_body": {"prompt_cache_key": cache_key, "prompt_cache_retention": "24h"},
+            }
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
+            return self._create_via_responses(kwargs)
+
         client = self._get_active_client()
 
         kwargs = {

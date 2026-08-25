@@ -28,7 +28,8 @@ class SubAgent:
     def __init__(self, goal: str, context: str = "", agent_id: str = None, model: str = None, depth: int = 0):
         self.id = agent_id or f"sub_{uuid.uuid4().hex[:8]}"
         self.goal = goal
-        self.context = context
+        self._raw_context = context  # Original context from parent
+        self.context = context  # May be rewritten by handoff
         self.model = model
         self.depth = depth
         self.status = "pending"
@@ -41,10 +42,28 @@ class SubAgent:
         self._lock = threading.Lock()
         self._emit: Optional[Callable] = None
         self._thread: Optional[threading.Thread] = None
+        self._conversation_messages: List[Dict] = []  # Parent conversation for context rewriting
         # Tracing context captured at spawn time (thread-local span stack does
         # not propagate into this sub-agent's own thread).
         self._trace_parent_span_id: Optional[str] = None
         self._trace_run_id: Optional[str] = None
+
+    def set_conversation_context(self, messages: List[Dict]):
+        """Set parent conversation messages for context rewriting."""
+        self._conversation_messages = messages
+
+    def _rewrite_context(self):
+        """Rewrite context to give this sub-agent only what's relevant."""
+        if self._conversation_messages or self._raw_context:
+            try:
+                from ..agent.handoff import rewrite_context
+                self.context = rewrite_context(
+                    goal=self.goal,
+                    full_context=self._raw_context,
+                    conversation_messages=self._conversation_messages,
+                )
+            except Exception:
+                self.context = self._raw_context
 
     def set_callback(self, callback: Optional[Callable]):
         """Set progress reporting callback."""
@@ -85,6 +104,9 @@ class SubAgent:
 
         with self._lock:
             self.status = "running"
+
+        # Rewrite context to give this sub-agent only relevant info
+        self._rewrite_context()
 
         sub_span = None
         try:

@@ -5,18 +5,23 @@ using readability for article extraction, falls back to basic tag stripping.
 """
 
 import logging
+import os
 import re
 from urllib.parse import urlparse
 
 import httpx
 
 from .registry import Tool
+from ._retry import retry_transient
 
 logger = logging.getLogger("nally.tools.fetch")
 
 MAX_OUTPUT = 50000
 DEFAULT_TIMEOUT = 15.0
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+# SSL verification — disabled by default for proxy environments, toggle with NALLY_VERIFY_SSL
+VERIFY_SSL = os.environ.get("NALLY_VERIFY_SSL", "false").lower() in ("true", "1", "yes")
 
 
 def _strip_html(html: str) -> str:
@@ -75,12 +80,12 @@ def _fetch_url(url: str, method: str = "GET", body: str = None, timeout: float =
     elif HTTP_PROXY:
         proxy = HTTP_PROXY
 
-    try:
+    def _do_fetch():
         with httpx.Client(
             timeout=timeout,
             follow_redirects=True,
             proxy=proxy,
-            verify=False,
+            verify=VERIFY_SSL,
         ) as client:
             if method.upper() == "POST" and body is not None:
                 headers["Content-Type"] = "application/json"
@@ -112,12 +117,24 @@ def _fetch_url(url: str, method: str = "GET", body: str = None, timeout: float =
 
             return f"Source: {source}\n\n{text}"
 
-    except httpx.TimeoutException:
-        return f"Error: Request timed out after {timeout}s for {url}"
-    except httpx.HTTPStatusError as e:
-        return f"Error: HTTP {e.response.status_code} from {url}"
-    except httpx.ConnectError:
-        return f"Error: Could not connect to {parsed.netloc} (DNS failure or server down)"
+    try:
+        result, exc = retry_transient(
+            _do_fetch,
+            max_attempts=2,
+            backoff_base=1.0,
+            logger_name="nally.tools.fetch",
+        )
+        if exc:
+            # Map known exceptions to user-friendly messages
+            if isinstance(exc, httpx.TimeoutException):
+                return f"Error: Request timed out after {timeout}s for {url}"
+            elif isinstance(exc, httpx.HTTPStatusError):
+                return f"Error: HTTP {exc.response.status_code} from {url}"
+            elif isinstance(exc, httpx.ConnectError):
+                return f"Error: Could not connect to {parsed.netloc} (DNS failure or server down)"
+            else:
+                return f"Error: {type(exc).__name__}: {exc}"
+        return result
     except Exception as e:
         return f"Error: {type(e).__name__}: {e}"
 

@@ -80,14 +80,15 @@ OPENCODE_KEYS = [k.strip() for k in OPENCODE_API_KEY_RAW.split(",") if k.strip()
 OPENCODE_API_KEY = OPENCODE_KEYS[0] if OPENCODE_KEYS else ""  # backward compat
 OPENCODE_BASE_URL = "https://opencode.ai/zen/v1"
 OPENCODE_MODELS = {
-    "fast": "nemotron-3.5-lightning-free",
-    "balanced": "hy3-free",
-    "powerful": "hy3-free",
-    "frontier": "hy3-free",
+    "fast": "muse-spark-1.2-contributor-free",
+    "balanced": "muse-spark-1.2-contributor-free",
+    "powerful": "muse-spark-1.2-contributor-free",
+    "frontier": "muse-spark-1.2-contributor-free",
 }
 
 # Free models available for SubAgents (no GPT models)
 SUBAGENT_MODELS = [
+    "muse-spark-1.2-contributor-free",
     "nemotron-3.5-lightning-free",
     "hy3-free",
     "nemotron-3-ultra-free",
@@ -165,7 +166,7 @@ APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
 
 # ── Planning ─────────────────────────────────────────────
 
-_plan_env = os.getenv("NALLY_PLAN_ENABLED", "false").lower() == "true"
+_plan_env = os.getenv("NALLY_PLAN_ENABLED", "true").lower() == "true"
 PLAN_ENABLED = _plan_env and DAILY_TOKEN_BUDGET > 0
 PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
 PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
@@ -174,7 +175,7 @@ PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "15")
 
 # ── Harness v2 (Intent Classification + Pipeline Routing) ─
 
-HARNESS_ENABLED = os.getenv("NALLY_HARNESS_ENABLED", "false").lower() in ("true", "1", "yes")
+HARNESS_ENABLED = os.getenv("NALLY_HARNESS_ENABLED", "true").lower() in ("true", "1", "yes")
 HARNESS_ROUTER_ENABLED = os.getenv("NALLY_HARNESS_ROUTER", "true").lower() in ("true", "1", "yes")
 HARNESS_CRITIQUE_ENABLED = os.getenv("NALLY_HARNESS_CRITIQUE", "true").lower() in ("true", "1", "yes")
 HARNESS_SCRATCHPAD_ENABLED = os.getenv("NALLY_HARNESS_SCRATCHPAD", "true").lower() in ("true", "1", "yes")
@@ -286,6 +287,7 @@ HOW YOU WORK (universal principles for every task, every project):
 
 2. PLAN BEFORE CODE
    - For any task touching 3+ files: write the plan first — every file that changes and why. Show it before executing.
+   - For complex/multi-step requests: present a 3-5 bullet point plan and ask 'Should I proceed?' BEFORE executing any tools.
    - Use subagents for investigation — they explore in separate context, keeping the main conversation clean.
 
 3. ONE TASK AT A TIME
@@ -359,6 +361,8 @@ IDENTITY:
 - You know your limits and admit when you don't know something
 - You are honest, direct, and respect the user's time
 - You are not a chatbot — you are NALLY
+- When doing multi-step work: give short status updates between steps ("Done with X, moving to Y")
+- Don't dump a wall of execution phases. Confirm the plan first, then execute step by step with updates
 
 VOICE CAPABILITIES:
 - You have full voice support: TTS (ElevenLabs) and STT (Groq Whisper + faster-whisper local)
@@ -392,6 +396,8 @@ SCOPE DISCIPLINE:
 EXECUTION DISCIPLINE:
 - Brevity rules apply to conversation. Task execution, safety, and verification override brevity — say what's needed even if longer.
 - If a tool call fails, retry at most twice, then report the failure plainly. Destructive actions require approval before executing. If declined, ask what the user wants instead.
+- For multi-step tasks: after completing each major step, give a one-line status update (e.g. "Done with step 1, moving to step 2"). Don't go silent between steps.
+- Never dump a massive execution plan (Phase 1, Phase 2, etc.) and start executing without asking. Always confirm first.
 
 TOOLS (18 total -- use them, don't explain them):
 - run_command: shell commands. destructive. use ONLY for: git, npm, pip, system ops. Do NOT use for file writes.
@@ -592,6 +598,9 @@ TELEGRAM_USER_ID = int(os.getenv("TELEGRAM_USER_ID", "0"))
 
 # Voice Calls (Telegram private 1-on-1 calls via pytgcalls)
 NALLY_VOICE_CALLS_ENABLED = os.getenv("NALLY_VOICE_CALLS_ENABLED", "false").lower() == "true"
+
+# Telethon auto-approve: owner-only user account auto-approves gated tools (no inline buttons on Telethon)
+TELEGRAM_USER_AUTO_APPROVE = os.getenv("TELEGRAM_USER_AUTO_APPROVE", "true").lower() == "true"
 
 PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY", "")
 

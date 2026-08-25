@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
+from typing import Optional
 
 from .registry import Tool, registry
 
@@ -29,7 +30,7 @@ CONTENT_ROUTER = {
         "negative": "realistic, 3d, texture, photo, shadows, complex, busy, blurry",
     },
     "photo": {
-        "model": "gpt-image-2",
+        "model": "flux",
         "add": ["photorealistic", "DSLR photo", "85mm lens", "natural lighting", "bokeh", "sharp focus"],
         "remove": ["cartoon", "anime", "painting", "illustration", "flat"],
         "negative": "cartoon, anime, painting, illustration, flat, drawing, sketch, blurry",
@@ -47,7 +48,7 @@ CONTENT_ROUTER = {
         "negative": "realistic, photo, 3d, texture, blurry, low quality, bad anatomy",
     },
     "3d": {
-        "model": "gptimage-large",
+        "model": "flux",
         "add": ["octane render", "cinema 4d", "volumetric lighting", "ray tracing", "high detail", "8k"],
         "remove": ["photo", "2d", "flat", "sketch"],
         "negative": "2d, flat, sketch, drawing, low poly, blurry, low quality",
@@ -59,19 +60,19 @@ CONTENT_ROUTER = {
         "negative": "photo, digital, 3d, render, camera, realistic, blurry",
     },
     "product": {
-        "model": "gptimage",
+        "model": "flux",
         "add": ["product photography", "studio lighting", "white background", "commercial", "high-end", "sharp focus"],
         "remove": ["outdoor", "natural", "messy", "busy"],
         "negative": "outdoor, natural, messy, busy, blurry, text, watermark, low quality",
     },
     "text": {
-        "model": "gptimage-large",
+        "model": "flux",
         "add": ["clear text", "readable typography", "professional layout", "high resolution"],
         "remove": ["blurry", "distorted", "abstract"],
         "negative": "blurry, distorted, unreadable text, misspelled, low quality",
     },
     "default": {
-        "model": "zimage",
+        "model": "flux",
         "add": ["high quality", "detailed", "sharp focus", "professional"],
         "remove": [],
         "negative": "blurry, low quality, watermark, text",
@@ -407,16 +408,52 @@ def parse_critique(critique_text: str) -> dict:
 # ── Pollinations API ──────────────────────────────────────
 
 
+# ── Vision availability cache ──
+_VISION_AVAILABLE: Optional[bool] = None
+_UNSAFE_MODELS = {"gpt-image-2", "gptimage-large", "gptimage"}
+
+def _is_vision_available() -> bool:
+    """Check if current LLM model likely supports vision (cached)."""
+    global _VISION_AVAILABLE
+    if _VISION_AVAILABLE is not None:
+        return _VISION_AVAILABLE
+    try:
+        from ..config import ACTIVE_MODEL
+        m = ACTIVE_MODEL.lower()
+        # Muse Spark 1.2 is multimodal (text+image+video+audio+pdf) — enable vision
+        if "muse" in m or "spark" in m:
+            _VISION_AVAILABLE = True
+            return _VISION_AVAILABLE
+        # Known vision-capable substrings; conservative — default False for unknown
+        vision_hints = ("vision", "gpt-4", "claude", "gemini", "llava", "minicpm", "qwen2-vl", "internvl", "pixtral")
+        _VISION_AVAILABLE = any(h in m for h in vision_hints)
+        if not _VISION_AVAILABLE:
+            # Probe by checking if model name suggests hy3/nemotron (text-only free tier)
+            text_only = ("hy3", "nemotron", "ling-3", "laguna", "north-mini")
+            if any(t in m for t in text_only):
+                _VISION_AVAILABLE = False
+            else:
+                # Unknown model — assume no vision to avoid wasted calls
+                _VISION_AVAILABLE = False
+    except Exception:
+        _VISION_AVAILABLE = False
+    return _VISION_AVAILABLE
+
+
 def generate_pollinations(
     prompt: str,
-    width: int = 1344,
-    height: int = 1344,
+    width: int = 1024,
+    height: int = 1024,
     seed: int = None,
     model: str = "flux",
 ) -> bytes:
-    """Generate image via Pollinations API."""
-    enhanced = enhance_prompt(prompt)
-    encoded = urllib.parse.quote(enhanced)
+    """Generate image via Pollinations API. Prompt is used as-is (already enhanced by caller)."""
+    # Safe model fallback — free tier may not have gpt-image variants
+    if model in _UNSAFE_MODELS:
+        logger.warning(f"Model {model} may be unavailable on free tier — falling back to flux")
+        model = "flux"
+    # Use prompt directly (caller already enhanced); avoid double-enhance
+    encoded = urllib.parse.quote(prompt)
     params = {"width": width, "height": height, "model": model, "nologo": "true"}
     if seed is not None and seed >= 0:
         params["seed"] = seed
@@ -424,9 +461,9 @@ def generate_pollinations(
     query = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"https://image.pollinations.ai/prompt/{encoded}?{query}"
 
-    logger.info(f"Generating: {enhanced[:80]}... ({width}x{height}, model={model})")
+    logger.info(f"Generating: {prompt[:80]}... ({width}x{height}, model={model})")
     req = urllib.request.Request(url, headers={"User-Agent": "NALLY/1.0"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=60) as resp:
         return resp.read()
 
 
@@ -503,13 +540,13 @@ class ImageGen(Tool):
                 },
                 "width": {
                     "type": "integer",
-                    "description": "Image width (default 1344)",
-                    "default": 1344,
+                    "description": "Image width (default 1024, Telegram-friendly square)",
+                    "default": 1024,
                 },
                 "height": {
                     "type": "integer",
-                    "description": "Image height (default 1344)",
-                    "default": 1344,
+                    "description": "Image height (default 1024)",
+                    "default": 1024,
                 },
                 "model": {
                     "type": "string",
@@ -523,8 +560,8 @@ class ImageGen(Tool):
                 },
                 "max_attempts": {
                     "type": "integer",
-                    "description": "Max attempts with vision critique (1-5, default 3)",
-                    "default": 3,
+                    "description": "Max attempts with vision critique (1-5, default 2)",
+                    "default": 2,
                 },
                 "enhance": {
                     "type": "boolean",
@@ -537,15 +574,18 @@ class ImageGen(Tool):
     def execute(
         self,
         prompt: str,
-        width: int = 1344,
-        height: int = 1344,
+        width: int = 1024,
+        height: int = 1024,
         model: str = "auto",
         upscale: int = 0,
-        max_attempts: int = 3,
+        max_attempts: int = 2,
         enhance: bool = True,
     ) -> str:
         width = max(256, min(2048, width))
         height = max(256, min(2048, height))
+        # Telegram-friendly: if caller requests large image, keep it but log
+        if width > 1344 or height > 1344:
+            logger.info(f"Large image requested {width}x{height} — consider 1024 for Telegram latency")
         max_attempts = max(1, min(5, max_attempts))
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -605,10 +645,10 @@ class ImageGen(Tool):
             logs.append(log_entry)
             logger.info(log_entry)
 
-            # 5. Vision critique (if score < 80 and more attempts remain)
+            # 5. Vision critique (if score < 80 and more attempts remain) — only if vision model available
             critique = ""
             improved_prompt = ""
-            if total < 80 and attempt < max_attempts:
+            if total < 80 and attempt < max_attempts and _is_vision_available():
                 critique = vision_critique(image_bytes, current_prompt, scores)
                 parsed = parse_critique(critique)
                 if parsed.get("verdict") == "pass":

@@ -1,8 +1,11 @@
 """Session Manager — per-session NallyAgent instances with thread safety.
 
-Each session (web, Telegram DM, Telegram group) gets its own agent with
-isolated conversation history and LangGraph thread. Memory (facts/episodes)
-stays global across sessions.
+Each session gets its own agent with isolated conversation history and
+LangGraph thread. Memory (facts/episodes) stays global across sessions.
+
+Since cross-platform unification, DMs from bot/Telethon/web/voice/VoIP all
+share the owner's single session (see agent/identity.py); groups keep their
+own per-group session.
 """
 
 import threading
@@ -11,6 +14,7 @@ from typing import Callable, Dict, List, Optional
 
 from ..utils.logger import logger
 from .core import NallyAgent
+from .identity import ensure_migrated
 
 MAX_QUEUE_SIZE = 5
 
@@ -36,14 +40,36 @@ class AgentSessionManager:
                     self._locks[session_id] = threading.Lock()
         return self._locks[session_id]
 
-    def get(self, session_id: str) -> NallyAgent:
+    def get(self, session_id: str, channel: Optional[str] = None) -> NallyAgent:
         """Get or create an agent for a session."""
         if session_id not in self._sessions:
             with self._pool_lock:
                 if session_id not in self._sessions:
+                    ensure_migrated()
                     logger.info(f"Creating agent for session: {session_id}")
-                    self._sessions[session_id] = NallyAgent(session_id=session_id)
+                    self._sessions[session_id] = NallyAgent(
+                        session_id=session_id, channel=channel
+                    )
         return self._sessions[session_id]
+
+    def commit_turn(self, session_id: str, user_text: str, reply: str) -> None:
+        """Commit an externally-generated turn into the shared session brain.
+
+        Used by the voice-call fast path (and any other lightweight LLM path)
+        so cross-platform history stays complete without paying full agent
+        latency. Acquires the session lock so it can't interleave with a
+        concurrent process() on the same brain.
+        """
+        lock = self._get_lock(session_id)
+        with lock:
+            try:
+                agent = self.get(session_id)
+                agent.messages.append({"role": "user", "content": user_text})
+                if reply:
+                    agent.messages.append({"role": "assistant", "content": reply})
+                agent._save_history()
+            except Exception as e:
+                logger.error(f"commit_turn failed: {type(e).__name__}: {e}")
 
     def is_busy(self, session_id: str) -> bool:
         """Check if session is currently processing a message."""
