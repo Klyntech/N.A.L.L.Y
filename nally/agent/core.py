@@ -9,7 +9,7 @@ from typing import Callable, List, Optional
 from ..config import CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS
 from ..config import MAX_ITERATIONS_PER_TURN, SESSION_ID, get_system_prompt
 from ..core.errors import LLMError, NallyError
-from ..memory.store_v2 import memory_v2 as memory_store
+from ..memory import memory_store
 from ..utils.logger import logger
 from .router import matcher
 
@@ -90,9 +90,13 @@ def _extract_topics(user_msgs: List[str]) -> List[str]:
 
 
 class NallyAgent:
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, session_id: Optional[str] = None, channel: Optional[str] = None):
         self.messages: List[dict] = []
         self._session_id = session_id or SESSION_ID
+        # Human-facing channel label (e.g. "Telegram voice call"). Explicit
+        # instead of sniffed from the session-id prefix, since one shared
+        # session ("user:{owner}") is reached from many channels.
+        self._channel = channel
         # Stable abort key. Must equal the session id used by set_abort()
         # (web/ws handlers) so abort flags match the graph's checks. The
         # graph appends a uuid suffix and registers it as an alias back to
@@ -144,7 +148,9 @@ class NallyAgent:
         except Exception as e:
             logger.debug(f"Failed to load recent episodes: {e}")
 
-        system_content = get_system_prompt(user_context=user_context, interface=self._session_id)
+        system_content = get_system_prompt(
+            user_context=user_context, interface=self._channel or self._session_id
+        )
 
         self.messages = [{"role": "system", "content": system_content, "cache_control": {"type": "ephemeral"}}]
 
@@ -242,7 +248,22 @@ class NallyAgent:
             from ..config import HARNESS_ENABLED, HARNESS_LOG_CLASSIFICATIONS, HARNESS_SCRATCHPAD_ENABLED
             if HARNESS_ENABLED:
                 from .harness import classify_intent, get_pipeline_config
-                _classification = classify_intent(user_input)
+                from .llm import llm as _harness_llm
+                def _harness_llm_call(messages, temperature=0.0, **kwargs):
+                    # messages is OpenAI-style list; extract last user + first system
+                    try:
+                        user_msg = messages[-1].get("content", "") if messages else user_input
+                        sys_prompt = None
+                        if messages and messages[0].get("role") == "system":
+                            sys_prompt = messages[0].get("content")
+                        return _harness_llm.simple_chat(
+                            user_message=user_msg,
+                            system_prompt=sys_prompt,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Harness LLM call failed: {e}")
+                        raise
+                _classification = classify_intent(user_input, llm_call_fn=_harness_llm_call)
                 if HARNESS_LOG_CLASSIFICATIONS:
                     logger.info(
                         f"Intent classified: {_classification.task_class.value} "
@@ -250,15 +271,20 @@ class NallyAgent:
                     )
                 self._last_classification = _classification
 
-                # Create scratchpad for complex/high-stakes tasks
-                if (
-                    HARNESS_SCRATCHPAD_ENABLED
-                    and _classification.task_class.value in ("COMPLEX", "CREATIVE", "HIGH_STAKES")
-                ):
-                    from .scratchpad import Scratchpad, scratchpad_store
-                    _scratchpad = Scratchpad(objective=user_input)
-                    scratchpad_store.save(_scratchpad)
-                    logger.info(f"Scratchpad created: {_scratchpad.id}")
+                # Create scratchpad per pipeline config
+                if HARNESS_ENABLED and _classification:
+                    from .harness import get_pipeline_config
+                    pipeline_cfg = get_pipeline_config(_classification.task_class)
+                    if (
+                        HARNESS_SCRATCHPAD_ENABLED
+                        and pipeline_cfg.scratchpad
+                        and _classification.task_class.value
+                        in ("COMPLEX", "CREATIVE", "HIGH_STAKES")
+                    ):
+                        from .scratchpad import Scratchpad, scratchpad_store
+                        _scratchpad = Scratchpad(objective=user_input)
+                        scratchpad_store.save(_scratchpad)
+                        logger.info(f"Scratchpad created: {_scratchpad.id}")
         except Exception as e:
             logger.warning(f"Harness classification failed: {e}")
 
@@ -379,7 +405,8 @@ class NallyAgent:
 
         # Auto-search for time-sensitive queries — inject fresh web data
         # so the LLM sees real results regardless of whether it calls web_search
-        if _needs_web_search(user_input):
+        # Skip for benchmark sessions so the test can measure explicit web_search tool use
+        if _needs_web_search(user_input) and not self._session_id.startswith("bench_"):
             try:
                 from ..tools.websearch import WebSearch
 
@@ -398,6 +425,13 @@ class NallyAgent:
             if _classification:
                 _intent_class = _classification.task_class.value
                 _intent_confidence = _classification.confidence
+
+            # Inject scratchpad context for COMPLEX/HIGH_STAKES tasks
+            if _scratchpad and _classification.task_class.value in ("COMPLEX", "HIGH_STAKES"):
+                self.messages.insert(
+                    1,
+                    {"role": "system", "content": f"[SCRATCHPAD] Objective: {_scratchpad.objective}\nConstraints: {_scratchpad.constraints or ''}"},
+                )
 
             final_response = run_agent(
                 messages=self.messages,
@@ -424,16 +458,25 @@ class NallyAgent:
                     )
                     from .llm import llm as _harness_llm
 
-                    def _harness_llm_call(messages, temperature=0.7):
-                        return _harness_llm.simple_chat(
-                            user_message=messages[-1]["content"],
-                            system_prompt=messages[0]["content"] if messages[0]["role"] == "system" else None,
-                        )
+                    def _harness_llm_call(messages, temperature=0.7, **kwargs):
+                        try:
+                            user_msg = messages[-1].get("content", "") if messages else ""
+                            sys_prompt = None
+                            if messages and messages[0].get("role") == "system":
+                                sys_prompt = messages[0].get("content")
+                            return _harness_llm.simple_chat(
+                                user_message=user_msg,
+                                system_prompt=sys_prompt,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Harness LLM critique call failed: {e}")
+                            raise
 
                     critique_result = run_critique_pipeline(
                         user_request=user_input,
                         task_class=_classification.task_class,
                         llm_call_fn=_harness_llm_call,
+                        existing_response=final_response,
                         context_messages=self.messages[:-1],
                     )
                     if critique_result.was_revised:
@@ -478,8 +521,8 @@ class NallyAgent:
                     suggestions = _scratchpad.suggest_long_term_writes()
                     for s in suggestions:
                         try:
-                            from ..memory.store_v2 import memory_v2
-                            memory_v2.remember(
+                            from ..memory import memory_store as _scratch_mem
+                            _scratch_mem.remember(
                                 key=s["key"],
                                 value=s["value"],
                                 category=s.get("category", "auto_fact"),
@@ -629,10 +672,18 @@ _agent_lock = threading.Lock()
 
 
 def get_agent() -> NallyAgent:
-    """Get or create the singleton NallyAgent instance (thread-safe)."""
+    """Get or create the singleton NallyAgent instance (thread-safe).
+
+    Defaults to the owner's shared brain session so CLI turns land in the
+    same cross-platform history as web/Telegram/voice (identity, not channel).
+    """
     global _agent_instance
     if _agent_instance is None:
         with _agent_lock:
             if _agent_instance is None:
-                _agent_instance = NallyAgent()
+                from .identity import owner_session_id
+
+                _agent_instance = NallyAgent(
+                    session_id=owner_session_id(), channel="CLI"
+                )
     return _agent_instance

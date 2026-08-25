@@ -432,45 +432,38 @@ def run_critique_pipeline(
     user_request: str,
     task_class: TaskClass,
     llm_call_fn,
+    existing_response: str,
     context_messages: Optional[List[Dict]] = None,
 ) -> CritiquePipelineResult:
-    """Run Generate→Critique→Revise pipeline.
+    """Run Critique→Revise pipeline on the given existing response.
+
+    The generate step is skipped — the artifact to evaluate is
+    ``existing_response`` (the LangGraph agent's final answer).
 
     Args:
         user_request: The original user request.
         task_class: The classified task class (COMPLEX or CREATIVE).
         llm_call_fn: Callable that takes (messages, temperature) and returns a string.
-        context_messages: Optional conversation context for the generation call.
+        existing_response: The response from the LangGraph agent to critique/revise.
+        context_messages: Optional conversation context (used for rubric framing).
 
     Returns:
-        CritiquePipelineResult with the final response and metadata.
+        CritiquePipelineResult with the (possibly revised) response and metadata.
     """
     start_time = time.time()
-    stages_fired = ["generate"]
-    total_tokens = 0
+    stages_fired: List[str] = []
 
-    # ── Step 1: Generate ──
-    gen_messages = list(context_messages or [])
-    gen_messages.append({"role": "user", "content": user_request})
+    # ── Step (omitted): Generate ──
+    # No generation; we critique the existing LangGraph answer.
+    # If a generate is desired, callers should pass the generated text as
+    # ``existing_response`` in a future invocation.
 
-    try:
-        generated = llm_call_fn(messages=gen_messages, temperature=0.7)
-    except Exception as e:
-        logger.warning(f"Generate call failed: {e}")
-        return CritiquePipelineResult(
-            response=f"Error generating response: {e}",
-            was_revised=False,
-            critique=None,
-            cost_latency_ms=(time.time() - start_time) * 1000,
-            stages_fired=stages_fired,
-        )
-
-    # ── Step 2: Critique ──
+    # ── Step 1: Critique ──
     rubric = CRITIQUE_RUBRICS.get(task_class, "")
     if not rubric:
-        # No rubric for this class — skip critique
+        # No rubric for this class — skip critique, return as-is
         return CritiquePipelineResult(
-            response=generated,
+            response=existing_response,
             was_revised=False,
             critique=None,
             cost_latency_ms=(time.time() - start_time) * 1000,
@@ -481,7 +474,7 @@ def run_critique_pipeline(
     critique_prompt = (
         f"{rubric}\n\n"
         f"USER REQUEST: {user_request[:1000]}\n\n"
-        f"RESPONSE TO EVALUATE:\n{generated[:3000]}\n\n"
+        f"RESPONSE TO EVALUATE:\n{existing_response[:3000]}\n\n"
         f'Output JSON: {{"issues": ["issue1", ...], "severity": "none|low|medium|high", '
         f'"should_revise": true/false}}\n'
         f"Output ONLY the JSON."
@@ -500,10 +493,10 @@ def run_critique_pipeline(
         logger.warning(f"Critique call failed: {e}")
         critique = CritiqueResult(raw_response=str(e))
 
-    # ── Step 3: Revise (only if needed) ──
+    # ── Step 2: Revise (only if needed) ──
     if not critique.should_revise or critique.severity == "none":
         return CritiquePipelineResult(
-            response=generated,
+            response=existing_response,
             was_revised=False,
             critique=critique,
             cost_latency_ms=(time.time() - start_time) * 1000,
@@ -517,7 +510,7 @@ def run_critique_pipeline(
         f"ISSUES FOUND:\n{issues_text}\n\n"
         f"SEVERITY: {critique.severity}\n\n"
         f"ORIGINAL REQUEST: {user_request[:1000]}\n\n"
-        f"YOUR PREVIOUS RESPONSE:\n{generated[:3000]}\n\n"
+        f"YOUR PREVIOUS RESPONSE:\n{existing_response[:3000]}\n\n"
         f"Rewrite the response fixing the issues above. Output ONLY the revised response."
     )
 
@@ -542,7 +535,7 @@ def run_critique_pipeline(
 
     # Revision failed — return original
     return CritiquePipelineResult(
-        response=generated,
+        response=existing_response,
         was_revised=False,
         critique=critique,
         cost_latency_ms=(time.time() - start_time) * 1000,

@@ -848,14 +848,13 @@ def llm_call(state: AgentState) -> AgentState:
         cleaned_text, text_tool_calls = _parse_text_tool_calls(assistant_msg.content)
         if text_tool_calls:
             assistant_msg.content = cleaned_text
-            from openai.types.chat.chat_completion_message import ChatCompletionMessageToolCall
-            from openai.types.chat.chat_completion_message_function import Function
+            from openai.types.chat import ChatCompletionMessageToolCall
 
             assistant_msg.tool_calls = [
                 ChatCompletionMessageToolCall(
                     id=tc["id"],
                     type="function",
-                    function=Function(name=tc["name"], arguments=json.dumps(tc["args"])),
+                    function={"name": tc["name"], "arguments": json.dumps(tc["args"])},
                 )
                 for tc in text_tool_calls
             ]
@@ -1228,7 +1227,7 @@ def tool_executor(state: AgentState) -> AgentState:
 
         # ── Harness v2: Tool-Result Verification (Phase 4) ──
         try:
-            from ..config import HARNESS_ENABLED, HARNESS_VERIFY_ENABLED
+            from ..config import HARNESS_ENABLED, HARNESS_VERIFY_ENABLED, HARNESS_SCRATCHPAD_ENABLED
             if HARNESS_ENABLED and HARNESS_VERIFY_ENABLED:
                 from .harness import verify_tool_result, _TOOL_VERIFY_MAX_RETRIES
                 # Get objective from state if available
@@ -1258,6 +1257,21 @@ def tool_executor(state: AgentState) -> AgentState:
                             emit("tool_verification", verification.to_dict())
                         except Exception:
                             pass
+
+            # ── Harness v2: Scratchpad update after tool ──
+            if (
+                HARNESS_ENABLED
+                and HARNESS_SCRATCHPAD_ENABLED
+                and "_scratchpad" in state
+                and state["_scratchpad"]
+            ):
+                _sp = state["_scratchpad"]
+                if tool_success:
+                    _sp.add_action(tool_name, str(tool_args)[:100])
+                    _sp.add_result(str(result)[:200])
+                else:
+                    _sp.add_action(tool_name, str(tool_args)[:100], error=True)
+                state["_scratchpad"] = _sp
         except Exception as e:
             logger.debug(f"Tool verification skipped: {e}")
 

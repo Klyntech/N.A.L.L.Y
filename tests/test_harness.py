@@ -333,10 +333,10 @@ class TestCritiquePipeline:
             user_request="explain TCP",
             task_class=TaskClass.COMPLEX,
             llm_call_fn=mock_llm,
+            existing_response="Generated response content",
         )
         assert result.was_revised is False
         assert result.response == "Generated response content"
-        assert "generate" in result.stages_fired
         assert "critique" in result.stages_fired
         assert "revise" not in result.stages_fired  # not fired
 
@@ -362,6 +362,7 @@ class TestCritiquePipeline:
             user_request="build a REST API",
             task_class=TaskClass.COMPLEX,
             llm_call_fn=mock_llm,
+            existing_response="Original generated response",
         )
         assert result.was_revised is True
         assert result.response == "Revised and improved response"
@@ -377,8 +378,10 @@ class TestCritiquePipeline:
             user_request="test",
             task_class=TaskClass.COMPLEX,
             llm_call_fn=mock_llm,
+            existing_response="Original generated response",
         )
-        assert "Error" in result.response
+        # Without generate step, returns existing_response when critique fails
+        assert result.response == "Original generated response"
         assert result.was_revised is False
 
     def test_critique_pipeline_handles_critique_failure(self):
@@ -394,6 +397,7 @@ class TestCritiquePipeline:
             user_request="test",
             task_class=TaskClass.COMPLEX,
             llm_call_fn=mock_llm,
+            existing_response="Generated response",
         )
         assert result.response == "Generated response"
         assert result.was_revised is False
