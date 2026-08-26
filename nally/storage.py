@@ -63,6 +63,7 @@ class ObjectStorage:
                 aws_access_key_id=S3_ACCESS_KEY_ID,
                 aws_secret_access_key=S3_SECRET_ACCESS_KEY,
                 region_name="us-east-1",
+                force_path_style=False,
             )
             logger.info(f"S3 storage initialized: bucket={S3_BUCKET_NAME} endpoint={S3_ENDPOINT}")
             return self._s3_client
