@@ -3,7 +3,7 @@
 Thread-safe: every operation creates its own connection and transaction.
 No shared state between threads. WAL mode for concurrent reads.
 
-Supports SQLite (default) and Turso/LibSQL via DATABASE_URL.
+Supports SQLite (default) and Turso/LibSQL via TURSO_URL.
 """
 
 import json
@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..config import DATA_DIR
+from ..config import DATA_DIR, TURSO_URL, TURSO_TOKEN
 from .confidence import boost_confidence, days_since, decay_confidence
 
 # ── Profile Keys ───────────────────────────────────────────
@@ -159,8 +159,11 @@ class MemoryRepository:
         self._schema_initialized = False
         self._working: Dict[str, Any] = {}
 
-    def _create_connection(self) -> sqlite3.Connection:
-        """Create a fresh SQLite connection. Caller owns it."""
+    def _create_connection(self):
+        """Create a fresh connection. Uses Turso/LibSQL if TURSO_URL is set, else local SQLite."""
+        if TURSO_URL and TURSO_TOKEN:
+            import libsql_experimental as libsql
+            return libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -182,11 +185,21 @@ class MemoryRepository:
         finally:
             conn.close()
 
-    def _ensure_schema(self, conn: sqlite3.Connection):
+    def _ensure_schema(self, conn):
         """Create tables if they don't exist. Runs once per connection."""
         if not self._schema_initialized:
             self._backfill_expires_at(conn)
-            conn.executescript(_SCHEMA)
+            # libsql doesn't support executescript — run statements individually
+            if TURSO_URL and TURSO_TOKEN:
+                for stmt in _SCHEMA.split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        try:
+                            conn.execute(stmt)
+                        except Exception:
+                            pass  # table already exists
+            else:
+                conn.executescript(_SCHEMA)
             self._schema_initialized = True
             self._backfill_fts(conn)
 

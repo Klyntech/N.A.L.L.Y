@@ -83,6 +83,9 @@ silero-vad>=4.0
 # Database (optional, for PostgreSQL backend)
 asyncpg>=0.29.0
 
+# Turso/LibSQL (persistent memory on Render)
+libsql-experimental>=0.0.34
+
 # Redis (optional, for caching layer)
 redis>=5.0.0
 

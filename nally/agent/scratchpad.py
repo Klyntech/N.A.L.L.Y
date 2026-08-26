@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..config import DATA_DIR
+from ..config import DATA_DIR, TURSO_URL, TURSO_TOKEN
 from ..utils.logger import logger
 
 
@@ -182,7 +182,10 @@ class ScratchpadStore:
     def __init__(self, db_path: Optional[Path] = None):
         self._db_path = db_path or DATA_DIR / "nally_memory.db"
 
-    def _create_connection(self) -> sqlite3.Connection:
+    def _create_connection(self):
+        if TURSO_URL and TURSO_TOKEN:
+            import libsql_experimental as libsql
+            return libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
