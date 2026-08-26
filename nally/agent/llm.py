@@ -33,6 +33,13 @@ OPENCODE_FREE_MODELS = [
 def _is_muse_spark(model: str) -> bool:
     return "muse-spark" in (model or "").lower()
 
+# NIM models in fallback order for rate-limit rotation
+NIM_MODELS_LIST = [
+    "minimaxai/minimax-m3",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+]
+
 
 def _chat_tools_to_responses_tools(tools: list | None) -> list | None:
     """Convert chat.completions tools (type/function wrapper) to responses tools (flat)."""
@@ -358,12 +365,9 @@ class NallyLLM:
 
         # If the selected model is known-failed (rate-limited) and we have
         # alternatives, jump straight to the first healthy fallback model.
-        if (
-            PROVIDER == "opencode"
-            and OPENCODE_FREE_MODELS
-            and model in self._failed_models
-        ):
-            for m in OPENCODE_FREE_MODELS:
+        if model in self._failed_models:
+            fallback_list = NIM_MODELS_LIST if PROVIDER == "nim" else (OPENCODE_FREE_MODELS if PROVIDER == "opencode" else [])
+            for m in fallback_list:
                 if m not in self._failed_models:
                     logger.debug(f"Skipping failed model {model}; using {m}")
                     model = m
@@ -387,20 +391,23 @@ class NallyLLM:
     def _next_fallback_model(self, current: str) -> str | None:
         """Return the next healthy model to try after `current` failed.
 
-        Marks `current` as failed and cycles through OPENCODE_FREE_MODELS,
+        Marks `current` as failed and cycles through provider-specific model lists,
         skipping already-failed models. Returns None if all are exhausted.
-        Only meaningful for the OpenCode provider.
         """
-        if PROVIDER != "opencode" or not OPENCODE_FREE_MODELS:
+        if PROVIDER == "nim":
+            model_list = NIM_MODELS_LIST
+        elif PROVIDER == "opencode" and OPENCODE_FREE_MODELS:
+            model_list = OPENCODE_FREE_MODELS
+        else:
             return None
         self._failed_models.add(current)
         try:
-            start = OPENCODE_FREE_MODELS.index(current)
+            start = model_list.index(current)
         except ValueError:
             start = self._model_idx
-        for i in range(len(OPENCODE_FREE_MODELS)):
-            idx = (start + 1 + i) % len(OPENCODE_FREE_MODELS)
-            m = OPENCODE_FREE_MODELS[idx]
+        for i in range(len(model_list)):
+            idx = (start + 1 + i) % len(model_list)
+            m = model_list[idx]
             if m not in self._failed_models:
                 self._model_idx = idx
                 return m
@@ -479,11 +486,15 @@ class NallyLLM:
                     result = self._create_via_responses(kwargs)
                 else:
                     # NIM doesn't support prompt_cache params — strip them
+                    # Also remove empty extra_body entirely (NIM returns 404 on empty dict)
                     if PROVIDER == "nim":
                         eb = kwargs.get("extra_body") or {}
                         eb.pop("prompt_cache_key", None)
                         eb.pop("prompt_cache_retention", None)
-                        kwargs["extra_body"] = eb
+                        if eb:
+                            kwargs["extra_body"] = eb
+                        else:
+                            kwargs.pop("extra_body", None)
                     result = self._get_active_client().chat.completions.create(**kwargs)
                 self._failed_models.discard(model)
                 return result
@@ -504,7 +515,7 @@ class NallyLLM:
                     last_exc = e
                     break
                 raise
-        logger.error(f"All OpenCode free models rate-limited/failed (last: {last_exc})")
+        logger.error(f"All {PROVIDER.upper()} models rate-limited/failed (last: {last_exc})")
         raise last_exc
 
     def chat(self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default", max_tokens: int = 4096) -> dict:
