@@ -65,3 +65,8 @@ tests/benchmark/results/
 bench_*.py
 bench_*.txt
 bench_*.sh
+
+# Secrets - never commit
+render_env.json
+.env
+tmp_*.py
