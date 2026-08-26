@@ -90,10 +90,10 @@ GROQ_MODELS = {
 NIM_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NIM_MODELS = {
-    "fast": "nvidia/llama-3.1-nemotron-70b-instruct",
-    "balanced": "minimaxai/minimax-m3",
-    "powerful": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-    "frontier": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "fast": "minimaxai/minimax-m3",
+    "balanced": "nvidia/nemotron-3-super-120b-a12b",
+    "powerful": "nvidia/nemotron-3-super-120b-a12b",
+    "frontier": "nvidia/nemotron-3-super-120b-a12b",
 }
 
 # OpenCode — supports comma-separated multiple keys for rotation on rate limits
