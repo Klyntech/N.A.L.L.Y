@@ -503,7 +503,7 @@ def critique_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     plan = _get_plan(state)
     if not plan:
-        return {**state, "plan_status": "none"}
+        return {**state, "plan_status": "complete"}
 
     if plan.revision_count >= PLAN_MAX_REVISIONS:
         logger.warning("Critique skipped: revision limit reached, approving plan as-is")
@@ -694,7 +694,12 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     step_results = state.get("step_results", {})
 
     if not plan:
-        return state
+        return {
+            **state,
+            "messages": state.get("messages", []) + [
+                AIMessage(content="I tried to plan that out but couldn't put a plan together. Let me try directly.")
+            ],
+        }
 
     # Build synthesis prompt
     step_summaries = []
@@ -783,7 +788,7 @@ def _execute_step(step: PlanStep, state: Dict[str, Any]) -> str:
     parent_plan = _get_plan(state) or Plan("")
     for s in parent_plan.steps:
         if s.status == StepStatus.COMPLETED and s.id in step_results:
-            context_lines.append(f"  [{s.id}] {s.goal}: {step_results[s.id][:300]}")
+            context_lines.append(f"  [{s.id}] {s.goal}: {(step_results[s.id] or '')[:300]}")
 
     context = "\n".join(context_lines)
     full_prompt = step.goal
@@ -869,6 +874,10 @@ def route_after_replan(state: Dict[str, Any]) -> str:
 
     if plan_status == "revising":
         return "planner"
+
+    # No plan / plan was None — exit to synthesize (error message)
+    if plan_status in ("none", None) or not state.get("plan"):
+        return "synthesize"
 
     # Still executing — go back to execute_step
     return "execute_step"

@@ -136,8 +136,8 @@ CONTEXT_RECENT_MESSAGES = 10
 CONTEXT_COMPRESSION_THRESHOLD = 20
 CONTEXT_MAX_OUTPUT_TOKENS = 4096
 MAX_MEMORIES_TO_INJECT = 12
-MAX_TOOL_CALLS = int(os.getenv("NALLY_MAX_TOOL_CALLS", "9999"))
-MAX_ITERATIONS_PER_TURN = int(os.getenv("NALLY_MAX_ITERATIONS", "999"))
+MAX_TOOL_CALLS = int(os.getenv("NALLY_MAX_TOOL_CALLS", "50"))
+MAX_ITERATIONS_PER_TURN = int(os.getenv("NALLY_MAX_ITERATIONS", "30"))
 MAX_TOOL_OUTPUT = int(os.getenv("NALLY_MAX_TOOL_OUTPUT", "50000"))
 
 # ── Agent safety ──────────────────────────────────────────
@@ -164,10 +164,10 @@ DAILY_TOKEN_BUDGET = int(os.getenv("NALLY_DAILY_TOKEN_BUDGET", "0"))
 # Max nested sub-agent levels: agent -> subagent -> subagent is depth 2; a 3rd level is refused.
 MAX_SUBAGENT_DEPTH = int(os.getenv("NALLY_MAX_SUBAGENT_DEPTH", "4"))
 # Max attempts for a single tool call before reporting the exact error (no infinite retry).
-TOOL_RETRY_LIMIT = int(os.getenv("NALLY_TOOL_RETRY_LIMIT", "15"))
+TOOL_RETRY_LIMIT = int(os.getenv("NALLY_TOOL_RETRY_LIMIT", "3"))
 # Max failed tool calls per turn before the agent halts and asks the user how to
 # proceed (prevents burning the wall-clock budget on a looping failure).
-MAX_TOOL_FAILURES_PER_TURN = int(os.getenv("NALLY_MAX_TOOL_FAILURES_PER_TURN", "999"))
+MAX_TOOL_FAILURES_PER_TURN = int(os.getenv("NALLY_MAX_TOOL_FAILURES_PER_TURN", "5"))
 # Fraction of CONTEXT_MAX_TOKENS at which Nally proactively warns and summarizes.
 TOKEN_WARN_THRESHOLD = float(os.getenv("NALLY_TOKEN_WARN_THRESHOLD", "0.95"))
 

@@ -22,11 +22,11 @@ from ..utils.logger import logger
 # OpenCode free models in fallback order (fastest first) — Muse Spark 1.2 Contributor Free is primary
 OPENCODE_FREE_MODELS = [
     "muse-spark-1.2-contributor-free",
-    "hy3-free",
+    "mimo-v2.5-free",
     "nemotron-3.5-lightning-free",
-    "nemotron-3-ultra-free",
-    "ling-3.0-flash-free",
-    "laguna-s-2.1-free",
+    "ox-alpha-free",
+    "big-pickle",
+    "hy3-free",
 ]
 
 def _is_muse_spark(model: str) -> bool:

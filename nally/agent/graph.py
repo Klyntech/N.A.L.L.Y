@@ -281,7 +281,7 @@ def _parse_text_tool_calls(text: str) -> tuple:
 
 
 # ── Circuit breaker settings ──────────────────────────────
-MAX_CONSECUTIVE_ERRORS = 999
+MAX_CONSECUTIVE_ERRORS = 5
 _MAX_RETRIES = 3
 _RETRYABLE_CODES = {"500", "502", "503", "429"}
 

@@ -214,10 +214,10 @@ class TestCritiqueNode:
 
         assert result["plan_status"] == "executing"
 
-    def test_no_plan_returns_none(self):
+    def test_no_plan_returns_complete(self):
         state = {"plan": None}
         result = critique_node(state)
-        assert result["plan_status"] == "none"
+        assert result["plan_status"] == "complete"
 
     def test_route_after_critique_approve(self):
         state = {"plan_status": "executing"}
