@@ -1,19 +1,18 @@
-"""Object Storage — Cloudflare R2 with local fallback.
+"""Object Storage — S3-compatible (Backblaze B2 / Cloudflare R2) with local fallback.
 
-Uploads files to R2 when configured, falls back to local data/ directory.
-Provides public URLs for R2 objects.
+Uploads files to B2/R2 when configured, falls back to local data/ directory.
+Generates pre-signed URLs for private buckets.
 
 Env vars:
-    R2_ACCOUNT_ID       — Cloudflare account ID
-    R2_ACCESS_KEY_ID    — R2 API token access key
-    R2_SECRET_ACCESS_KEY — R2 API token secret
-    R2_BUCKET_NAME      — R2 bucket name
-    R2_PUBLIC_URL       — Custom domain or r2.dev public URL (optional)
+    S3_ENDPOINT         — S3-compatible endpoint (e.g. s3.us-east-005.backblazeb2.com)
+    S3_ACCESS_KEY_ID    — Access key ID
+    S3_SECRET_ACCESS_KEY — Secret access key
+    S3_BUCKET_NAME      — Bucket name
+    S3_PUBLIC_URL       — Custom public domain (optional, skips pre-signed URLs)
+    S3_URL_EXPIRY       — Pre-signed URL lifetime in seconds (default: 86400 = 24h)
 """
 
-import hashlib
 import os
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -21,56 +20,57 @@ from .utils.logger import logger
 
 # ── Config ──────────────────────────────────────────────────
 
-R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "")
-R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
-R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
-R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "")
-R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL", "")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", "")
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "")
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "")
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "")
+S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", "")
+S3_URL_EXPIRY = int(os.getenv("S3_URL_EXPIRY", "86400"))
 
-_R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com" if R2_ACCOUNT_ID else ""
+_ENDPOINT_URL = f"https://{S3_ENDPOINT}" if S3_ENDPOINT and not S3_ENDPOINT.startswith("http") else S3_ENDPOINT
 
 
-def _is_r2_configured() -> bool:
-    return bool(R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME)
+def _is_s3_configured() -> bool:
+    return bool(S3_ENDPOINT and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY and S3_BUCKET_NAME)
 
 
 class ObjectStorage:
-    """Unified storage: R2 when configured, local data/ fallback.
+    """Unified storage: S3-compatible (B2/R2) when configured, local data/ fallback.
 
     Usage:
         storage = ObjectStorage()
         url = storage.upload(image_bytes, "generated/img_123.png")
-        # url is an R2 public URL or a relative local path
+        # url is a pre-signed URL, public URL, or relative local path
     """
 
     def __init__(self, local_dir: Optional[Path] = None):
         self._local_dir = local_dir or Path("data")
         self._local_dir.mkdir(parents=True, exist_ok=True)
-        self._r2_client = None
+        self._s3_client = None
 
-    def _get_r2_client(self):
-        """Lazy-init boto3 S3 client for R2."""
-        if self._r2_client is not None:
-            return self._r2_client
-        if not _is_r2_configured():
+    def _get_s3_client(self):
+        """Lazy-init boto3 S3 client."""
+        if self._s3_client is not None:
+            return self._s3_client
+        if not _is_s3_configured():
             return None
         try:
             import boto3
 
-            self._r2_client = boto3.client(
+            self._s3_client = boto3.client(
                 "s3",
-                endpoint_url=_R2_ENDPOINT,
-                aws_access_key_id=R2_ACCESS_KEY_ID,
-                aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-                region_name="auto",
+                endpoint_url=_ENDPOINT_URL,
+                aws_access_key_id=S3_ACCESS_KEY_ID,
+                aws_secret_access_key=S3_SECRET_ACCESS_KEY,
+                region_name="us-east-1",
             )
-            logger.info(f"R2 storage initialized: bucket={R2_BUCKET_NAME}")
-            return self._r2_client
+            logger.info(f"S3 storage initialized: bucket={S3_BUCKET_NAME} endpoint={S3_ENDPOINT}")
+            return self._s3_client
         except ImportError:
-            logger.warning("boto3 not installed — R2 storage unavailable, using local fallback")
+            logger.warning("boto3 not installed — S3 storage unavailable, using local fallback")
             return None
         except Exception as e:
-            logger.error(f"R2 client init failed: {e}")
+            logger.error(f"S3 client init failed: {e}")
             return None
 
     def upload(
@@ -81,17 +81,11 @@ class ObjectStorage:
     ) -> str:
         """Upload bytes and return a URL.
 
-        Args:
-            data: File content bytes.
-            key: Object key (e.g. "generated/img_123.png").
-            content_type: MIME type for the object.
-
-        Returns:
-            Public URL (R2) or relative local path.
+        Returns pre-signed URL (private bucket), public URL, or local path.
         """
-        client = self._get_r2_client()
+        client = self._get_s3_client()
         if client:
-            return self._upload_r2(client, data, key, content_type)
+            return self._upload_s3(client, data, key, content_type)
         return self._upload_local(data, key)
 
     def upload_file(
@@ -104,23 +98,36 @@ class ObjectStorage:
         data = local_path.read_bytes()
         return self.upload(data, key, content_type)
 
-    def _upload_r2(self, client, data: bytes, key: str, content_type: str) -> str:
+    def _upload_s3(self, client, data: bytes, key: str, content_type: str) -> str:
         try:
             client.put_object(
-                Bucket=R2_BUCKET_NAME,
+                Bucket=S3_BUCKET_NAME,
                 Key=key,
                 Body=data,
                 ContentType=content_type,
             )
-            if R2_PUBLIC_URL:
-                url = f"{R2_PUBLIC_URL.rstrip('/')}/{key}"
-            else:
-                url = f"https://{R2_BUCKET_NAME}.{R2_ACCOUNT_ID}.r2.dev/{key}"
-            logger.debug(f"R2 uploaded: {key} -> {url[:80]}")
+            url = self._get_url(client, key)
+            logger.debug(f"S3 uploaded: {key} -> {url[:80]}")
             return url
         except Exception as e:
-            logger.error(f"R2 upload failed ({key}): {e} — falling back to local")
+            logger.error(f"S3 upload failed ({key}): {e} — falling back to local")
             return self._upload_local(data, key)
+
+    def _get_url(self, client, key: str) -> str:
+        """Get URL for an object — public URL if configured, else pre-signed."""
+        if S3_PUBLIC_URL:
+            return f"{S3_PUBLIC_URL.rstrip('/')}/{key}"
+        # Pre-signed URL for private buckets
+        try:
+            url = client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": S3_BUCKET_NAME, "Key": key},
+                ExpiresIn=S3_URL_EXPIRY,
+            )
+            return url
+        except Exception as e:
+            logger.warning(f"Failed to generate pre-signed URL for {key}: {e}")
+            return f"s3://{S3_BUCKET_NAME}/{key}"
 
     def _upload_local(self, data: bytes, key: str) -> str:
         path = self._local_dir / key
@@ -128,24 +135,22 @@ class ObjectStorage:
         path.write_bytes(data)
         return f"/data/{key}"
 
-    def get_public_url(self, key: str) -> str:
-        """Get the public URL for an object key."""
-        if _is_r2_configured():
-            if R2_PUBLIC_URL:
-                return f"{R2_PUBLIC_URL.rstrip('/')}/{key}"
-            return f"https://{R2_BUCKET_NAME}.{R2_ACCOUNT_ID}.r2.dev/{key}"
+    def get_url(self, key: str) -> str:
+        """Get the URL for an existing object key."""
+        client = self._get_s3_client()
+        if client:
+            return self._get_url(client, key)
         return f"/data/{key}"
 
     def delete(self, key: str) -> bool:
         """Delete an object. Returns True on success."""
-        client = self._get_r2_client()
+        client = self._get_s3_client()
         if client:
             try:
-                client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+                client.delete_object(Bucket=S3_BUCKET_NAME, Key=key)
                 return True
             except Exception as e:
-                logger.error(f"R2 delete failed ({key}): {e}")
-        # Local fallback — best effort
+                logger.error(f"S3 delete failed ({key}): {e}")
         path = self._local_dir / key
         if path.exists():
             path.unlink()
@@ -154,7 +159,7 @@ class ObjectStorage:
 
     @property
     def backend(self) -> str:
-        return "r2" if _is_r2_configured() and self._get_r2_client() else "local"
+        return "s3" if _is_s3_configured() and self._get_s3_client() else "local"
 
 
 # ── Module-level singleton ──────────────────────────────────
