@@ -15,6 +15,7 @@ from PIL import Image, ImageEnhance, ImageFilter
 from typing import Optional
 
 from .registry import Tool, registry
+from ..storage import storage
 
 logger = logging.getLogger("nally.tools.imagegen")
 
@@ -691,21 +692,22 @@ class ImageGen(Tool):
         if best_image and upscale and upscale >= max(width, height):
             try:
                 best_image = upscale_image(best_image, target_size=upscale)
-                final_file = DATA_DIR / f"img_{timestamp}_final.png"
-                final_file.write_bytes(best_image)
-                best_file = final_file
             except Exception as e:
                 logger.warning(f"Upscaling failed: {e}")
 
-        # 10. Build output
+        # 10. Upload to storage and build output
         if not best_image:
             return "Error: All generation attempts failed"
+
+        # Upload final image to R2 (or local fallback)
+        final_key = f"generated/img_{timestamp}_final.png"
+        image_url = storage.upload(best_image, final_key, content_type="image/png")
 
         best_size_kb = len(best_image) / 1024
 
         result = f"Image generated (score {best_score}/100)\n"
         result += f"Model: {model}\n"
-        result += f"Saved to: {best_file}\n"
+        result += f"URL: {image_url}\n"
         result += f"Size: {best_size_kb:.1f} KB\n"
         result += f"Attempts: {len([l for l in logs if l.startswith('Attempt')])}\n\n"
 
@@ -716,7 +718,7 @@ class ImageGen(Tool):
         if best_critique:
             result += f"\n--- Vision Critique ---\n{best_critique[:500]}\n"
 
-        result += f"\nIMAGE_FILE:{best_file}"
+        result += f"\nIMAGE_URL:{image_url}"
         return result
 
 

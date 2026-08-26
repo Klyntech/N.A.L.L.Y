@@ -30,6 +30,11 @@
     "PARALLEL_API_KEY": "O52bPGcfGBlgGA1CajVgiy68z2sdstfXbA7Mq8ZN",
     "TURSO_URL": "https://nally-post-perch.cloud.layerbase.dev",
     "TURSO_TOKEN": "eyJhbGciOiJFERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJleHAiOjIwOTk2NjIwOTF9.OkXBRm5idzf4oZ2igS9N5VxCPmOkxTF5i6u2jKULYUyMsizlc9Mk61kLM5Y52j4tsW0sTbNAy_G2mdohcgqlBg",
-    "TELEGRAM_WEBHOOK_URL": "https://nally.onrender.com"
+    "TELEGRAM_WEBHOOK_URL": "https://nally.onrender.com",
+    "R2_ACCOUNT_ID": "",
+    "R2_ACCESS_KEY_ID": "",
+    "R2_SECRET_ACCESS_KEY": "",
+    "R2_BUCKET_NAME": "",
+    "R2_PUBLIC_URL": ""
   }
 }

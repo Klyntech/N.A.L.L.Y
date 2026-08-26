@@ -27,6 +27,7 @@ PDF_EXT = ".pdf"
 
 # ── Regex for outbound markers ──
 IMAGE_FILE_RE = re.compile(r"IMAGE_FILE:\s*([^\n]+)")
+IMAGE_URL_RE = re.compile(r"IMAGE_URL:\s*([^\n]+)")
 SEND_FILE_RE = re.compile(r"SEND_FILE:\s*([^\n]+)")
 
 def _get_inbox_dir(session_id: str) -> Path:
@@ -98,7 +99,7 @@ def _extract_pdf_text(path: Path, max_pages: int = 3) -> Optional[str]:
         return None
 
 def parse_outbound_files(text: str) -> list[Path]:
-    """Find IMAGE_FILE: and SEND_FILE: markers in agent response."""
+    """Find IMAGE_FILE:, IMAGE_URL:, and SEND_FILE: markers in agent response."""
     paths: list[Path] = []
     for m in IMAGE_FILE_RE.finditer(text):
         p = Path(m.group(1).strip().strip('"').strip("'"))
@@ -106,6 +107,27 @@ def parse_outbound_files(text: str) -> list[Path]:
             paths.append(p)
         else:
             logger.warning(f"Outbound marker path not found: {p}")
+    for m in IMAGE_URL_RE.finditer(text):
+        url = m.group(1).strip().strip('"').strip("'")
+        if url.startswith("http"):
+            # Download URL to temp file for Telegram send
+            try:
+                import httpx
+                resp = httpx.get(url, timeout=30.0, follow_redirects=True)
+                resp.raise_for_status()
+                ext = ".jpg"
+                ctype = resp.headers.get("content-type", "").lower()
+                if "png" in ctype:
+                    ext = ".png"
+                elif "webp" in ctype:
+                    ext = ".webp"
+                tmp = INBOX_ROOT / f"url_{int(time.time())}{ext}"
+                tmp.write_bytes(resp.content)
+                paths.append(tmp)
+            except Exception as e:
+                logger.warning(f"Failed to download IMAGE_URL {url[:80]}: {e}")
+        else:
+            logger.warning(f"IMAGE_URL not an HTTP URL: {url}")
     for m in SEND_FILE_RE.finditer(text):
         p = Path(m.group(1).strip().strip('"').strip("'"))
         if p.exists():
@@ -122,8 +144,9 @@ def parse_outbound_files(text: str) -> list[Path]:
     return uniq
 
 def strip_file_markers(text: str) -> str:
-    """Remove IMAGE_FILE:/SEND_FILE: lines from text after sending."""
+    """Remove IMAGE_FILE:/IMAGE_URL:/SEND_FILE: lines from text after sending."""
     text = IMAGE_FILE_RE.sub("", text)
+    text = IMAGE_URL_RE.sub("", text)
     text = SEND_FILE_RE.sub("", text)
     # collapse multiple blank lines
     text = re.sub(r"\n{3,}", "\n\n", text).strip()

@@ -86,6 +86,9 @@ asyncpg>=0.29.0
 # Turso/LibSQL (persistent memory on Render)
 libsql-experimental>=0.0.34
 
+# Cloudflare R2 (persistent file storage)
+boto3>=1.28.0
+
 # Redis (optional, for caching layer)
 redis>=5.0.0
 
