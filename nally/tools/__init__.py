@@ -286,6 +286,11 @@ def _load_all_registered():
 
     register_engineering()
 
+    # --- NallyBridge (remote execution on connected devices) ---
+    from . import bridge
+
+    bridge.register(registry)
+
     # --- Load user plugins ---
     registry.load_plugins()
 

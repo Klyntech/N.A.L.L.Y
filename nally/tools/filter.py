@@ -29,6 +29,8 @@ CORE_TOOLS = {
     "gmail_profile",
     # Subagent
     "agent",
+    # NallyBridge
+    "bridge_execute",
     # Phone calls
     "make_call",
     "get_call_status",

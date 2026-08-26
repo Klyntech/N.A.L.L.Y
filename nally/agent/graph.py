@@ -1074,6 +1074,9 @@ def tool_executor(state: AgentState) -> AgentState:
                 # Compute diff preview for file write operations
                 diff = _compute_file_diff(tool_args)
 
+                approved = False
+                result_approved = False
+
                 if emit:
                     try:
                         payload = {

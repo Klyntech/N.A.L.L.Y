@@ -1143,6 +1143,20 @@ async def set_env_var(key: str, body: TokenSubmit, _auth=Depends(verify_auth)):
     return {"ok": True, "key": key}
 
 
+# ── WebSocket: NallyBridge (remote device connections) ──────
+
+
+@app.websocket("/ws/bridge/{device_id}")
+async def bridge_endpoint(websocket: WebSocket, device_id: str):
+    """WebSocket endpoint for NallyBridge remote devices.
+
+    Connect with: ws://host/ws/bridge/{device_id}?token=<bridge_token>
+    """
+    from .bridge_handler import bridge_websocket
+
+    await bridge_websocket(websocket, device_id)
+
+
 # ── WebSocket: Real-time chat ──────────────────────────────
 
 
