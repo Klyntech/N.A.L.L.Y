@@ -147,6 +147,48 @@ def _backfill_expires_at_column(conn: sqlite3.Connection):
         pass
 
 
+class _LibSQLRow:
+    """Dict-like wrapper for libsql tuple rows — enables row["column_name"] access."""
+    __slots__ = ("_data", "_keys")
+    def __init__(self, row_tuple, description):
+        self._data = row_tuple
+        self._keys = {desc[0]: i for i, desc in enumerate(description)}
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self._data[self._keys[key]]
+        return self._data[key]
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except (KeyError, IndexError):
+            return default
+    def __iter__(self):
+        return iter(self._data)
+    def __len__(self):
+        return len(self._data)
+
+
+class _LibSQLCursorWrapper:
+    """Wraps libsql cursor to return _LibSQLRow objects from fetchone/fetchall."""
+    __slots__ = ("_cursor",)
+    def __init__(self, cursor):
+        self._cursor = cursor
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        return _LibSQLRow(row, self._cursor.description)
+    def fetchall(self):
+        desc = self._cursor.description
+        return [_LibSQLRow(r, desc) for r in self._cursor.fetchall()]
+    def __iter__(self):
+        desc = self._cursor.description
+        for r in self._cursor:
+            yield _LibSQLRow(r, desc)
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
 class MemoryRepository:
     """SQLite-backed memory with connection-per-operation.
 
@@ -163,7 +205,16 @@ class MemoryRepository:
         """Create a fresh connection. Uses Turso/LibSQL if TURSO_URL is set, else local SQLite."""
         if TURSO_URL and TURSO_TOKEN:
             import libsql_experimental as libsql
-            return libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+            conn = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+            _orig_execute = conn.execute
+            def _wrapped_execute(sql, params=None):
+                if params:
+                    cur = _orig_execute(sql, params)
+                else:
+                    cur = _orig_execute(sql)
+                return _LibSQLCursorWrapper(cur)
+            conn.execute = _wrapped_execute
+            return conn
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import DATA_DIR, TURSO_URL, TURSO_TOKEN
+from ..memory.store import _LibSQLCursorWrapper
 from ..utils.logger import logger
 
 
@@ -185,7 +186,16 @@ class ScratchpadStore:
     def _create_connection(self):
         if TURSO_URL and TURSO_TOKEN:
             import libsql_experimental as libsql
-            return libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+            conn = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+            _orig_execute = conn.execute
+            def _wrapped_execute(sql, params=None):
+                if params:
+                    cur = _orig_execute(sql, params)
+                else:
+                    cur = _orig_execute(sql)
+                return _LibSQLCursorWrapper(cur)
+            conn.execute = _wrapped_execute
+            return conn
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
