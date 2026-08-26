@@ -87,13 +87,15 @@ GROQ_MODELS = {
 }
 
 # NVIDIA NIM — OpenAI-compatible, free tier (40 RPM)
+# Benchmarked 2026-08-26: minimax-m3 fastest (0.77s TTFT, 95% coding),
+# nemotron-3-super best balance (2.44s TTFT, 81% LiveCodeBench).
 NIM_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NIM_MODELS = {
-    "fast": "minimaxai/minimax-m3",
-    "balanced": "nvidia/nemotron-3-super-120b-a12b",
-    "powerful": "nvidia/nemotron-3-super-120b-a12b",
-    "frontier": "nvidia/nemotron-3-super-120b-a12b",
+    "fast": "minimaxai/minimax-m3",                     # 0.77s TTFT, 95% coding, 1M context
+    "balanced": "nvidia/nemotron-3-super-120b-a12b",    # 2.44s TTFT, 81% LiveCodeBench, agentic
+    "powerful": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # 2.48s TTFT, reasoning mode
+    "frontier": "nvidia/nemotron-3-super-120b-a12b",    # same as balanced — best available
 }
 
 # OpenCode — supports comma-separated multiple keys for rotation on rate limits
