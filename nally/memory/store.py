@@ -189,6 +189,82 @@ class _LibSQLCursorWrapper:
         return getattr(self._cursor, name)
 
 
+class _NoOpCursor:
+    """Minimal cursor stub returned when executescript has no real statements."""
+    description = []
+    def fetchone(self): return None
+    def fetchall(self): return []
+    def fetchmany(self, n): return []
+    @property
+    def rowcount(self): return -1
+
+
+class LibSQLConnectionProxy:
+    """Drop-in proxy for a libsql Connection.
+
+    Wraps the real connection so callers see a normal Python object with
+    ``execute``, ``commit``, ``rollback``, ``close``, ``executescript``, and
+    ``executemany``.  Never assigns to attributes of the underlying C-level
+    connection — the root cause of the read-only-attribute bug.
+
+    All query results are wrapped via ``_LibSQLCursorWrapper`` so that
+    ``row["column"]`` access works identically to ``sqlite3.Row``.
+    """
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=None):
+        if params is not None:
+            cur = self._conn.execute(sql, params)
+        else:
+            cur = self._conn.execute(sql)
+        return _LibSQLCursorWrapper(cur)
+
+    def executemany(self, sql, params_list):
+        return _LibSQLCursorWrapper(self._conn.executemany(sql, params_list))
+
+    def executescript(self, sql):
+        """Run multiple statements. libsql lacks executescript, so split manually."""
+        statements = [s.strip() for s in sql.split(";") if s.strip()]
+        last_cursor = None
+        for stmt in statements:
+            try:
+                last_cursor = self._conn.execute(stmt)
+            except Exception:
+                # Silently skip unsupported PRAGMAs on Turso
+                if not stmt.upper().lstrip().startswith("PRAGMA"):
+                    raise
+        if last_cursor is not None:
+            return _LibSQLCursorWrapper(last_cursor)
+        # No-op cursor for empty/all-PRAGMA scripts
+        return _NoOpCursor()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def cursor(self):
+        return _LibSQLCursorWrapper(self._conn.cursor())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+        self.close()
+        return False
+
+
 class MemoryRepository:
     """SQLite-backed memory with connection-per-operation.
 
@@ -205,16 +281,8 @@ class MemoryRepository:
         """Create a fresh connection. Uses Turso/LibSQL if TURSO_URL is set, else local SQLite."""
         if TURSO_URL and TURSO_TOKEN:
             import libsql_experimental as libsql
-            conn = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
-            _orig_execute = conn.execute
-            def _wrapped_execute(sql, params=None):
-                if params:
-                    cur = _orig_execute(sql, params)
-                else:
-                    cur = _orig_execute(sql)
-                return _LibSQLCursorWrapper(cur)
-            conn.execute = _wrapped_execute
-            return conn
+            raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+            return LibSQLConnectionProxy(raw)
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
