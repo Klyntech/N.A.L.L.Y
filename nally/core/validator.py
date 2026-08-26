@@ -53,8 +53,8 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
     # ── LLM provider ──────────────────────────────────────
 
     provider = os.getenv("NALLY_PROVIDER", "opencode").lower()
-    if provider not in ("opencode", "groq"):
-        _error("NALLY_PROVIDER", f"Invalid provider '{provider}'. Must be 'opencode' or 'groq'.")
+    if provider not in ("opencode", "groq", "nim"):
+        _error("NALLY_PROVIDER", f"Invalid provider '{provider}'. Must be 'opencode', 'groq', or 'nim'.")
 
     if provider == "opencode":
         api_key = os.getenv("OPENCODE_API_KEY", "")
@@ -68,6 +68,12 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
             _error("GROQ_API_KEY", "Required when NALLY_PROVIDER=groq.")
         elif not api_key.startswith("gsk_"):
             _warning("GROQ_API_KEY", "Key doesn't start with 'gsk_'. Verify it's correct.")
+    elif provider == "nim":
+        api_key = os.getenv("NVIDIA_API_KEY", "")
+        if not api_key:
+            _error("NVIDIA_API_KEY", "Required when NALLY_PROVIDER=nim.")
+        elif not api_key.startswith("nvapi-"):
+            _warning("NVIDIA_API_KEY", "Key doesn't start with 'nvapi-'. Verify it's correct.")
 
     # ── Port ───────────────────────────────────────────────
 

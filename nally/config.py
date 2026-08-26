@@ -86,6 +86,16 @@ GROQ_MODELS = {
     "frontier": "llama-3.3-70b-versatile",
 }
 
+# NVIDIA NIM — OpenAI-compatible, free tier (40 RPM)
+NIM_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NIM_MODELS = {
+    "fast": "nvidia/llama-3.1-nemotron-70b-instruct",
+    "balanced": "minimaxai/minimax-m3",
+    "powerful": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "frontier": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+}
+
 # OpenCode — supports comma-separated multiple keys for rotation on rate limits
 OPENCODE_API_KEY_RAW = os.getenv("OPENCODE_API_KEY", "")
 OPENCODE_KEYS = [k.strip() for k in OPENCODE_API_KEY_RAW.split(",") if k.strip()]
@@ -113,6 +123,10 @@ if PROVIDER == "groq":
     API_KEY = GROQ_API_KEY
     BASE_URL = GROQ_BASE_URL
     MODELS = GROQ_MODELS
+elif PROVIDER == "nim":
+    API_KEY = NIM_API_KEY
+    BASE_URL = NIM_BASE_URL
+    MODELS = NIM_MODELS
 else:
     API_KEY = OPENCODE_API_KEY
     BASE_URL = OPENCODE_BASE_URL

@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--voice", action="store_true", help="Run in voice mode (push-to-talk)")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     parser.add_argument("--port", type=int, default=5000, help="Web server port (default: 5000)")
-    parser.add_argument("--provider", choices=["groq", "opencode"], help="Override LLM provider")
+    parser.add_argument("--provider", choices=["groq", "opencode", "nim"], help="Override LLM provider")
     parser.add_argument("--verbose", action="store_true", help="Show full MCP server tree during startup")
     parser.add_argument(
         "--engineer",

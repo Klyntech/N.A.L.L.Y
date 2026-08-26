@@ -312,6 +312,7 @@ class NallyLLM:
 
             self._keys = OPENCODE_KEYS if OPENCODE_KEYS else ([API_KEY] if API_KEY else [])
         else:
+            # Groq and NIM use single key
             self._keys = [API_KEY] if API_KEY else []
 
         if not self._keys:
