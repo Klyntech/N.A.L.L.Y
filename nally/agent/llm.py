@@ -478,6 +478,12 @@ class NallyLLM:
                 if _is_muse_spark(model):
                     result = self._create_via_responses(kwargs)
                 else:
+                    # NIM doesn't support prompt_cache params — strip them
+                    if PROVIDER == "nim":
+                        eb = kwargs.get("extra_body") or {}
+                        eb.pop("prompt_cache_key", None)
+                        eb.pop("prompt_cache_retention", None)
+                        kwargs["extra_body"] = eb
                     result = self._get_active_client().chat.completions.create(**kwargs)
                 self._failed_models.discard(model)
                 return result

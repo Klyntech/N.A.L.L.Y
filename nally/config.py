@@ -134,7 +134,7 @@ else:
     BASE_URL = OPENCODE_BASE_URL
     MODELS = OPENCODE_MODELS
 
-ACTIVE_MODEL = MODELS["frontier"]
+ACTIVE_MODEL = MODELS["fast"]
 
 # ── Proxy / SSL ───────────────────────────────────────────
 
