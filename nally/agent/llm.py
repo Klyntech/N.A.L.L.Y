@@ -24,9 +24,10 @@ OPENCODE_FREE_MODELS = [
     "muse-spark-1.2-contributor-free",
     "mimo-v2.5-free",
     "nemotron-3.5-lightning-free",
-    "ox-alpha-free",
     "big-pickle",
+    "nemotron-3-ultra-free",
     "hy3-free",
+    "laguna-s-2.1-free",
 ]
 
 def _is_muse_spark(model: str) -> bool:
@@ -242,6 +243,14 @@ _RATE_LIMIT_INDICATORS = [
     "429",
 ]
 
+# Model-not-found / unsupported model signatures
+_MODEL_NOT_FOUND_INDICATORS = [
+    "modelerror",
+    "model is not supported",
+    "model not found",
+    "unknown model",
+]
+
 
 def _ssl_context() -> ssl.SSLContext | bool:
     """Build SSL context based on config.
@@ -367,6 +376,13 @@ class NallyLLM:
         combined = f"{text} {cause}"
         return any(ind.lower() in combined for ind in _RATE_LIMIT_INDICATORS)
 
+    def _is_model_not_found(self, exc: Exception) -> bool:
+        """Detect unsupported / unknown model errors (401 ModelError)."""
+        text = str(exc).lower()
+        cause = str(getattr(exc, "__cause__", "")).lower()
+        combined = f"{text} {cause}"
+        return any(ind.lower() in combined for ind in _MODEL_NOT_FOUND_INDICATORS)
+
     def _next_fallback_model(self, current: str) -> str | None:
         """Return the next healthy model to try after `current` failed.
 
@@ -468,7 +484,7 @@ class NallyLLM:
                 # If muse-spark via responses fails with 500 internal, treat as fallback-eligible too
                 err_str = str(e).lower()
                 is_internal_500 = "500" in err_str and "internal server error" in err_str
-                if self._is_rate_limit(e) or is_internal_500:
+                if self._is_rate_limit(e) or is_internal_500 or self._is_model_not_found(e):
                     next_model = self._next_fallback_model(model)
                     if next_model:
                         logger.warning(

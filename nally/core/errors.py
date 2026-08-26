@@ -244,6 +244,16 @@ class LLMError(NallyError):
         )
 
     @classmethod
+    def model_not_found(cls, provider: str = "", model: str = "") -> "LLMError":
+        return cls(
+            message=f"Model '{model or 'unknown'}' is not available on {provider or 'AI provider'}.",
+            code="llm_model_not_found",
+            severity=Severity.WARNING,
+            provider=provider,
+            model=model,
+        )
+
+    @classmethod
     def circuit_breaker(cls, consecutive_errors: int, total_calls: int) -> "LLMError":
         return cls(
             message=f"Agent stopped after {consecutive_errors} consecutive errors or {total_calls} total tool calls.",

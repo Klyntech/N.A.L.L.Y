@@ -98,15 +98,15 @@ OPENCODE_MODELS = {
     "frontier": "muse-spark-1.2-contributor-free",
 }
 
-# Free models available for SubAgents (no GPT models)
+# Free models available for SubAgents (mirrors OPENCODE_FREE_MODELS + extras)
 SUBAGENT_MODELS = [
     "muse-spark-1.2-contributor-free",
+    "mimo-v2.5-free",
     "nemotron-3.5-lightning-free",
-    "hy3-free",
+    "big-pickle",
     "nemotron-3-ultra-free",
-    "ling-3.0-flash-free",
+    "hy3-free",
     "laguna-s-2.1-free",
-    "north-mini-code-free",
 ]
 
 if PROVIDER == "groq":

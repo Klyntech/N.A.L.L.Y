@@ -633,7 +633,9 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit, mo
 
     if last_error:
         error_str = str(last_error).lower()
-        if "429" in error_str or "rate" in error_str:
+        if "model is not supported" in error_str or "modelerror" in error_str or "model not found" in error_str:
+            raise LLMError.model_not_found(provider="llm", model=str(last_error)[:120])
+        elif "429" in error_str or "rate" in error_str:
             raise LLMError.rate_limit(provider="llm")
         elif "overloaded" in error_str or "503" in error_str:
             raise LLMError.overloaded(provider="llm")
