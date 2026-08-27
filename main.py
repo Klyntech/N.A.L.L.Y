@@ -39,8 +39,6 @@ def main():
 
     # Override provider if specified
     if args.provider:
-        import os
-
         os.environ["NALLY_PROVIDER"] = args.provider
 
     from nally import __version__
