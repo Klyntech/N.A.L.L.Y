@@ -34,9 +34,11 @@ RUN mkdir -p data/generated logs && chown -R nally:nally /app
 
 USER nally
 
-EXPOSE 5000
+# Render expects 10000 by default (https://render.com/docs/web-services#port-binding)
+# EXPOSE is documentary, but keep 10000 to match Render's PORT. Also bind to 0.0.0.0.
+EXPOSE 10000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:5000/health').raise_for_status()"
+    CMD python -c "import os, httpx; p=os.getenv('PORT','10000'); httpx.get(f'http://localhost:{p}/health').raise_for_status()"
 
-CMD ["python", "main.py"]
+CMD ["sh", "-c", "python main.py --port ${PORT:-10000}"]

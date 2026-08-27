@@ -21,7 +21,9 @@ def main():
     parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
     parser.add_argument("--voice", action="store_true", help="Run in voice mode (push-to-talk)")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
-    parser.add_argument("--port", type=int, default=5000, help="Web server port (default: 5000)")
+    # Render injects PORT=10000 by default — respect it. Docs: https://render.com/docs/web-services#port-binding
+    # Bind to 0.0.0.0:$PORT (see run_web). Local default remains 5000 if PORT unset.
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", os.getenv("NALLY_PORT", "5000"))), help="Web server port (default: $PORT or 5000; Render uses 10000)")
     parser.add_argument("--provider", choices=["groq", "opencode", "nim"], help="Override LLM provider")
     parser.add_argument("--verbose", action="store_true", help="Show full MCP server tree during startup")
     parser.add_argument(
@@ -135,8 +137,8 @@ def run_voice():
     run_voice_loop()
 
 
-def run_web(port=5000):
-    """Run Nally in web mode (Jarvis React UI)"""
+def run_web(port=None):
+    """Run Nally in web mode (Jarvis React UI) — binds to 0.0.0.0:$PORT per Render docs."""
     import atexit
     import logging
     import os
@@ -146,6 +148,13 @@ def run_web(port=5000):
     import time
     import webbrowser
 
+    # Resolve port: explicit arg > $PORT env > 5000 local default. Render sets PORT=10000.
+    if port is None:
+        port = int(os.getenv("PORT", os.getenv("NALLY_PORT", "5000")))
+    # Guard reserved Render ports (18012,18013,19099) — fall back to 10000
+    if port in (18012, 18013, 19099):
+        print(f"[warn] Port {port} is reserved by Render, falling back to 10000")
+        port = 10000
     os.environ["PORT"] = str(port)
     os.environ["NALLY_PORT"] = str(port)
 

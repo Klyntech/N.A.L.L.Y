@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile
     container_name: nally
     ports:
-      - "${PORT:-5000}:5000"
+      - "${PORT:-10000}:${PORT:-10000}"
     env_file:
       - .env
     depends_on:
@@ -20,7 +20,7 @@ services:
       - nally_logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:5000/health').raise_for_status()"]
+      test: ["CMD-SHELL", "python -c \"import os,httpx; p=os.getenv('PORT','10000'); httpx.get(f'http://localhost:{p}/health').raise_for_status()\""]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -245,7 +245,7 @@ THINKING_TIMEOUT = int(os.getenv("NALLY_THINKING_TIMEOUT", "30"))
 
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:5000,http://127.0.0.1:5000,http://localhost:9000,http://127.0.0.1:9000",
+    "http://localhost:5000,http://127.0.0.1:5000,http://localhost:10000,http://127.0.0.1:10000,http://localhost:9000,http://127.0.0.1:9000",
 ).split(",")
 
 # ── Rate Limiting ─────────────────────────────────────────
