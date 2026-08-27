@@ -103,5 +103,6 @@
   "get_call_status": "allow",
   "hangup_call": "ask",
   "list_calls": "allow",
-  "mcp_*": "allow"
+  "mcp_*": "allow",
+  "bridge_execute": "allow"
 }

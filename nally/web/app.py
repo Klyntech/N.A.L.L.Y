@@ -818,6 +818,44 @@ async def clear_checkpoints(_auth=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── API: Hooks (Phase 3.1 vibe-style deterministic automation) ────
+
+
+@app.get("/api/hooks")
+async def list_hooks(_auth=Depends(verify_auth)):
+    try:
+        from nally.core.hooks.manager import get_hook_manager
+
+        mgr = get_hook_manager()
+        return {
+            "hooks": [
+                {
+                    "name": h.name,
+                    "event": h.event.value,
+                    "matcher": h.matcher,
+                    "tool_pattern": h.tool_pattern,
+                    "command": h.command,
+                    "description": h.description,
+                }
+                for h in mgr._hooks
+            ]
+        }
+    except Exception as e:
+        return {"hooks": [], "error": str(e)}
+
+
+@app.post("/api/hooks/reload")
+async def reload_hooks(_auth=Depends(verify_auth)):
+    try:
+        from nally.core.hooks.manager import get_hook_manager
+
+        mgr = get_hook_manager()
+        await asyncio.to_thread(mgr.reload)
+        return {"status": "reloaded", "count": len(mgr._hooks)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── API: Telegram (bot runs as a separate process) ────────
 # The bot polls Telegram in its own process and forwards messages/approvals
 # here over HTTP. The agent + approval gate live in THIS process, so resolving
