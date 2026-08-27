@@ -393,8 +393,12 @@ def _make_emit_standalone(chat_id: int, session_id: str = ""):
     loop = asyncio.get_running_loop()
 
     def emit(event: str, data: dict):
-        # Write streaming events to SQLite for bot process to pick up
-        if event in ("response", "thought", "tool_call", "system_notice") and session_id:
+        # Write ALL streaming events to SQLite for the bot process to pick up.
+        # confirmation_required is included so the bot can edit the placeholder
+        # message inline — instead of sending a NEW message each time (which
+        # caused messages to pile up in Telegram).
+        if event in ("response", "thought", "tool_call", "system_notice",
+                     "confirmation_required", "final_response") and session_id:
             try:
                 import json as _json
                 _write_stream_event(session_id, event, _json.dumps(data))
@@ -403,51 +407,19 @@ def _make_emit_standalone(chat_id: int, session_id: str = ""):
 
         if event != "confirmation_required":
             return
-        from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
-        tc_id = data["tool_call_id"]
-        tool = data["name"]
-        args = data.get("args", {})
-        args_str = " ".join(f"{k}={v}" for k, v in args.items()) if args else ""
-
-        def _esc(s):
-            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-        text = f"<b>Permission required</b>\n\n<b>Tool:</b> <code>{_esc(tool)}</code>"
-        if args_str:
-            text += f"\n<b>Args:</b> <code>{_esc(args_str[:500])}</code>"
-        if data.get("diff"):
-            diff = data["diff"][:800]
-            text += f"\n\n<pre>{_esc(diff)}</pre>"
-
-        # Telegram callback_data max is 64 bytes — truncate tc_id if needed
-        # and store full mapping so approval_callback can look it up
-        # (same pattern as _make_emit, but persisted to SQLite for cross-process)
+        # Store callback mapping so approval_callback can resolve the button
+        # press back to the full tool_call_id (cross-process via SQLite).
+        tc_id = data.get("tool_call_id", "")
         MAX_CB_DATA = 60  # leave room for "approve:" prefix
         cb_prefix = "approve:"
         max_tc_len = MAX_CB_DATA - len(cb_prefix)
         safe_tc_id = tc_id[:max_tc_len] if len(tc_id) > max_tc_len else tc_id
 
-        # Store in both memory and SQLite
         with _callback_id_lock:
             _callback_id_map[safe_tc_id] = tc_id
         _write_callback_map(safe_tc_id, tc_id)
-        logger.info(f"DEBUG CB (standalone): tc_id={tc_id!r} ({len(tc_id)} chars), safe={safe_tc_id!r}")
-
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("Approve", callback_data=f"approve:{safe_tc_id}"),
-            InlineKeyboardButton("Deny", callback_data=f"deny:{safe_tc_id}"),
-        ]])
-
-        async def _do_send():
-            bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN", ""))
-            try:
-                await _send_with_retry(bot.send_message, chat_id, text, parse_mode="HTML", reply_markup=keyboard)
-                logger.info(f"Approval message sent (standalone) for tool_call_id={tc_id}")
-            except Exception as e:
-                logger.error(f"Approval message failed (standalone) after {_TG_MAX_RETRIES} attempts: {e}")
-
-        asyncio.run_coroutine_threadsafe(_do_send(), loop)
+        logger.info(f"Approval request queued via stream events for tool_call_id={tc_id}")
 
     return emit
 
@@ -673,45 +645,94 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clear old stream events for this session
     _clear_stream_events(session_id)
 
-    # Fire HTTP request to web server (non-blocking)
+    # Fire HTTP request to web server (fire-and-forget — just triggers processing).
+    # The response comes back via stream events (final_response), not the HTTP body.
+    # This avoids Render proxy 502/520 timeouts when the agent takes a long time
+    # (e.g. waiting for bridge approval).
     async def _do_request():
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(
-                f"{_web_base_url()}/api/telegram/message",
-                json={"session_id": session_id, "text": text, "chat_id": chat.id},
-            )
-            if resp.status_code != 200:
-                return f"Web server error (HTTP {resp.status_code})"
-            return resp.json().get("response", "")
+        import json as _json
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.post(
+                    f"{_web_base_url()}/api/telegram/message",
+                    json={"session_id": session_id, "text": text, "chat_id": chat.id},
+                )
+                if resp.status_code != 200:
+                    _write_stream_event(session_id, "final_response",
+                        _json.dumps({"text": f"Web server error (HTTP {resp.status_code})"}))
+            except Exception as e:
+                _write_stream_event(session_id, "final_response",
+                    _json.dumps({"text": f"Web server unreachable: {e}"}))
 
+    import json as _json_mod
     request_task = asyncio.create_task(_do_request())
 
-    # Poll stream events while waiting for the response
+    # Poll stream events for the final response (and approval requests).
+    # The web server processes in the background and writes events to SQLite.
     last_event_id = 0
     collected_text = ""
+    final_response = None
+    _deadline = time.time() + 300.0  # 5-minute overall timeout
+    _showing_approval = False  # True while approval buttons are displayed
 
-    while not request_task.done():
+    while final_response is None and time.time() < _deadline:
         await asyncio.sleep(2)
         events = _read_stream_events(session_id, after_id=last_event_id)
         for eid, etype, payload in events:
             last_event_id = eid
             try:
-                import json as _json
-                data = _json.loads(payload) if payload else {}
+                data = _json_mod.loads(payload) if payload else {}
             except Exception:
                 data = {}
-            if etype == "response":
+            if etype == "final_response":
+                final_response = data.get("text", "")
+            elif etype == "response":
                 chunk_text = data.get("text", "")
                 if chunk_text:
                     collected_text = chunk_text
-            elif etype == "thought":
-                pass  # Could show thinking indicator
+                    _showing_approval = False
             elif etype == "tool_call":
                 tool_name = data.get("name", "?")
                 collected_text = f"Using {tool_name}..."
+                _showing_approval = False
+            elif etype == "confirmation_required":
+                # Edit the placeholder inline with the approval request + buttons
+                # instead of sending a new message (fixes message pile-up).
+                tc_id = data.get("tool_call_id", "")
+                tool = data.get("name", "?")
+                args = data.get("args", {})
+                args_str = " ".join(f"{k}={v}" for k, v in args.items()) if args else ""
 
-        # Edit placeholder with latest status
-        if sent_msg and collected_text:
+                def _esc(s: str) -> str:
+                    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                appr_text = f"<b>Permission required</b>\n\n<b>Tool:</b> <code>{_esc(tool)}</code>"
+                if args_str:
+                    appr_text += f"\n<b>Args:</b> <code>{_esc(args_str[:500])}</code>"
+
+                # Build inline keyboard (callback_data resolves via _callback_id_map)
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                MAX_CB_DATA = 60
+                max_tc_len = MAX_CB_DATA - len("approve:")
+                safe_tc_id = tc_id[:max_tc_len] if len(tc_id) > max_tc_len else tc_id
+                with _callback_id_lock:
+                    _callback_id_map[safe_tc_id] = tc_id
+                _write_callback_map(safe_tc_id, tc_id)
+
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Approve", callback_data=f"approve:{safe_tc_id}"),
+                    InlineKeyboardButton("Deny", callback_data=f"deny:{safe_tc_id}"),
+                ]])
+
+                if sent_msg:
+                    try:
+                        await sent_msg.edit_text(appr_text[:4000], parse_mode="HTML", reply_markup=keyboard)
+                        _showing_approval = True
+                    except Exception as e:
+                        logger.warning(f"Failed to edit placeholder for approval: {e}")
+
+        # Edit placeholder with latest status (skip while showing approval buttons)
+        if sent_msg and collected_text and not _showing_approval:
             try:
                 html_text = md_to_telegram_html(collected_text)
                 await sent_msg.edit_text(html_text[:4000], parse_mode="HTML")
@@ -721,14 +742,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
 
-    # Get final response
-    try:
-        response = request_task.result()
-    except Exception as e:
-        logger.error(f"HTTP to web server failed: {e}")
-        response = f"Web server unreachable: {e}"
+    # Cancel the HTTP task if still running (fire-and-forget)
+    if not request_task.done():
+        request_task.cancel()
 
     _clear_stream_events(session_id)
+
+    response = final_response
+    if response is None:
+        response = "Request timed out after 5 minutes. Try a simpler task or say 'continue'."
 
     if not response or response == "__EXIT__":
         return
@@ -740,13 +762,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from .media import parse_outbound_files, strip_file_markers, send_attachments_bot
         out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
         if out_files:
-            # Strip markers for text display
             cleaned = strip_file_markers(text_response)
             if not cleaned.strip():
                 cleaned = "Here you go:"
             text_response = cleaned
-            # Send files after the text placeholder edit
-            # We still edit placeholder first, then send files as follow-ups
     except Exception as e:
         logger.debug(f"Bot outbound media parse failed: {e}")
         out_files = []
@@ -757,11 +776,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if sent_msg:
         _edit_ok = False
         try:
-            await sent_msg.edit_text(final_html[:4000], parse_mode="HTML")
+            await sent_msg.edit_text(final_html[:4000], parse_mode="HTML", reply_markup=None)
             _edit_ok = True
         except Exception:
             try:
-                await sent_msg.edit_text(text_response[:4000])
+                await sent_msg.edit_text(text_response[:4000], reply_markup=None)
                 _edit_ok = True
             except Exception:
                 sent_msg = None

@@ -411,6 +411,13 @@ async def mvp():
 app.mount("/mvp/static", StaticFiles(directory=str(_mvp_dir)), name="mvp-static")
 
 
+# ── Orb Standalone (floating preview) ───────────────────────
+
+@app.get("/orb")
+async def orb():
+    return FileResponse(str(_web_dir / "orb-standalone.html"))
+
+
 @app.get("/web/")
 async def web_root():
     return RedirectResponse(url="/", status_code=302)
@@ -722,21 +729,34 @@ async def get_checkpoint_status(thread_id: str, _auth=Depends(verify_auth)):
 
 @app.post("/api/telegram/message")
 async def tg_message(request: Request):
+    """Start processing a Telegram message in the background.
+
+    Returns immediately with {"status": "processing"} so Render's proxy
+    doesn't 502/520 on long-running agent tasks (e.g. waiting for bridge
+    approval). The final response is written to the stream_events SQLite
+    table, which the bot process polls and edits into the Telegram placeholder.
+    """
     data = await request.json()
     from ..agent.sessions import session_manager
-    from ..telegram.bot import _make_emit_standalone
+    from ..telegram.bot import _make_emit_standalone, _write_stream_event
 
     session_id = data["session_id"]
     emit = _make_emit_standalone(data["chat_id"], session_id=session_id)
-    try:
-        response = await asyncio.wait_for(
-            asyncio.to_thread(session_manager.process, session_id, data["text"], emit=emit),
-            timeout=300.0,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(f"Telegram message timed out for session {session_id}")
-        response = "Request timed out after 5 minutes. Try a simpler task or say 'continue'."
-    return {"response": response}
+
+    async def _process():
+        try:
+            response = await asyncio.to_thread(
+                session_manager.process, session_id, data["text"], emit=emit
+            )
+        except Exception as e:
+            logger.error(f"Telegram message processing failed: {e}")
+            response = f"Error: {e}"
+        # Write final response to stream events so the bot picks it up
+        import json as _json
+        _write_stream_event(session_id, "final_response", _json.dumps({"text": response}))
+
+    asyncio.create_task(_process())
+    return {"status": "processing"}
 
 
 @app.post("/api/telegram/approve")
