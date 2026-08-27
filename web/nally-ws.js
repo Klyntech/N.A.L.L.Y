@@ -19,6 +19,7 @@ class NallyWebSocket {
     this.maxReconnectDelay = 30000;
     this.handlers = {};
     this.messageQueue = [];
+    this._reconnectTimer = null;  // Track pending reconnect timer
   }
 
   /**
@@ -43,6 +44,7 @@ class NallyWebSocket {
       console.log('[ws] Connected');
       this.connected = true;
       this.reconnectDelay = 1000;
+      this._reconnectTimer = null;
       this._flushQueue();
       this._emit('connected', {});
     };
@@ -50,6 +52,11 @@ class NallyWebSocket {
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data.type === 'ping') {
+          // Respond to server heartbeat
+          this._send({ type: 'pong' });
+          return;
+        }
         this._emit(data.type, data);
       } catch (e) {
         console.error('[ws] Parse error:', e);
@@ -75,6 +82,10 @@ class NallyWebSocket {
    * Disconnect from WebSocket
    */
   disconnect() {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
@@ -174,11 +185,22 @@ class NallyWebSocket {
   }
 
   _scheduleReconnect() {
-    console.log(`[ws] Reconnecting in ${this.reconnectDelay}ms...`);
-    setTimeout(() => {
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+    // Cancel any pending reconnect timer to prevent stacking
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    // Increase delay BEFORE scheduling so rapid onclose events don't stack
+    const baseDelay = this.reconnectDelay;
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+    // Add jitter (0-50% of delay) to prevent thundering herd on multi-tab reconnect
+    const jitter = Math.floor(Math.random() * (baseDelay * 0.5));
+    const delay = baseDelay + jitter;
+    console.log(`[ws] Reconnecting in ${delay}ms...`);
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
       this.connect();
-    }, this.reconnectDelay);
+    }, delay);
   }
 }
 

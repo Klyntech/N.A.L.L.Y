@@ -120,6 +120,12 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
     cid = await ws_manager.connect(websocket, session_id)
 
+    # Send initial connection confirmation so the client knows the WS is truly ready
+    try:
+        await ws_manager.send_json(cid, {"type": "connected", "session_id": session_id})
+    except Exception:
+        pass
+
     # Subscribe to event bus for plan events
     from ..events.bus import event_bus
 
@@ -144,6 +150,17 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     ]
 
     try:
+        # Heartbeat: ping every 30s to keep connection alive through Render proxy
+        async def _heartbeat():
+            while True:
+                await asyncio.sleep(30)
+                try:
+                    await ws_manager.send_json(cid, {"type": "ping"})
+                except Exception:
+                    break
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+
         while True:
             # Receive message from client
             raw = await websocket.receive_text()
@@ -197,6 +214,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     continue
                 asyncio.create_task(_process_voice(cid, session_id, audio_b64, tab_id, audio_format))
 
+            # ── Pong from client (heartbeat response) ──
+            elif msg_type == "pong":
+                pass  # just keeps the connection alive
+
             else:
                 await ws_manager.send_json(cid, {"type": "error", "text": f"Unknown message type: {msg_type}"})
 
@@ -205,6 +226,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
+        # Cancel heartbeat
+        try:
+            heartbeat_task.cancel()
+        except Exception:
+            pass
         # Unsubscribe from event bus
         for unsub in unsubscribers:
             try:
