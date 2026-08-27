@@ -738,6 +738,86 @@ async def get_checkpoint_status(thread_id: str, _auth=Depends(verify_auth)):
     return cp.to_dict()
 
 
+# ── API: Checkpoints / Rewind (Phase 1: vibe-style rewind) ────
+
+
+class RewindRequest(BaseModel):
+    turn_id: int  # rewind to after this turn_id
+
+
+@app.get("/api/checkpoints")
+async def list_checkpoints(_auth=Depends(verify_auth)):
+    """List checkpoint turns (for /rewind picker)."""
+    try:
+        from nally.agent.graph import checkpointer as _cp
+
+        if _cp is None:
+            return {"turns": []}
+        turns = await asyncio.to_thread(_cp.list_turns)
+        return {
+            "turns": [
+                {
+                    "turn_id": t.turn_id,
+                    "started_at": t.started_at,
+                    "ended_at": t.ended_at,
+                    "changed_paths": t.changed_paths,
+                }
+                for t in turns
+            ]
+        }
+    except Exception as e:
+        return {"turns": [], "error": str(e)}
+
+
+@app.post("/api/rewind")
+async def rewind_checkpoint(body: RewindRequest, _auth=Depends(verify_auth)):
+    """Rewind files to state after turn_id. Like vibe /rewind or Claude Esc-Esc."""
+    try:
+        from nally.agent.graph import checkpointer as _cp
+        from nally.core.checkpoints.file_store import FileStore
+
+        if _cp is None:
+            raise HTTPException(status_code=503, detail="Checkpoints not available")
+        # Build restore plan on thread pool (may read disk)
+        plan = await asyncio.to_thread(_cp.restore_plan, body.turn_id)
+        if not plan:
+            raise HTTPException(status_code=404, detail=f"No checkpoint for turn_id {body.turn_id}")
+        store = FileStore()
+        errors = await asyncio.to_thread(store.apply, plan)
+        if errors:
+            return {"status": "partial", "restored": len(plan) - len(errors), "errors": errors, "turn_id": body.turn_id}
+        # Truncate log from turn+1 onward so future rewind is consistent
+        # Find next turn after target and drop from there
+        turns = await asyncio.to_thread(_cp.list_turns)
+        next_idx = None
+        for i, t in enumerate(turns):
+            if t.turn_id == body.turn_id:
+                next_idx = i + 1
+                break
+        if next_idx is not None and next_idx < len(turns):
+            await asyncio.to_thread(_cp.drop_turns_from, turns[next_idx].turn_id)
+        broadcast_manager.broadcast("rewind", {"turn_id": body.turn_id, "restored": list(plan.keys())}, route_key="web:default")
+        return {"status": "ok", "turn_id": body.turn_id, "restored": list(plan.keys())}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Rewind failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/checkpoints/clear")
+async def clear_checkpoints(_auth=Depends(verify_auth)):
+    try:
+        from nally.agent.graph import checkpointer as _cp
+
+        if _cp is None:
+            return {"status": "ok", "cleared": 0}
+        await asyncio.to_thread(_cp.clear)
+        return {"status": "cleared"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── API: Telegram (bot runs as a separate process) ────────
 # The bot polls Telegram in its own process and forwards messages/approvals
 # here over HTTP. The agent + approval gate live in THIS process, so resolving
@@ -1199,6 +1279,15 @@ async def bridge_endpoint(websocket: WebSocket, device_id: str):
     from .bridge_handler import bridge_websocket
 
     await bridge_websocket(websocket, device_id)
+
+
+@app.get("/api/bridges")
+async def list_bridges():
+    """List all connected NallyBridge devices."""
+    from .bridge_handler import bridge_registry
+
+    devices = [d.to_dict() for d in bridge_registry.devices.values()]
+    return {"bridges": devices, "count": len(devices)}
 
 
 # ── WebSocket: Real-time chat ──────────────────────────────

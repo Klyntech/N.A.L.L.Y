@@ -532,6 +532,26 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     except Exception:
         pass
 
+    # Bridge context — connected NallyBridge devices
+    try:
+        from nally.web.bridge_handler import bridge_registry
+
+        devices = bridge_registry.devices
+        if devices:
+            bridge_lines = []
+            for did, d in devices.items():
+                bridge_lines.append(f"  - {did}: platform={d.platform}, tools={d.tools}")
+            bridge_list = "\n".join(bridge_lines)
+            prompt += (
+                "\n\nNALLYBRIDGE DEVICES (connected to this NALLY instance):"
+                f"\n{bridge_list}"
+                "\n\nTo execute commands on a connected device, use the bridge_execute tool."
+                "\nExample: bridge_execute(device='desktop', tool='run_command', args={'command': 'dir'})"
+                "\nUse device='any' to target the first available bridge."
+            )
+    except Exception:
+        pass
+
     # Interface context — which channel Nally is reached through
     if interface:
         try:

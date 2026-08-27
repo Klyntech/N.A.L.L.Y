@@ -286,6 +286,11 @@ def _load_all_registered():
 
     register_engineering()
 
+    # --- Managed shell (Phase 2: persistent PTY-like sessions) ---
+    from .managed import register_managed_shell_tools
+
+    register_managed_shell_tools(registry)
+
     # --- NallyBridge (remote execution on connected devices) ---
     from . import bridge
 

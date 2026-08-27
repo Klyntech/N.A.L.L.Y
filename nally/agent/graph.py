@@ -47,6 +47,17 @@ from ..tools.permissions import gate as permission_gate
 from ..tools.registry import registry
 from ..utils.logger import logger
 
+# ── Checkpoint system (Phase 1: file-state rewind, vibe-style) ──
+try:
+    from ..core.checkpoints.checkpointer import Checkpointer
+    from ..core.checkpoints.file_store import FileStore
+
+    checkpointer = Checkpointer(max_turns=100)
+    checkpoint_store = FileStore()
+except Exception as _cp_err:  # pragma: no cover - never crash agent if checkpoint fails to init
+    checkpointer = None  # type: ignore
+    checkpoint_store = None  # type: ignore
+
 
 def _compute_file_diff(tool_args: dict) -> Optional[str]:
     """Compute a unified diff for file_ops write operations.
@@ -1040,6 +1051,92 @@ def tool_executor(state: AgentState) -> AgentState:
     _trace_parent_id = _trace_parent.span_id if _trace_parent else None
     _trace_run_id = _trace_parent.run_id if _trace_parent else None
 
+    # ── Checkpoint: begin turn (vibe-style) ──
+    _ckpt_turn_id = state.get("iteration", 0) + 1
+    if checkpointer is not None:
+        try:
+            # Don't double-open if previous turn leaked
+            if not checkpointer.has_open_turn():
+                checkpointer.begin_turn(_ckpt_turn_id)
+        except Exception as _e:
+            logger.debug(f"Checkpoint begin_turn skipped: {_e}")
+
+    def _ckpt_record_pre(tool_name: str, tool_args: dict):
+        """Capture before-state for checkpoint."""
+        if checkpointer is None or checkpoint_store is None:
+            return
+        try:
+            paths: list[str] = []
+            if tool_name == "file_ops":
+                act = tool_args.get("action")
+                if act in ("write", "delete") and tool_args.get("file_path"):
+                    paths.append(tool_args["file_path"])
+                elif act in ("move", "copy") and tool_args.get("file_path"):
+                    paths.append(tool_args["file_path"])
+                    if tool_args.get("destination"):
+                        paths.append(tool_args["destination"])
+                elif act == "mkdir" and tool_args.get("file_path"):
+                    paths.append(tool_args["file_path"])
+            elif tool_name in ("run_command", "run_code", "code_analysis"):
+                # run_command snapshot is coarse; record at least cwd files via project diff later
+                pass
+            # Also capture any explicit file_path/content path
+            elif tool_args.get("file_path"):
+                paths.append(tool_args["file_path"])
+            for p in paths:
+                if not p:
+                    continue
+                # Normalize to absolute where possible
+                try:
+                    ap = str(Path(p).resolve()) if Path(p).is_absolute() else str((Path.cwd() / p).resolve())
+                except Exception:
+                    ap = p
+                # Avoid capturing huge binary or sensitive paths
+                if any(seg in ap for seg in (".git", "__pycache__", "node_modules", ".venv")):
+                    continue
+                st = checkpoint_store.read(ap)
+                # Also record the logical path the tool used (so restore works even if cwd changed)
+                checkpointer.record_pre(p, st)
+                if ap != p:
+                    checkpointer.record_pre(ap, st)
+        except Exception as _e:
+            logger.debug(f"Checkpoint record_pre skipped: {_e}")
+
+    def _ckpt_record_post(tool_name: str, tool_args: dict):
+        """Capture after-state for checkpoint."""
+        if checkpointer is None or checkpoint_store is None:
+            return
+        try:
+            paths: list[str] = []
+            if tool_name == "file_ops":
+                act = tool_args.get("action")
+                if act in ("write", "delete") and tool_args.get("file_path"):
+                    paths.append(tool_args["file_path"])
+                elif act in ("move", "copy"):
+                    if tool_args.get("file_path"):
+                        paths.append(tool_args["file_path"])
+                    if tool_args.get("destination"):
+                        paths.append(tool_args["destination"])
+                elif act == "mkdir" and tool_args.get("file_path"):
+                    paths.append(tool_args["file_path"])
+            elif tool_args.get("file_path"):
+                paths.append(tool_args["file_path"])
+            for p in paths:
+                if not p:
+                    continue
+                try:
+                    ap = str(Path(p).resolve()) if Path(p).is_absolute() else str((Path.cwd() / p).resolve())
+                except Exception:
+                    ap = p
+                if any(seg in ap for seg in (".git", "__pycache__", "node_modules", ".venv")):
+                    continue
+                st = checkpoint_store.read(ap)
+                checkpointer.record_post(p, st)
+                if ap != p:
+                    checkpointer.record_post(ap, st)
+        except Exception as _e:
+            logger.debug(f"Checkpoint record_post skipped: {_e}")
+
     def _execute_single(tc):
         tool_name = tc["name"]
         tool_args = tc["args"]
@@ -1193,6 +1290,9 @@ def tool_executor(state: AgentState) -> AgentState:
             logger.info(f"Diff computed for {file_path_str}: {'yes' if diff else 'empty/same'}")
         elif tool_name == "run_command":
             snapshot_before = _snapshot_project_files()
+
+        # Checkpoint pre-state capture
+        _ckpt_record_pre(tool_name, tool_args)
 
         start = time.time()
         try:
@@ -1365,6 +1465,9 @@ def tool_executor(state: AgentState) -> AgentState:
         else:
             progress_log.append({"tool": tool_name, "status": "success"})
 
+        # Checkpoint post-state capture
+        _ckpt_record_post(tool_name, tool_args)
+
         # ── Auto-save task state on ALL tool calls ──
         # Track files created, read, and executed so Nally can resume without re-reading everything.
         if success:
@@ -1455,6 +1558,13 @@ def tool_executor(state: AgentState) -> AgentState:
             except Exception as e:
                 tc = futures[future]
                 tool_messages.append(ToolMessage(content=f"Error: {e!s}", tool_call_id=tc["id"]))
+
+    # Seal checkpoint turn (best-effort, never crash agent)
+    if checkpointer is not None:
+        try:
+            checkpointer.seal_turn()
+        except Exception as _e:
+            logger.debug(f"Checkpoint seal_turn skipped: {_e}")
 
     return {
         "messages": tool_messages,
