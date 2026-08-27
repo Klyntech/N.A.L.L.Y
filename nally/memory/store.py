@@ -163,6 +163,15 @@ class _LibSQLRow:
             return self[key]
         except (KeyError, IndexError):
             return default
+    def keys(self):
+        """Return column names — enables dict(row) conversion."""
+        return list(self._keys.keys())
+    def values(self):
+        """Return column values in column order."""
+        return list(self._data)
+    def items(self):
+        """Return (column_name, value) pairs — enables dict(row) and row.items()."""
+        return [(k, self._data[i]) for k, i in self._keys.items()]
     def __iter__(self):
         return iter(self._data)
     def __len__(self):
