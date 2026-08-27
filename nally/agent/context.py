@@ -86,31 +86,46 @@ class ContextManager:
 
     def prune(self, messages: List[Dict], max_tokens: int = 150000) -> List[Dict]:
         """Truncate large tool outputs and remove oldest non-essential messages.
-        
+
         Preserves: system messages, user messages, and recent messages.
         Only removes old assistant/tool messages when over budget.
+
+        Non-mutating on tool content truncation — returns a shallow copy with
+        truncated tool messages so the original list's evidence is not destroyed
+        (fixes Phase 0 truncation cascade: 50k→2k→1.5k→500).
+        Truncation cap raised from 1500 to 8000 to preserve error signals.
         """
-        # Step 1: Truncate large tool results (1500 chars — enough for meaningful data)
+        # Step 1: Truncate large tool results — work on a shallow copy
+        # so callers' original evidence is preserved for receipts/verifier.
+        import copy as _copy
+
+        pruned = []
         for msg in messages:
             if isinstance(msg, dict) and msg.get("role") == "tool":
                 content = msg.get("content", "")
-                if isinstance(content, str) and len(content) > 1500:
-                    msg["content"] = content[:1500] + "\n... [truncated]"
+                if isinstance(content, str) and len(content) > 8000:
+                    new_msg = _copy.copy(msg)
+                    new_msg["content"] = content[:8000] + f"\n... [truncated {len(content)} → 8000 chars]"
+                    pruned.append(new_msg)
+                else:
+                    pruned.append(msg)
+            else:
+                pruned.append(msg)
 
         # Step 2: If still over budget, remove oldest non-system, non-user messages
         # NEVER remove user messages — they contain the original request
-        while self.estimate_tokens(messages) > max_tokens and len(messages) > 10:
+        while self.estimate_tokens(pruned) > max_tokens and len(pruned) > 10:
             removed = False
-            for i, msg in enumerate(messages):
+            for i, msg in enumerate(pruned):
                 role = msg.get("role") if isinstance(msg, dict) else None
                 # Only remove old assistant or tool messages, never user or system
-                if role in ("assistant", "tool") and 0 < i < len(messages) - 10:
-                    messages.pop(i)
+                if role in ("assistant", "tool") and 0 < i < len(pruned) - 10:
+                    pruned.pop(i)
                     removed = True
                     break
             if not removed:
                 break
-        return messages
+        return pruned
 
     def compact(self, messages: List[Dict]) -> List[Dict]:
         """Smart context compaction - summarize old messages, keep recent in full"""

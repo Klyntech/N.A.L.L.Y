@@ -788,53 +788,68 @@ class MemoryRepository:
 
         If route_key is provided, history is isolated per-channel (Telegram vs Web)
         while still sharing the same brain (session_id) for long-term memory.
-        """
-        now = self._now()
-        # Effective route_key: if not provided, fall back to session_id for backward compat
-        eff_route = route_key if route_key is not None else session_id
-        with self._connection() as conn:
-            # Ensure route_key column exists (handles DBs created before migration)
-            try:
-                _backfill_route_key_column(conn)
-            except Exception:
-                pass
-            # Clear old messages for this session+route (isolated per channel)
-            # Use both columns so Telegram and Web don't wipe each other.
-            try:
-                conn.execute(
-                    "DELETE FROM conversation_messages WHERE session_id = ? AND route_key = ?",
-                    (session_id, eff_route),
-                )
-            except Exception:
-                # Fallback for DBs without route_key column yet
-                conn.execute("DELETE FROM conversation_messages WHERE session_id = ?", (session_id,))
 
-            # Bulk insert with executemany (include route_key)
-            rows = []
-            for msg in messages:
-                rows.append(
-                    (
-                        session_id,
-                        eff_route,
-                        msg.get("role", "user"),
-                        msg.get("content", ""),
-                        json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
-                        msg.get("tool_call_id"),
-                        now,
-                    )
+        Atomic: DELETE + INSERT runs inside a single BEGIN IMMEDIATE transaction
+        so concurrent saves (web vs Telegram) cannot interleave and lose rows.
+        Retries on SQLITE_BUSY with back-off.
+        """
+        import sqlite3 as _sqlite3
+
+        now = self._now()
+        eff_route = route_key if route_key is not None else session_id
+        # Build rows once
+        rows = []
+        for msg in messages:
+            rows.append(
+                (
+                    session_id,
+                    eff_route,
+                    msg.get("role", "user"),
+                    msg.get("content", ""),
+                    json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
+                    msg.get("tool_call_id"),
+                    now,
                 )
+            )
+
+        # Retry on SQLITE_BUSY up to 3 times with exponential back-off
+        for _attempt in range(3):
             try:
-                conn.executemany(
-                    "INSERT INTO conversation_messages (session_id, route_key, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    rows,
-                )
-            except Exception:
-                # Fallback if route_key column doesn't exist yet
-                fallback_rows = [(r[0], r[2], r[3], r[4], r[5], r[6]) for r in rows]
-                conn.executemany(
-                    "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                    fallback_rows,
-                )
+                with self._connection() as conn:
+                    try:
+                        _backfill_route_key_column(conn)
+                    except Exception:
+                        pass
+                    # BEGIN IMMEDIATE acquires write lock early to prevent concurrent DELETE+INSERT interleave
+                    try:
+                        conn.execute("BEGIN IMMEDIATE")
+                    except Exception:
+                        pass  # Turso/libsql may not support explicit BEGIN
+                    try:
+                        conn.execute(
+                            "DELETE FROM conversation_messages WHERE session_id = ? AND route_key = ?",
+                            (session_id, eff_route),
+                        )
+                    except Exception:
+                        conn.execute("DELETE FROM conversation_messages WHERE session_id = ?", (session_id,))
+
+                    try:
+                        conn.executemany(
+                            "INSERT INTO conversation_messages (session_id, route_key, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            rows,
+                        )
+                    except Exception:
+                        fallback_rows = [(r[0], r[2], r[3], r[4], r[5], r[6]) for r in rows]
+                        conn.executemany(
+                            "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                            fallback_rows,
+                        )
+                return f"Saved {len(messages)} messages"
+            except _sqlite3.OperationalError as e:
+                if "busy" in str(e).lower() and _attempt < 2:
+                    _time.sleep(0.05 * (2 ** _attempt))
+                    continue
+                raise
         return f"Saved {len(messages)} messages"
 
     def load_messages(self, session_id: str = "default", route_key: Optional[str] = None) -> List[Dict[str, Any]]:

@@ -12,14 +12,29 @@ MAX_WRITE_SIZE = 500_000  # 500KB max write
 # Path.cwd() (which varies by how the process was launched).
 def _get_allowed_roots():
     """Build allowed roots list. Called at runtime, not import time."""
+    import tempfile as _tf
+
     from ..config import BASE_DIR
 
-    return [
+    roots = [
         BASE_DIR,  # N.A.L.L.Y project root
         Path.home() / "Desktop",
         Path.home() / "Documents",
         Path.home() / "Downloads",
+        Path(_tf.gettempdir()),  # OS temp — needed for tests + safe scratch work
     ]
+    # Deduplicate resolved paths
+    seen = set()
+    out = []
+    for r in roots:
+        try:
+            rp = r.resolve()
+        except Exception:
+            rp = r
+        if rp not in seen:
+            seen.add(rp)
+            out.append(r)
+    return out
 
 
 def _is_safe_write_path(path: Path) -> bool:
@@ -230,7 +245,7 @@ class FileOps(Tool):
                     return "Error: file_path is required for write"
                 path = Path(file_path)
                 if not _is_safe_write_path(path):
-                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: path outside allowed directories. Write to: {allowed}"
                 if content is None:
                     content = ""
@@ -249,7 +264,7 @@ class FileOps(Tool):
                     return "Error: file_path is required for mkdir"
                 path = Path(file_path)
                 if not _is_safe_write_path(path):
-                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: path outside allowed directories. Write to: {allowed}"
                 path.mkdir(parents=True, exist_ok=True)
                 return f"Created directory: {file_path}"
@@ -273,7 +288,7 @@ class FileOps(Tool):
                     return "Error: file_path is required for delete"
                 path = Path(file_path)
                 if not _is_safe_write_path(path):
-                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: path outside allowed directories. Write to: {allowed}"
                 if not path.exists():
                     return f"Error: path not found: {file_path}"
@@ -293,10 +308,10 @@ class FileOps(Tool):
                 src = Path(file_path)
                 dst = Path(destination)
                 if not _is_safe_write_path(src):
-                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: source path outside allowed directories. Write to: {allowed}"
                 if not _is_safe_write_path(dst):
-                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: destination path outside allowed directories. Write to: {allowed}"
                 if not src.exists():
                     return f"Error: source not found: {file_path}"
@@ -314,10 +329,10 @@ class FileOps(Tool):
                 src = Path(file_path)
                 dst = Path(destination)
                 if not _is_safe_write_path(src):
-                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: source path outside allowed directories. Write to: {allowed}"
                 if not _is_safe_write_path(dst):
-                    allowed = ", ".join(str(r) for r in _ALLOWED_ROOTS)
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: destination path outside allowed directories. Write to: {allowed}"
                 if not src.exists():
                     return f"Error: source not found: {file_path}"

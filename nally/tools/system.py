@@ -25,26 +25,47 @@ def _normalize_powershell(command: str) -> str:
     original = command
 
     # Fix && (bash) -> PowerShell ; if ($?) { ... }
-    # Count occurrences to close braces correctly: A && B && C -> A; if ($?) { B; if ($?) { C } }
+    # Preserve quoted strings: don't split on " && " inside single/double quotes.
+    # Simple state machine: track in_single / in_double / escaped.
     if " && " in command:
-        parts = command.split(" && ")
-        # Rebuild as nested if ($?) blocks
-        normalized = parts[0]
-        for part in parts[1:]:
-            normalized += f"; if ($?) {{ {part.strip()} }}"
-        # Need to close each opened brace: we opened len(parts)-1 times, but we used `{{` which is single `{` escaped for f-string?
-        # Actually we used f"; if ($?) {{ {part} }}" which produces "; if ($?) { part }"
-        # So we need to close each: we already closed each with `}`, but nested requires extra `}`?
-        # Simpler: just close with ` }` * (len(parts)-1) is already included as each part's closing `}`.
-        # For A && B && C, we get: A; if ($?) { B; if ($?) { C } } -> correct (2 opens, 2 closes)
-        # Our loop already adds `; if ($?) { part }` for each, so it's already nested correctly.
-        # But we need to ensure we didn't double-close: we did `; if ($?) { B }` then `; if ($?) { C }` -> A; if ($?) { B; if ($?) { C } } -> need one more `}`?
-        # Actually our loop builds: "A" -> "A; if ($?) { B }" -> "A; if ($?) { B }; if ($?) { C }" which is not nested.
-        # Let's rebuild properly nested:
-        # A && B && C should be A; if ($?) { B; if ($?) { C } }  (B inside first if, C inside second)
-        # Our simple split gives A; if ($?) { B }; if ($?) { C } which runs C even if B fails but A succeeded.
-        # To be truly nested, we need to close at end, not per part.
-        # Fix: rebuild with proper nesting
+        parts = []
+        cur = []
+        _in_single = False
+        _in_double = False
+        _esc = False
+        _i = 0
+        while _i < len(command):
+            ch = command[_i]
+            if _esc:
+                cur.append(ch)
+                _esc = False
+                _i += 1
+                continue
+            if ch == "\\" and not _in_single:
+                _esc = True
+                cur.append(ch)
+                _i += 1
+                continue
+            if ch == "'" and not _in_double:
+                _in_single = not _in_single
+                cur.append(ch)
+                _i += 1
+                continue
+            if ch == '"' and not _in_single:
+                _in_double = not _in_double
+                cur.append(ch)
+                _i += 1
+                continue
+            if not _in_single and not _in_double and command[_i:_i+4] == " && ":
+                parts.append("".join(cur).strip())
+                cur = []
+                _i += 4
+                continue
+            cur.append(ch)
+            _i += 1
+        parts.append("".join(cur).strip())
+        # Rebuild as properly nested if ($?) blocks: A; if ($?) { B; if ($?) { C } }
+        # Each opened brace closed at end, not per part, so C only runs if B succeeded.
         normalized = parts[0]
         for part in parts[1:]:
             normalized += f"; if ($?) {{ {part.strip()}"
@@ -97,21 +118,62 @@ def _normalize_powershell(command: str) -> str:
 
 
 def _is_python_c_command(command: str) -> tuple[bool, str]:
-    """Detect `python -c "code"` and extract code. Returns (is_python_c, code)."""
+    """Detect `python -c "code"` and extract code. Returns (is_python_c, code).
+
+    Handles quoted code correctly: scans for the matching closing quote
+    that is not inside nested quotes of opposite type and not escaped.
+    Avoids the previous `(.*)` greedy bug that captured until last " in
+    `python -c "import json; print(\"hi\")"`.
+    """
     stripped = command.strip()
-    # Match python or python3 or py, with -c
-    m = re.match(r'^(?:python|python3|py)\s+-c\s+["\'](.*)["\']\s*$', stripped, re.DOTALL)
+    # Match prefix python -c plus opening quote
+    m = re.match(r'^(?:python|python3|py)\s+-c\s+(["\'])', stripped)
     if m:
-        code = m.group(1)
-        # PowerShell escapes inner double quotes as \" or `" and single as \' 
+        q = m.group(1)
+        # Find matching closing q that is not escaped and not inside opposite quotes
+        rest = stripped[m.end():]
+        code_chars = []
+        _esc = False
+        _in_other = False
+        _other_q = "'" if q == '"' else '"'
+        for idx, ch in enumerate(rest):
+            if _esc:
+                code_chars.append(ch)
+                _esc = False
+                continue
+            if ch == "\\" and not _in_other:
+                _esc = True
+                # keep escape for later unescape? drop it and keep char
+                continue
+            if ch == _other_q and q == '"':
+                # toggle single inside double — not closing
+                _in_other = not _in_other if ch == "'" else _in_other
+                code_chars.append(ch)
+                continue
+            if ch == _other_q and q == "'":
+                _in_other = not _in_other
+                code_chars.append(ch)
+                continue
+            if ch == q and not _in_other and not _esc:
+                # Closing quote — must be at end (allow trailing spaces/braces)
+                suffix = rest[idx+1:].strip()
+                # If suffix is only closing braces from PowerShell shim, ignore
+                if suffix == "" or suffix.strip().rstrip("}").strip() == "":
+                    code = "".join(code_chars)
+                    code = code.replace('\\"', '"').replace('`"', '"').replace("\\'", "'").replace("''", "'")
+                    return True, code
+                # Otherwise this quote is inside code (escaped), keep going
+                code_chars.append(ch)
+                continue
+            code_chars.append(ch)
+        # No closing found — fallback to capturing all remaining
+        code = rest.rstrip('"').rstrip("'")
         code = code.replace('\\"', '"').replace('`"', '"').replace("\\'", "'").replace("''", "'")
-        # Also handle the case where outer was " and inner ' was escaped as \'
-        # e.g., 'data/nally.db' inside " becomes \'data/nally.db\' after PowerShell mangling
-        return True, code
-    # Also handle python -c without quotes but with code after (rare)
+        if code:
+            return True, code
+    # Fallback: python -c without outer quotes
     m2 = re.match(r'^(?:python|python3|py)\s+-c\s+(.+)$', stripped, re.DOTALL)
     if m2 and ('import' in m2.group(1) or 'print' in m2.group(1)):
-        # Probably code without proper quoting, but still python -c
         return True, m2.group(1).strip().strip('"').strip("'").replace('\\"', '"').replace("\\'", "'")
     return False, ""
 
@@ -193,6 +255,8 @@ class RunCommand(Tool):
                     if result.returncode != 0:
                         output += f"\nExit code: {result.returncode}"
                     return output if output else f"Command executed successfully (exit code: {result.returncode})"
+                except subprocess.TimeoutExpired:
+                    return f"Error: Command timed out after {CMD_TIMEOUT} seconds (exit code: 124)"
                 finally:
                     try:
                         Path(temp_path).unlink(missing_ok=True)
@@ -228,6 +292,8 @@ class RunCommand(Tool):
                         if result.returncode != 0:
                             output += f"\nExit code: {result.returncode}"
                         return output if output else f"Command executed successfully (exit code: {result.returncode})"
+                    except subprocess.TimeoutExpired:
+                        return f"Error: Command timed out after {CMD_TIMEOUT} seconds (exit code: 124)"
                     finally:
                         try:
                             Path(temp_path2).unlink(missing_ok=True)
@@ -252,7 +318,8 @@ class RunCommand(Tool):
                 output += f"\nExit code: {result.returncode}"
             return output if output else f"Command executed successfully (exit code: {result.returncode})"
         except subprocess.TimeoutExpired:
-            return f"Command timed out after {CMD_TIMEOUT} seconds"
+            # Return with Error: prefix so _result_is_success marks failure (Phase 0 fix #5)
+            return f"Error: Command timed out after {CMD_TIMEOUT} seconds (exit code: 124)"
         except Exception as e:
             return f"Error: {e!s}"
 

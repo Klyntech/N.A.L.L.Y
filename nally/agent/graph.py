@@ -262,7 +262,29 @@ def _parse_text_tool_calls(text: str) -> tuple:
             continue
 
     if not tool_calls:
+        # Also handle mid-response missing closing tags (hy3-free often omits </tool_calls:ID>)
+        # If we still have a <tool_call:> prefix, try a lenient fallback that tolerates
+        # unclosed blocks by scanning for any known tool names.
         if re.search(r"<tool_calls?:[a-f0-9]+>", text):
+            # Lenient fallback: extract any <tool_call:HEX>TOOLNAME occurrences as bare calls
+            from ..tools.registry import registry as _reg
+
+            known = set(_reg.tools.keys()) if _reg.tools else set()
+            # Find all tool names in alternate format even without proper wrapper close
+            fallback_names = re.findall(r"<tool_call:[a-f0-9]+>(\w+)", text)
+            made = []
+            for nm in fallback_names:
+                if nm == "parameter":
+                    continue
+                if known and nm not in known:
+                    continue
+                if nm and nm not in [c["name"] for c in made]:
+                    made.append({"id": f"tc_fallback_{nm}_{len(made)}", "name": nm, "args": {}})
+            if made:
+                logger.info(f"Fallback parsed {len(made)} tool calls from unclosed XML (lenient mode)")
+                cleaned = re.sub(r"<tool_calls?:[a-f0-9]+>.*", "", text, flags=re.DOTALL).strip()
+                cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", cleaned, flags=re.DOTALL).strip()
+                return cleaned, made
             logger.warning(
                 "Found <tool_call:> XML in response but _parse_text_tool_calls "
                 "could not parse it — tool calls will be sent as raw text"
@@ -270,6 +292,7 @@ def _parse_text_tool_calls(text: str) -> tuple:
         return text, []
 
     # Clean both formats from text (handle with and without closing tags)
+    # Handle mid-response unclosed blocks: cut from first wrapper to end if no close
     cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL).strip()
     cleaned = re.sub(
         r"<tool_calls?:[a-f0-9]+>.*?(?:</tool_calls?:[a-f0-9]+>|\Z)",
@@ -277,6 +300,8 @@ def _parse_text_tool_calls(text: str) -> tuple:
         cleaned,
         flags=re.DOTALL,
     ).strip()
+    # Also strip any remaining lenient fragments "<tool_call:HEX>name …" without close
+    cleaned = re.sub(r"<tool_call:[a-f0-9]+>.*", "", cleaned, flags=re.DOTALL).strip()
     return cleaned, tool_calls
 
 
@@ -425,16 +450,41 @@ def _clear_abort(thread_id: str):
     clear_abort(thread_id)
 
 
-def _has_duplicate_tool_calls(messages: list, window: int = 6) -> bool:
-    """Detect doom loops — same tool with same args called repeatedly."""
-    recent = messages[-window:]
+def _has_duplicate_tool_calls(messages: list, window: int = 10) -> bool:
+    """Detect doom loops — same tool with same args called repeatedly.
+
+    Checks full message history (not just last 6) and hashes
+    ``tool_name + sorted(args)``.  Threshold is DUPLICATE_TOOL_THRESHOLD
+    (default 3) so 3 identical calls across 10 messages triggers.
+    This mirrors Vibe's loop detector and avoids the previous
+    impossible case (threshold 10 in window 6 with 1 call/msg).
+    """
+    # Dynamic threshold: never allow impossible case (threshold > window)
+    effective_threshold = min(DUPLICATE_TOOL_THRESHOLD, max(2, window))
     seen = {}
-    for msg in recent:
+    for msg in messages[-window:] if window else messages:
         if isinstance(msg, AIMessage) and msg.tool_calls:
             for tc in msg.tool_calls:
-                key = f"{tc['name']}:{json.dumps(tc['args'], sort_keys=True)}"
+                # Support both dict and object forms
+                if isinstance(tc, dict):
+                    name = tc.get("name", "")
+                    args = tc.get("args", {})
+                else:
+                    # langchain tool_calls can be dict-like with attribute access
+                    try:
+                        name = tc["name"] if "name" in tc else getattr(tc, "name", "")
+                    except Exception:
+                        name = getattr(tc, "name", "")
+                    try:
+                        args = tc["args"] if "args" in tc else getattr(tc, "args", {})
+                    except Exception:
+                        args = {}
+                try:
+                    key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=True)}"
+                except Exception:
+                    key = f"{name}:{str(args)}"
                 seen[key] = seen.get(key, 0) + 1
-                if seen[key] >= DUPLICATE_TOOL_THRESHOLD:
+                if seen[key] >= effective_threshold:
                     return True
     return False
 
@@ -1165,14 +1215,20 @@ def tool_executor(state: AgentState) -> AgentState:
                 logger.debug(f"Idempotency record skipped: {e}")
 
         # Generate execution receipt (trust system)
+        # Record FULL length for truth (receipt_store handles its own cap)
+        # but ensure verifier sees error signals not truncated at 2k when possible.
         try:
             from ..tools.receipts import receipt_store
 
+            # Keep at least 8000 for evidence preservation (previous 2000 hid Error: prefix)
+            _receipt_text = str(result)
+            if len(_receipt_text) > 8000:
+                _receipt_text = _receipt_text[:8000] + f"\n... [truncated {len(str(result))} → 8000 chars]"
             receipt_store.record(
                 tool_call_id=tool_id,
                 tool=tool_name,
                 args=tool_args,
-                result=str(result)[:2000],
+                result=_receipt_text[:8000],
                 success=success,
                 duration_ms=duration,
             )
@@ -1276,12 +1332,15 @@ def tool_executor(state: AgentState) -> AgentState:
 
         if emit:
             try:
+                # Emit cap raised from 500 to 2000 for richer UI without truncation cascade.
+                # Keep IMAGE_FILE tail optimization.
                 result_str = str(result)
-                if len(result_str) > 500:
+                _EMIT_CAP = 2000
+                if len(result_str) > _EMIT_CAP:
                     if "IMAGE_FILE:" in result_str:
-                        result_str = "..." + result_str[-497:]
+                        result_str = "..." + result_str[-_EMIT_CAP + 3 :]
                     else:
-                        result_str = result_str[:500]
+                        result_str = result_str[:_EMIT_CAP] + f"\n... [truncated {len(str(result))} → {_EMIT_CAP} chars]"
                 payload = {
                     "tool_call_id": tool_id,
                     "name": tool_name,
@@ -1364,8 +1423,10 @@ def tool_executor(state: AgentState) -> AgentState:
             except Exception as e:
                 logger.debug(f"Auto-save task state skipped: {e}")
 
-        _finish(success, str(result)[:2000])
-        return ToolMessage(content=str(result)[:2000], tool_call_id=tool_id)
+        # Return up to MAX_TOOL_OUTPUT (50k) for LLM truth; registry already capped.
+        # Previous 2000 hid evidence from next LLM turn + verifier.
+        _finish(success, str(result)[:MAX_TOOL_OUTPUT])
+        return ToolMessage(content=str(result)[:MAX_TOOL_OUTPUT], tool_call_id=tool_id)
 
     tool_messages = []
     waits = []

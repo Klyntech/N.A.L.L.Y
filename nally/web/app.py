@@ -43,31 +43,46 @@ from .health import router as health_router
 
 
 class _BroadcastManager:
-    """Manages persistent SSE connections for real-time multi-tab sync."""
+    """Manages persistent SSE connections for real-time multi-tab sync (per-route isolated)."""
 
     def __init__(self):
-        self._queues: dict[str, asyncio.Queue] = {}
+        self._queues: dict[str, dict[str, asyncio.Queue]] = {}  # route_key -> {cid: queue}
+        self._cid_to_route: dict[str, str] = {}
         self._counter = 0
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
-    def subscribe(self) -> tuple[str, asyncio.Queue]:
+    def subscribe(self, route_key: str = "web:default") -> tuple[str, asyncio.Queue]:
         """Subscribe to broadcasts. Returns (client_id, queue)."""
         self._counter += 1
         cid = f"tab_{self._counter}"
         q: asyncio.Queue = asyncio.Queue()
-        self._queues[cid] = q
-        logger.info(f"SSE client connected: {cid} (total: {len(self._queues)})")
+        self._queues.setdefault(route_key, {})[cid] = q
+        self._cid_to_route[cid] = route_key
+        total = sum(len(v) for v in self._queues.values())
+        logger.info(f"SSE client connected: {cid} route:{route_key} (total: {total})")
         return cid, q
 
     def unsubscribe(self, cid: str):
-        self._queues.pop(cid, None)
-        logger.info(f"SSE client disconnected: {cid} (total: {len(self._queues)})")
+        route = self._cid_to_route.pop(cid, None)
+        if route and route in self._queues:
+            self._queues[route].pop(cid, None)
+            if not self._queues[route]:
+                del self._queues[route]
+        else:
+            # Fallback: remove from any route
+            for route, qs in list(self._queues.items()):
+                qs.pop(cid, None)
+                if not qs:
+                    del self._queues[route]
+        total = sum(len(v) for v in self._queues.values())
+        logger.info(f"SSE client disconnected: {cid} (total: {total})")
 
-    def broadcast(self, event: str, data: dict):
-        """Send an event to all connected SSE clients. Thread-safe."""
+    def broadcast(self, event: str, data: dict, route_key: str = "web:default"):
+        """Send an event to all connected SSE clients in the same route. Thread-safe."""
         payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
         dead = []
-        for cid, q in self._queues.items():
+        # Only broadcast to clients in the same route (isolates Web vs Telegram)
+        for cid, q in list(self._queues.get(route_key, {}).items()):
             try:
                 if self._loop and self._loop.is_running():
                     self._loop.call_soon_threadsafe(q.put_nowait, payload)
@@ -76,7 +91,8 @@ class _BroadcastManager:
             except Exception:
                 dead.append(cid)
         for cid in dead:
-            self._queues.pop(cid, None)
+            self._queues.get(route_key, {}).pop(cid, None)
+            self._cid_to_route.pop(cid, None)
 
 
 broadcast_manager = _BroadcastManager()
@@ -560,8 +576,8 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
         clear_abort(route_key)
 
-        # Broadcast user message immediately to other tabs
-        broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id})
+        # Broadcast user message immediately to other tabs (per-route)
+        broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id}, route_key=route_key)
 
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
@@ -579,12 +595,12 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
                 break
             yield f"data: {json.dumps(item)}\n\n"
 
-            # Broadcast specific events to other tabs
+            # Broadcast specific events to other tabs (per-route)
             evt_type = item.get("type", "")
             if evt_type == "thought":
-                broadcast_manager.broadcast("thinking", {"text": item.get("text", ""), "tab_id": tab_id})
+                broadcast_manager.broadcast("thinking", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key)
             elif evt_type == "response":
-                broadcast_manager.broadcast("assistant_message", {"text": item.get("text", ""), "tab_id": tab_id})
+                broadcast_manager.broadcast("assistant_message", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key)
 
         yield 'data: {"event": "done"}\n\n'
 
@@ -612,7 +628,9 @@ async def sse_events(request: Request):
     if not NALLY_ACCESS_TOKEN or not hmac.compare_digest(token, NALLY_ACCESS_TOKEN):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    cid, queue = broadcast_manager.subscribe()
+    from ..agent.identity import resolve_session
+    route_key = resolve_session("web").route_key
+    cid, queue = broadcast_manager.subscribe(route_key)
     broadcast_manager._loop = asyncio.get_event_loop()
 
     async def event_stream():
@@ -661,7 +679,7 @@ async def clear(_auth=Depends(verify_auth)):
     ref = resolve_session("web")
     agent = session_manager.get(ref.session_id, channel="Web", route_key=ref.route_key)
     agent.clear_history()
-    broadcast_manager.broadcast("history_cleared", {})
+    broadcast_manager.broadcast("history_cleared", {}, route_key="web:default")
     return {"status": "cleared"}
 
 
@@ -675,7 +693,7 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
     # resolve_approval does blocking SQLite I/O — keep it off the event loop.
     await asyncio.to_thread(resolve_approval, request.tool_call_id, request.approved)
     broadcast_manager.broadcast(
-        "approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved}
+        "approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved}, route_key="web:default"
     )
     return {"ok": True}
 
@@ -704,6 +722,7 @@ async def checkpoint_response(request: CheckpointRequest, _auth=Depends(verify_a
     broadcast_manager.broadcast(
         "checkpoint_resolved",
         {"thread_id": request.thread_id, "action": request.action},
+        route_key="web:default",
     )
     return {"ok": True}
 
@@ -899,7 +918,7 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     # Check if already connected
     existing = await get_existing_tokens(service, db)
     if existing:
-        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True})
+        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
         return {"status": "connected", "service": service}
 
     if auth_mode == "oauth":
@@ -974,7 +993,7 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
             count = connect_stdio_with_token(server_cfg)
         except Exception:
             count = 0
-        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True})
+        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
         return {"status": "connected", "service": service, "tools": count}
 
     # HTTP service — store as OAuthToken
@@ -989,7 +1008,7 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
     except Exception:
         count = 0
 
-    broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True})
+    broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
     return {"status": "connected", "service": service, "tools": count}
 
 
@@ -1139,7 +1158,7 @@ async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
 
     removed = revoke_service(service, db)
     if removed:
-        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": False})
+        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": False}, route_key="web:default")
     return {"status": "disconnected" if removed else "not_connected"}
 
 

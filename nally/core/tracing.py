@@ -214,15 +214,26 @@ class Tracer:
     def _persist(self, span: Span):
         if not self._store:
             return
-        try:
-            self._store.save_span(span.to_dict())
-        except Exception as e:
+        # Retry once on transient SQLITE_BUSY; never silently drop spans
+        for _attempt in range(2):
             try:
-                from ..utils.logger import logger
+                self._store.save_span(span.to_dict())
+                return
+            except Exception as e:
+                if "busy" in str(e).lower() and _attempt == 0:
+                    try:
+                        import time as _t
+                        _t.sleep(0.05)
+                        continue
+                    except Exception:
+                        pass
+                try:
+                    from ..utils.logger import logger
 
-                logger.debug(f"Tracer persist failed for {span.name}: {e}")
-            except Exception:
-                pass
+                    logger.warning(f"Tracer persist failed for {span.name} (attempt {_attempt + 1}): {e}")
+                except Exception:
+                    pass
+                return
 
 
 # Module-level singleton. Storage injected later via set_store().
