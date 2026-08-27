@@ -1180,6 +1180,21 @@ def tool_executor(state: AgentState) -> AgentState:
                 except Exception:
                     pass
 
+        # ── Hooks: PreToolUse (deterministic, can deny even bypass) ──
+        try:
+            from ..core.hooks.manager import get_hook_manager
+
+            _hook_pre = get_hook_manager().run_pre_tool(tool_name, tool_args)
+            if _hook_pre.decision == "deny":
+                logger.info(f"Hook denied: {tool_name} -> {_hook_pre.reason}")
+                _finish(False, f"denied by hook: {_hook_pre.reason}")
+                return ToolMessage(
+                    content=f"Blocked by hook '{_hook_pre.reason or 'PreToolUse deny'}': {tool_name} denied.",
+                    tool_call_id=tool_id,
+                )
+        except Exception as _e:
+            logger.debug(f"PreTool hook skipped: {_e}")
+
         decision = permission_gate.check(tool_name, tool_args)
 
         # ── Tool Guardrails ──
@@ -1419,6 +1434,18 @@ def tool_executor(state: AgentState) -> AgentState:
                 state["_scratchpad"] = _sp
         except Exception as e:
             logger.debug(f"Tool verification skipped: {e}")
+
+        # ── Hooks: PostToolUse (can append additionalContext) ──
+        try:
+            from ..core.hooks.manager import get_hook_manager
+
+            _hook_post = get_hook_manager().run_post_tool(tool_name, tool_args, str(result), success)
+            if _hook_post.additionalContext:
+                # Append hook context to result so LLM sees it next turn
+                result = str(result) + "\n\n[Hook] " + _hook_post.additionalContext
+                logger.info(f"Hook PostTool appended context for {tool_name}: {_hook_post.additionalContext[:120]}")
+        except Exception as _e:
+            logger.debug(f"PostTool hook skipped: {_e}")
 
         # For run_command, detect changed files via snapshot diff
         if snapshot_before is not None and success:

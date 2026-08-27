@@ -1,0 +1,22 @@
+{
+  "hooks": [
+    {
+      "name": "block-env-read",
+      "event": "PreToolUse",
+      "matcher": "read_file",
+      "tool_pattern": "*.env",
+      "command": "python -c \"import json,sys; d=json.load(sys.stdin); print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'deny', 'permissionDecisionReason': 'Blocked: .env is sensitive — use config.py or ask user to provide the value'}}))\"",
+      "timeout": 5,
+      "description": "Block reading .env via hooks (stronger than permissions.json ask)"
+    },
+    {
+      "name": "lint-on-write",
+      "event": "PostToolUse",
+      "matcher": "file_ops",
+      "tool_pattern": "write",
+      "command": "python nally/core/hooks/lint_hook.py",
+      "timeout": 10,
+      "description": "Post-write Python compile check — appends lint error to tool result for LLM to fix"
+    }
+  ]
+}

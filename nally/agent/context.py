@@ -128,7 +128,11 @@ class ContextManager:
         return pruned
 
     def compact(self, messages: List[Dict]) -> List[Dict]:
-        """Smart context compaction - summarize old messages, keep recent in full"""
+        """Smart context compaction - summarize old messages, keep recent in full.
+
+        Fallback: if heuristic truncation still over budget, call LLM to summarize
+        old messages (vibe-style primary→fallback).
+        """
         if len(messages) <= RECENT_MESSAGES + 2:
             return messages  # Not enough to compress
 
@@ -147,12 +151,20 @@ class ContextManager:
         # Build a summary of old messages
         summary = self._summarize_messages(old)
 
-        # Build compacted context
+        # Build compacted context — heuristic summary as primary
         compacted = [system_msg, {"role": "system", "content": f"[Previous conversation context]\n{summary}"}, *recent]
+
+        # Check if heuristic saved enough — if not, fallback to LLM summary (vibe-style)
+        new_tokens = self.estimate_tokens(compacted)
+        if new_tokens > MAX_CONTEXT_TOKENS * 0.6:
+            # Still heavy — try LLM summarization for better compression
+            llm_summary = self._llm_summarize(old)
+            if llm_summary and len(llm_summary) < len(summary):
+                compacted = [system_msg, {"role": "system", "content": f"[Previous conversation context — LLM summary]\n{llm_summary}"}, *recent]
+                new_tokens = self.estimate_tokens(compacted)
 
         # Log compaction
         old_tokens = self.estimate_tokens(messages)
-        new_tokens = self.estimate_tokens(compacted)
         saved = old_tokens - new_tokens
 
         if saved > 100:
@@ -163,6 +175,40 @@ class ContextManager:
             )
 
         return compacted
+
+    def _llm_summarize(self, messages: List[Dict]) -> str:
+        """LLM fallback summarization — calls small fast model.
+
+        Wraps in try/except so failure never breaks compaction.
+        """
+        try:
+            # Build transcript for LLM — truncate to ~8000 chars
+            parts = []
+            for m in messages[-20:]:  # last 20 old messages
+                role = m.get("role", "?")
+                content = str(m.get("content", ""))[:500]
+                tc = m.get("tool_calls")
+                if tc:
+                    parts.append(f"{role}: {content} [tool_calls: {len(tc)}]")
+                else:
+                    parts.append(f"{role}: {content}")
+            transcript = "\n".join(parts)
+            if not transcript.strip():
+                return ""
+            prompt = (
+                "Summarize this conversation excerpt in 5-7 bullet points. "
+                "Focus on: user intent, key files touched, decisions made, errors. "
+                "Be concise, preserve file paths and facts.\n\n"
+                + transcript[:8000]
+            )
+            from ..agent.llm import llm
+
+            summary = llm.simple_chat(prompt, system_prompt="You are a concise conversation summarizer.")
+            if summary and isinstance(summary, str) and len(summary) > 20:
+                return summary.strip()
+        except Exception as e:
+            logger.debug(f"LLM summarize fallback failed: {e}")
+        return ""
 
     def _summarize_messages(self, messages: List[Dict]) -> str:
         """Create a summary of old messages.

@@ -206,7 +206,8 @@ class RunCommand(Tool):
         super().__init__(
             name="run_command",
             description=(
-                f"Execute a {shell_name} command on this {os_name} system. Use for 'python file.py', 'python -c ...', 'bash script.sh', pip, pytest. Use {shell_name}-compatible syntax."
+                f"Execute a {shell_name} command on this {os_name} system. Use for 'python file.py', 'python -c ...', 'bash script.sh', pip, pytest. "
+                f"Use {shell_name}-compatible syntax. For long-running/watch commands, add background=true to run in a persistent managed session."
             ),
             permission="destructive",
             parameters={
@@ -214,13 +215,43 @@ class RunCommand(Tool):
                     "type": "string",
                     "description": f"The {shell_name} command to execute",
                     "required": True,
-                }
+                },
+                "background": {
+                    "type": "boolean",
+                    "description": "If true, run in a persistent background shell session (managed PTY) and return session handle immediately instead of blocking.",
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory for the command (overrides default).",
+                },
             },
         )
 
-    def execute(self, command: str = "") -> str:
+    def execute(self, command: str = "", background: bool = False, timeout: int = 0, **kwargs) -> str:
         if not command:
             return "Error: No command provided"
+
+        # ── Managed shell background path (Phase 2) ──
+        # If background=True, run via persistent session and return handle immediately
+        # instead of blocking on TimeoutExpired. This prevents the 60s lie for
+        # long-running commands like `npm run dev --watch` or watch-mode pytest.
+        if background or kwargs.get("run_in_background"):
+            # Also treat very long timeout hint as background request
+            try:
+                from nally.core.managed_shell.manager import get_manager
+                mgr = get_manager()
+                # Extract cwd from command prefix like `cd "path" && ...` if present
+                _cwd = kwargs.get("cwd") or kwargs.get("workdir")
+                session = mgr.start(command=command, cwd=_cwd, background=True)
+                return (
+                    f"Started background shell session {session.session_id} [running] pid={session.pid}\n"
+                    f"Command: {command}\n"
+                    f"Use shell_output(session_id=\"{session.session_id}\") to poll, "
+                    f"shell_stdin(session_id=\"{session.session_id}\", text=\"...\") to send input, "
+                    f"shell_sessions(action=\"inspect\", session_id=\"{session.session_id}\") for tail."
+                )
+            except Exception as e:
+                return f"Error: failed to start managed session: {e}"
 
         # Pre-process PowerShell quirks (&&, Select-String -Recurse)
         original_cmd = command
