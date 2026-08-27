@@ -41,4 +41,4 @@ EXPOSE 10000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import os, httpx; p=os.getenv('PORT','10000'); httpx.get(f'http://localhost:{p}/health').raise_for_status()"
 
-CMD ["sh", "-c", "python main.py --port ${PORT:-10000}"]
+CMD ["python", "main.py"]

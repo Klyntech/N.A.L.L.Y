@@ -156,13 +156,16 @@ def run_web(port=None):
     os.environ["PORT"] = str(port)
     os.environ["NALLY_PORT"] = str(port)
 
-    # Suppress Uvicorn's noisy startup/access logs
+    # Don't suppress Uvicorn startup logs — Render needs to see binding
+    # Only filter access logs to reduce noise
     class _UvicornFilter(logging.Filter):
         def filter(self, record):
-            return False
+            # Allow startup messages, filter only access logs
+            return "access" not in record.name
 
-    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+    for name in ("uvicorn.access",):
         logging.getLogger(name).addFilter(_UvicornFilter())
+    print(f"[nally] Binding to 0.0.0.0:{port} (PORT env={os.getenv('PORT')}, NALLY_PORT env={os.getenv('NALLY_PORT')})", flush=True)
 
     # Auto-open browser
     def _open():
