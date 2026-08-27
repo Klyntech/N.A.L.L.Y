@@ -83,8 +83,9 @@ silero-vad>=4.0
 # Database (optional, for PostgreSQL backend)
 asyncpg>=0.29.0
 
-# Turso/LibSQL (persistent memory on Render)
-libsql-experimental>=0.0.34
+# Turso/LibSQL (persistent memory on Render) — optional, only needed if TURSO_URL is set
+# libsql-experimental>=0.0.34  # Disabled: requires Rust compilation, fails on Render read-only fs
+# If using Turso, install separately: pip install libsql-experimental
 
 # Cloudflare R2 (persistent file storage)
 boto3>=1.28.0
