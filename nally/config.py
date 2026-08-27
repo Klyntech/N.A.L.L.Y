@@ -256,9 +256,53 @@ RATE_LIMIT_BURST = int(os.getenv("RATE_LIMIT_BURST", "60"))
 
 # ── Database ──────────────────────────────────────────────
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")  # SQLite path or Turso/LibSQL URL
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # SQLite path, Turso/LibSQL URL, or Postgres (Neon/Supabase)
 TURSO_URL = os.getenv("TURSO_URL", "")
 TURSO_TOKEN = os.getenv("TURSO_TOKEN", "")
+
+# Explicit override for memory backend: "postgres", "sqlite", "turso", or "" (auto-detect)
+NALLY_MEMORY_BACKEND = os.getenv("NALLY_MEMORY_BACKEND", "").strip().lower()
+
+
+def memory_backend() -> str:
+    """Resolve which durable memory backend to use.
+
+    Priority:
+      1. NALLY_MEMORY_BACKEND env (explicit)
+      2. DATABASE_URL starting with postgres:// or postgresql://
+      3. TURSO_URL + TURSO_TOKEN present
+      4. Local SQLite (default fallback for dev)
+
+    Reads os.getenv live so tests that monkeypatch env are reflected
+    without re-importing this module. Falls back to the cached globals
+    for backward compat. Never logs the full connection string.
+    """
+    # Live env reads (so monkeypatching in tests works)
+    live_backend = os.getenv("NALLY_MEMORY_BACKEND", "").strip().lower()
+    if live_backend in ("postgres", "postgresql", "pg", "neon", "supabase"):
+        return "postgres"
+    if live_backend in ("sqlite", "local"):
+        return "sqlite"
+    if live_backend in ("turso", "libsql"):
+        return "turso"
+    # Also check cached global for startup path where env was set before import
+    if NALLY_MEMORY_BACKEND in ("postgres", "postgresql", "pg", "neon", "supabase"):
+        return "postgres"
+    if NALLY_MEMORY_BACKEND in ("sqlite", "local"):
+        return "sqlite"
+    if NALLY_MEMORY_BACKEND in ("turso", "libsql"):
+        return "turso"
+    # Live DATABASE_URL check
+    live_url = os.getenv("DATABASE_URL", "")
+    url = (live_url or DATABASE_URL or "").strip().lower()
+    if url.startswith("postgres://") or url.startswith("postgresql://"):
+        return "postgres"
+    # Live TURSO check
+    live_turso_url = os.getenv("TURSO_URL", "") or TURSO_URL
+    live_turso_token = os.getenv("TURSO_TOKEN", "") or TURSO_TOKEN
+    if live_turso_url and live_turso_token:
+        return "turso"
+    return "sqlite"
 
 # Layerbase (PostgreSQL + Redis)
 LAYERBASE_API_KEY = os.getenv("LAYERBASE_API_KEY", "")  # sk_... key
@@ -548,6 +592,29 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
                 "\n\nTo execute commands on a connected device, use the bridge_execute tool."
                 "\nExample: bridge_execute(device='desktop', tool='run_command', args={'command': 'dir'})"
                 "\nUse device='any' to target the first available bridge."
+            )
+    except Exception:
+        pass
+
+    # Render/bridge architecture — enforce the split
+    try:
+        import os as _os
+        is_render = bool(_os.getenv("RENDER")) or "onrender.com" in _os.getenv("NALLY_BASE_URL", "")
+        if is_render:
+            prompt += (
+                "\n\nRENDER FREE TIER RULES (NON-NEGOTIABLE):"
+                "\n- You are running on Render free tier (~512MB RAM). Heavy work will OOM and kill the server."
+                "\n- NEVER run: pip install, npm install, cargo build, docker build, apt-get, or any install/compile commands via run_command."
+                "\n- For installs, builds, tests, file edits, or any heavy work: use bridge_execute to route to the user's PC."
+                "\n- If no bridge is connected, tell the user: 'Start NallyBridge on your PC so I can run that there.'"
+                "\n- Safe on Render: chat, planning, web_search, gmail, read_file (small files), memory, API calls."
+                "\n- The bridge is your execution plane. Your PC has the RAM; Render only thinks."
+            )
+        elif devices:
+            prompt += (
+                "\n\nLOCAL EXECUTION:"
+                "\n- You have NallyBridge devices connected. Prefer bridge_execute for installs, builds, tests, and file operations."
+                "\n- run_command executes on THIS machine (the server). Use it only for lightweight tasks."
             )
     except Exception:
         pass

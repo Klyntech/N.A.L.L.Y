@@ -14,6 +14,34 @@ from .registry import Tool
 # Command timeout (seconds) — configurable via env
 CMD_TIMEOUT = int(os.environ.get("NALLY_CMD_TIMEOUT", "60"))
 
+# ── Render guard ────────────────────────────────────────────
+IS_RENDER = bool(os.getenv("RENDER")) or "onrender.com" in os.getenv("NALLY_BASE_URL", "")
+
+_BLOCKED_ON_RENDER = (
+    "pip install", "pip3 install",
+    "npm install", "npm i ", "npm ci",
+    "yarn add", "yarn install",
+    "pnpm install",
+    "apt-get", "apt install",
+    "cargo build", "cargo install",
+    "docker build", "docker run",
+    "uv pip install",
+)
+
+
+def _is_blocked_on_render(command: str) -> str | None:
+    """Return a denial reason if command is blocked on Render, else None."""
+    if not IS_RENDER:
+        return None
+    cmd_lower = command.lower().strip()
+    for blocked in _BLOCKED_ON_RENDER:
+        if cmd_lower.startswith(blocked) or f" {blocked}" in cmd_lower:
+            return (
+                f"Blocked: '{blocked}' cannot run on Render free tier (512MB RAM). "
+                "Use bridge_execute to run installs on your local machine, or start NallyBridge on your PC."
+            )
+    return None
+
 
 def _normalize_powershell(command: str) -> str:
     """Fix common LLM-generated PowerShell mistakes before execution.
@@ -230,6 +258,11 @@ class RunCommand(Tool):
     def execute(self, command: str = "", background: bool = False, timeout: int = 0, **kwargs) -> str:
         if not command:
             return "Error: No command provided"
+
+        # ── Render guard: block install/build commands ──
+        blocked = _is_blocked_on_render(command)
+        if blocked:
+            return f"Error: {blocked}"
 
         # ── Managed shell background path (Phase 2) ──
         # If background=True, run via persistent session and return handle immediately
