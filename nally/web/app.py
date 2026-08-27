@@ -201,57 +201,47 @@ async def lifespan(app: FastAPI):
         display.phase("Config", f"[red]failed: {e}[/]", ok=False)
         raise
 
-    # Load tools (includes MCP connections — now parallel)
-    _tool_count, mcp_status = load_all_tools()
+    # Load tools in background to avoid blocking port binding (Render needs port open quickly)
+    def _bg_load_tools():
+        try:
+            _tool_count, mcp_status = load_all_tools()
+            display.phase("Tools", f"[green]{_tool_count} registered[/]")
+            display.mcp_summary(mcp_status)
+        except Exception as e:
+            display.phase("Tools", f"[red]failed: {e}[/]", ok=False)
 
-    display.phase("Tools", f"[green]{_tool_count} registered[/]")
-    display.mcp_summary(mcp_status)
+    threading.Thread(target=_bg_load_tools, daemon=True).start()
+    display.phase("Tools", "[yellow]loading in background...[/]")
 
-    # Pre-warm agent (threaded, non-blocking)
-    agent_status = ["[yellow]starting...[/]"]
-    reflector_status = ["[yellow]starting...[/]"]
-
+    # Pre-warm agent in background — don't block
     def _prewarm():
         try:
             get_agent()
-            agent_status[0] = "[green]ready[/]"
+            display.phase("Agent", "[green]ready[/]")
         except Exception as e:
-            agent_status[0] = f"[red]failed: {e}[/]"
+            display.phase("Agent", f"[red]failed: {e}[/]", ok=False)
 
-    agent_thread = threading.Thread(target=_prewarm, daemon=True)
-    agent_thread.start()
+    threading.Thread(target=_prewarm, daemon=True).start()
+    display.phase("Agent", "[yellow]starting...[/]")
 
-    # Start reflector
+    # Start reflector/curiosity quickly (non-blocking)
     try:
         from ..memory.reflector import reflector
 
         reflector.start(interval=3600)
-        reflector_status[0] = "[green]active[/]"
+        display.phase("Reflector", "[green]active[/]")
     except Exception as e:
-        reflector_status[0] = f"[red]failed: {e}[/]"
+        display.phase("Reflector", f"[red]failed: {e}[/]", ok=False)
 
-    # Start curiosity scanner
-    _curiosity_status = "[dim]skipped[/]"
     try:
         from ..curiosity.scanner import curiosity_scanner
 
         curiosity_scanner.start()
-        _curiosity_status = "[green]active[/]"
+        display.phase("Curiosity", "[green]active[/]")
     except Exception as e:
-        _curiosity_status = f"[red]failed: {e}[/]"
+        display.phase("Curiosity", f"[red]failed: {e}[/]", ok=False)
 
-    # Wait for agent pre-warm (brief, don't block server)
-    agent_thread.join(timeout=5)
-
-    display.phase("Agent", agent_status[0])
-    display.phase("Reflector", reflector_status[0])
-    display.phase("Curiosity", _curiosity_status)
-
-    # Start Telegram bot — non-blocking via create_task
-    # Single-owner enforcement (Path B): the standalone bot subprocess owns
-    # polling; the web server only owns Telegram in webhook mode. In polling
-    # mode we must NOT create any Application here — doing so would poll the
-    # same token as the subprocess and cause Telegram 409 conflicts.
+    # Telegram — quick, non-blocking
     _tg_status = "[dim]skipped[/]"
     app.state.telegram_app = None
     app.state._tg_task = None
@@ -283,13 +273,14 @@ async def lifespan(app: FastAPI):
 
     from nally.config import ACTIVE_MODEL, PROVIDER
 
-    port = int(os.environ.get("PORT", "5000"))
+    port = int(os.environ.get("PORT", "10000"))
     display.summary(port=port, provider=PROVIDER, model=ACTIVE_MODEL)
 
     # Restore logger levels for runtime
     for _name, _level in _saved_levels.items():
         logging.getLogger(_name).setLevel(_level)
 
+    # Yield immediately so Render detects open port quickly (health checks can pass while tools load in background)
     yield
 
     # Shutdown: stop reflector, curiosity scanner, telegram bot, and save all active sessions

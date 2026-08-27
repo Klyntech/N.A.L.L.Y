@@ -38,7 +38,7 @@ USER nally
 # EXPOSE is documentary, but keep 10000 to match Render's PORT. Also bind to 0.0.0.0.
 EXPOSE 10000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import os, httpx; p=os.getenv('PORT','10000'); httpx.get(f'http://localhost:{p}/health').raise_for_status()"
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=5 \
+    CMD python -c "import os, httpx; p=os.getenv('PORT','10000'); import time; time.sleep(2); httpx.get(f'http://localhost:{p}/health/live', timeout=5.0).raise_for_status()"
 
 CMD ["python", "main.py"]
