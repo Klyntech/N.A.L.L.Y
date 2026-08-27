@@ -106,11 +106,17 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
     database_url = os.getenv("DATABASE_URL", "")
     if database_url:
         if database_url.startswith("postgresql://") or database_url.startswith("postgres://"):
-            # PostgreSQL — check for asyncpg driver
+            # PostgreSQL — check for psycopg (sync, used by memory) or asyncpg
             try:
-                import asyncpg  # noqa: F401
+                import psycopg  # noqa: F401
             except ImportError:
-                _warning("DATABASE_URL", "PostgreSQL URL set but asyncpg not installed. Run: pip install asyncpg")
+                try:
+                    import psycopg2  # noqa: F401
+                except ImportError:
+                    try:
+                        import asyncpg  # noqa: F401
+                    except ImportError:
+                        _warning("DATABASE_URL", "PostgreSQL URL set but psycopg not installed. Run: pip install \"psycopg[binary]\"")
         elif not os.path.isabs(database_url) and not database_url.startswith("libsql://"):
             _warning("DATABASE_URL", f"Unusual URL format: {database_url[:50]}...")
 

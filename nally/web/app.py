@@ -213,6 +213,24 @@ async def lifespan(app: FastAPI):
             display.phase("Config", "[red]errors found[/]", ok=False)
         else:
             display.phase("Config", "[green]valid[/]")
+        # Memory backend hint — never logs secrets (host only, no creds)
+        try:
+            from nally.config import memory_backend, DATABASE_URL as _DB_URL
+            mb = memory_backend()
+            if mb == "postgres":
+                hint = "postgres"
+                try:
+                    if _DB_URL and "@" in _DB_URL:
+                        hint = _DB_URL.split("@")[-1].split("/")[0].split("?")[0][:40] or "postgres"
+                except Exception:
+                    pass
+                display.phase("Memory", f"[green]postgres ({hint})[/]")
+            elif mb == "turso":
+                display.phase("Memory", "[yellow]turso[/]")
+            else:
+                display.phase("Memory", "[dim]sqlite (local)[/]")
+        except Exception as e:
+            display.phase("Memory", f"[yellow]unknown: {e}[/]", ok=False)
     except Exception as e:
         display.phase("Config", f"[red]failed: {e}[/]", ok=False)
         raise

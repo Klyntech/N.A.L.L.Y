@@ -80,7 +80,8 @@ livekit-plugins-elevenlabs>=0.1.0
 py-tgcalls[telethon]>=2.3.3
 silero-vad>=4.0
 
-# Database (optional, for PostgreSQL backend)
+# Database — Postgres (Neon/Supabase) + optional asyncpg
+psycopg[binary]>=3.1
 asyncpg>=0.29.0
 
 # Turso/LibSQL (persistent memory on Render) — optional, only needed if TURSO_URL is set

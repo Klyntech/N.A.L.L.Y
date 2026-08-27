@@ -1,9 +1,16 @@
-"""Memory Repository — SQLite-backed persistence with connection-per-operation.
+"""Memory Repository — connection-per-operation persistence.
 
 Thread-safe: every operation creates its own connection and transaction.
-No shared state between threads. WAL mode for concurrent reads.
+No shared state between threads. WAL mode for concurrent reads (SQLite).
 
-Supports SQLite (default) and Turso/LibSQL via TURSO_URL.
+Backends:
+  - SQLite (default, local file)
+  - Turso/LibSQL via TURSO_URL (legacy cloud)
+  - Postgres via DATABASE_URL starting with postgres:// (Neon/Supabase)
+
+Postgres is driven by DATABASE_URL (or NALLY_MEMORY_BACKEND=postgres).
+Same MemoryRepository API; only the connection + dialect bits differ.
+Phase 1: skip FTS5 — Postgres falls back to ILIKE/LIKE.
 """
 
 import json
@@ -14,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..config import DATA_DIR, TURSO_URL, TURSO_TOKEN
+from ..config import DATA_DIR, DATABASE_URL, TURSO_TOKEN, TURSO_URL, memory_backend
 from ..utils.logger import logger
 from .confidence import boost_confidence, days_since, decay_confidence
 
@@ -41,6 +48,79 @@ RECOGNIZED_PROFILE_KEYS = {
     "work_hours",
     "notes",
 }
+
+
+# ── Backend helpers ───────────────────────────────────────
+
+_backend_logged: Optional[str] = None
+
+
+def _get_backend() -> str:
+    """Resolve current memory backend via config.memory_backend()."""
+    try:
+        return memory_backend()
+    except Exception:
+        # Fallback inline logic if config import cycles
+        url = (DATABASE_URL or "").strip().lower()
+        if url.startswith("postgres://") or url.startswith("postgresql://"):
+            return "postgres"
+        if TURSO_URL and TURSO_TOKEN:
+            return "turso"
+        return "sqlite"
+
+
+def _is_postgres() -> bool:
+    return _get_backend() == "postgres"
+
+
+def _log_backend_once():
+    global _backend_logged
+    b = _get_backend()
+    if _backend_logged == b:
+        return
+    _backend_logged = b
+    if b == "postgres":
+        # Never log the full URL (secrets). Show host hint only.
+        hint = "postgres"
+        try:
+            import os as _os
+            url = _os.getenv("DATABASE_URL", "") or DATABASE_URL or ""
+            # Extract host between @ and / or ? without leaking credentials
+            if "@" in url:
+                hint = url.split("@")[-1].split("/")[0].split("?")[0][:40]
+            hint = hint or "postgres"
+        except Exception:
+            pass
+        logger.info(f"Memory backend: postgres ({hint})")
+    elif b == "turso":
+        logger.info("Memory backend: turso")
+    else:
+        logger.debug(f"Memory backend: sqlite ({DATA_DIR / 'nally_memory.db'})")
+
+
+def _pg_translate(sql: str) -> str:
+    """Translate SQLite dialect to Postgres for simple cases.
+
+    - ? -> %s
+    - MIN(1.0, -> LEAST(1.0,
+    - LIKE -> ILIKE (case-insensitive parity with SQLite)
+    - BEGIN IMMEDIATE -> BEGIN
+    Caller ensures this is only applied when backend is postgres.
+    """
+    if "?" in sql:
+        sql = sql.replace("?", "%s")
+    if "MIN(1.0," in sql:
+        sql = sql.replace("MIN(1.0,", "LEAST(1.0,")
+    # LIKE in SQLite is case-insensitive for ASCII; Postgres LIKE is case-sensitive.
+    # Use ILIKE for memory search parity. Avoid double-replacing existing ILIKE.
+    if " LIKE " in sql and " ILIKE " not in sql:
+        # Only for search patterns — safe to make all LIKE case-insensitive on PG
+        sql = sql.replace(" LIKE ", " ILIKE ")
+    # BEGIN IMMEDIATE is SQLite-specific; Postgres uses plain BEGIN
+    stripped = sql.strip()
+    if stripped.upper() == "BEGIN IMMEDIATE":
+        sql = "BEGIN"
+    return sql
 
 
 # ── Schema ────────────────────────────────────────────────
@@ -138,9 +218,99 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
 END;
 """
 
+# Postgres variant — same tables, SERIAL instead of AUTOINCREMENT, no FTS.
+_POSTGRES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS memories (
+    id SERIAL PRIMARY KEY,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    category TEXT DEFAULT 'general',
+    confidence DOUBLE PRECISION DEFAULT 0.5,
+    mention_count INTEGER DEFAULT 1,
+    created TEXT NOT NULL,
+    last_confirmed TEXT NOT NULL,
+    deleted INTEGER DEFAULT 0,
+    expires_at TEXT DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key);
+CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+CREATE INDEX IF NOT EXISTS idx_memories_deleted ON memories(deleted);
+CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at);
 
-def _backfill_expires_at_column(conn: sqlite3.Connection):
+CREATE TABLE IF NOT EXISTS episodes (
+    id SERIAL PRIMARY KEY,
+    date TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    what_happened TEXT NOT NULL,
+    outcome TEXT DEFAULT '',
+    solution TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_date ON episodes(date);
+CREATE INDEX IF NOT EXISTS idx_episodes_topic ON episodes(topic);
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id SERIAL PRIMARY KEY,
+    summary TEXT NOT NULL,
+    topics TEXT DEFAULT '[]',
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    message_count INTEGER DEFAULT 0,
+    created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_convos_start ON conversations(start_date);
+
+CREATE TABLE IF NOT EXISTS semantic (
+    id SERIAL PRIMARY KEY,
+    pattern TEXT NOT NULL UNIQUE,
+    confidence DOUBLE PRECISION DEFAULT 0.5,
+    evidence_count INTEGER DEFAULT 1,
+    last_seen TEXT NOT NULL,
+    created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_semantic_pattern ON semantic(pattern);
+
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    route_key TEXT DEFAULT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tool_calls TEXT DEFAULT NULL,
+    tool_call_id TEXT DEFAULT NULL,
+    timestamp TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conv_msg_session ON conversation_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_conv_msg_route ON conversation_messages(route_key);
+
+CREATE TABLE IF NOT EXISTS spans (
+    span_id TEXT PRIMARY KEY,
+    parent_span_id TEXT,
+    run_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT DEFAULT 'running',
+    input_json TEXT DEFAULT '{}',
+    output_json TEXT,
+    error TEXT,
+    started_at DOUBLE PRECISION NOT NULL,
+    ended_at DOUBLE PRECISION
+);
+CREATE INDEX IF NOT EXISTS idx_spans_run_id ON spans(run_id);
+CREATE INDEX IF NOT EXISTS idx_spans_started ON spans(started_at);
+"""
+
+# Keep alias for tests that may import _SCHEMA
+_SQLITE_SCHEMA = _SCHEMA
+
+
+def _backfill_expires_at_column(conn):
     """Add expires_at column to memories table if missing."""
+    # Postgres: schema already has expires_at, and PRAGMA is unsupported => no-op
+    if isinstance(conn, _PostgresConnectionWrapper):
+        return
+    if _is_postgres():
+        return
     try:
         cols = [row[1] for row in conn.execute("PRAGMA table_info(memories)").fetchall()]
         if "expires_at" not in cols:
@@ -152,14 +322,15 @@ def _backfill_expires_at_column(conn: sqlite3.Connection):
 
 def _backfill_route_key_column(conn):
     """Add route_key column to conversation_messages if missing (per-channel history isolation)."""
+    if isinstance(conn, _PostgresConnectionWrapper):
+        return
+    if _is_postgres():
+        return
     try:
         cols = [row[1] for row in conn.execute("PRAGMA table_info(conversation_messages)").fetchall()]
         if "route_key" not in cols:
             conn.execute("ALTER TABLE conversation_messages ADD COLUMN route_key TEXT DEFAULT NULL")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_msg_route ON conversation_messages(route_key)")
-        # Backfill legacy rows where route_key is NULL -> use session_id as route_key for isolation
-        # This prevents old shared brain rows from leaking across channels.
-        # We keep existing rows as-is but new saves will be route-specific.
     except Exception:
         pass
 
@@ -223,6 +394,197 @@ class _NoOpCursor:
     def fetchmany(self, n): return []
     @property
     def rowcount(self): return -1
+
+
+# ── Postgres wrappers ─────────────────────────────────────
+
+class _PostgresRow:
+    """Dict-like wrapper over Postgres tuple rows (supports row['col'] and row[0])."""
+    __slots__ = ("_data", "_keys", "_key_list")
+
+    def __init__(self, row_tuple, description):
+        self._data = row_tuple
+        self._keys: Dict[str, int] = {}
+        self._key_list: List[str] = []
+        if description:
+            for i, col in enumerate(description):
+                # psycopg's Column has .name; sqlite/libsql uses tuple[0]
+                name = getattr(col, "name", None)
+                if name is None:
+                    try:
+                        name = col[0]  # type: ignore
+                    except Exception:
+                        name = str(i)
+                self._keys[str(name)] = i
+                self._key_list.append(str(name))
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self._data[self._keys[key]]
+        return self._data[key]
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except (KeyError, IndexError):
+            return default
+
+    def keys(self):
+        return list(self._key_list)
+
+    def values(self):
+        return list(self._data)
+
+    def items(self):
+        return [(k, self._data[i]) for k, i in self._keys.items()]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def __repr__(self):
+        return f"_PostgresRow({dict(self.items())})"
+
+
+class _PostgresCursorWrapper:
+    """Wraps a psycopg cursor to return _PostgresRow objects."""
+    __slots__ = ("_cursor",)
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        return _PostgresRow(row, self._cursor.description)
+
+    def fetchall(self):
+        desc = self._cursor.description
+        return [_PostgresRow(r, desc) for r in self._cursor.fetchall()]
+
+    def fetchmany(self, size=None):
+        if size is None:
+            rows = self._cursor.fetchmany()
+        else:
+            rows = self._cursor.fetchmany(size)
+        desc = self._cursor.description
+        return [_PostgresRow(r, desc) for r in rows]
+
+    def __iter__(self):
+        desc = self._cursor.description
+        for r in self._cursor:
+            yield _PostgresRow(r, desc)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _PostgresConnectionWrapper:
+    """Sync wrapper over a psycopg (or psycopg2) connection.
+
+    Translates the SQLite dialect (? placeholders, MIN->LEAST, BEGIN IMMEDIATE)
+    at the execute boundary so callers can keep using ?-style SQL.
+    """
+
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def _translate(self, sql: str) -> str:
+        # Only translate when backend is postgres; callers reuse this wrapper
+        # exclusively for postgres, so always translate.
+        if "?" in sql:
+            sql = sql.replace("?", "%s")
+        if "MIN(1.0," in sql:
+            sql = sql.replace("MIN(1.0,", "LEAST(1.0,")
+        if " LIKE " in sql and " ILIKE " not in sql:
+            sql = sql.replace(" LIKE ", " ILIKE ")
+        return sql
+
+    def execute(self, sql, params=None):
+        sql_t = self._translate(sql)
+        stripped = sql_t.strip()
+        if stripped.upper().startswith("PRAGMA"):
+            return _NoOpCursor()
+        if stripped.upper() == "BEGIN IMMEDIATE":
+            sql_t = "BEGIN"
+            stripped = "BEGIN"
+        # Use cursor() for uniform behavior across psycopg 3 and psycopg2
+        cur = self._conn.cursor()
+        if params is not None:
+            cur.execute(sql_t, params)
+        else:
+            cur.execute(sql_t)
+        return _PostgresCursorWrapper(cur)
+
+    def executemany(self, sql, params_list):
+        sql_t = self._translate(sql)
+        if sql_t.strip().upper().startswith("PRAGMA"):
+            return _NoOpCursor()
+        cur = self._conn.cursor()
+        cur.executemany(sql_t, params_list)
+        return _PostgresCursorWrapper(cur)
+
+    def executescript(self, sql):
+        """Run multiple statements. Split on ';' like LibSQL proxy does."""
+        statements = [s.strip() for s in sql.split(";") if s.strip()]
+        last_cursor = None
+        for stmt in statements:
+            if not stmt:
+                continue
+            upper = stmt.upper().lstrip()
+            if upper.startswith("PRAGMA"):
+                continue
+            if "FTS" in upper or "VIRTUAL TABLE" in upper:
+                continue
+            if upper.startswith("CREATE TRIGGER"):
+                continue
+            sql_t = self._translate(stmt)
+            cur = self._conn.cursor()
+            try:
+                cur.execute(sql_t)
+                last_cursor = cur
+            except Exception as e:
+                # Ignore "already exists" for idempotent schema
+                if "already exists" in str(e).lower():
+                    continue
+                raise
+        if last_cursor is not None:
+            return _PostgresCursorWrapper(last_cursor)
+        return _NoOpCursor()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def cursor(self):
+        return _PostgresCursorWrapper(self._conn.cursor())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+        self.close()
+        return False
 
 
 class LibSQLConnectionProxy:
@@ -321,7 +683,7 @@ class LibSQLConnectionProxy:
 
 
 class MemoryRepository:
-    """SQLite-backed memory with connection-per-operation.
+    """Memory with connection-per-operation (SQLite / Turso / Postgres).
 
     Thread-safe, transactional, no shared connections.
     """
@@ -330,10 +692,41 @@ class MemoryRepository:
         self._db_path = db_path or DATA_DIR / "nally_memory.db"
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._schema_initialized = False
+        self._initialized_backend: Optional[str] = None
         self._working: Dict[str, Any] = {}
 
     def _create_connection(self):
-        """Create a fresh connection. Uses Turso/LibSQL if TURSO_URL is set, else local SQLite."""
+        """Create a fresh connection. Postgres > Turso > SQLite (in that order)."""
+        backend = _get_backend()
+        _log_backend_once()
+
+        if backend == "postgres":
+            # Prefer psycopg 3, fall back to psycopg2
+            import os as _os
+            live_url = _os.getenv("DATABASE_URL", "") or DATABASE_URL or ""
+            last_err = None
+            for mod_name in ("psycopg", "psycopg2"):
+                try:
+                    if mod_name == "psycopg":
+                        import psycopg  # type: ignore
+                        # psycopg 3: connect with conninfo string
+                        # autocommit=False so we can use explicit commit/rollback like SQLite
+                        raw = psycopg.connect(live_url, autocommit=False)  # type: ignore[arg-type]
+                    else:
+                        import psycopg2  # type: ignore
+                        raw = psycopg2.connect(live_url)  # type: ignore[arg-type]
+                    return _PostgresConnectionWrapper(raw)
+                except ImportError as e:
+                    last_err = e
+                    continue
+                except Exception as e:
+                    last_err = e
+                    logger.warning(f"Postgres connection ({mod_name}) failed: {e} — falling back to SQLite")
+                    break  # don't try next driver if connection itself failed
+            # If we get here, no postgres driver worked
+            if last_err and "no postgres" not in str(last_err).lower():
+                logger.warning(f"psycopg not installed ({last_err}) — falling back to local SQLite")
+
         if TURSO_URL and TURSO_TOKEN:
             try:
                 import libsql_experimental as libsql
@@ -359,14 +752,41 @@ class MemoryRepository:
             yield conn
             conn.commit()
         except Exception:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             raise
         finally:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def _ensure_schema(self, conn):
-        """Create tables if they don't exist. Runs once per connection."""
+        """Create tables if they don't exist. Runs once per backend."""
+        backend = _get_backend()
+        is_pg = isinstance(conn, _PostgresConnectionWrapper) or backend == "postgres"
+        # Detect backend switch mid-process (e.g., tests monkeypatch DATABASE_URL)
+        if self._initialized_backend != backend:
+            self._schema_initialized = False
+            self._initialized_backend = backend
+
         if not self._schema_initialized:
+            # Postgres uses its own schema (no FTS) and needs no backfills
+            if is_pg:
+                for stmt in _POSTGRES_SCHEMA.split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        try:
+                            conn.execute(stmt)
+                        except Exception as e:
+                            if "already exists" not in str(e).lower():
+                                # Only warn on unexpected errors
+                                logger.debug(f"Postgres schema stmt skipped: {e}")
+                self._schema_initialized = True
+                return
+
             self._backfill_expires_at(conn)
             self._backfill_route_key(conn)
             # libsql doesn't support executescript — run statements individually
@@ -388,14 +808,17 @@ class MemoryRepository:
             except Exception:
                 pass
         else:
-            # Ensure route_key exists even after initial schema init
-            try:
-                _backfill_route_key_column(conn)
-            except Exception:
-                pass
+            # Ensure route_key exists even after initial schema init (SQLite/Turso only)
+            if not is_pg:
+                try:
+                    _backfill_route_key_column(conn)
+                except Exception:
+                    pass
 
-    def _backfill_fts(self, conn: sqlite3.Connection):
-        """Populate FTS index from existing memories (one-time, idempotent)."""
+    def _backfill_fts(self, conn):
+        """Populate FTS index from existing memories (one-time, idempotent). No-op on Postgres."""
+        if isinstance(conn, _PostgresConnectionWrapper) or _is_postgres():
+            return
         try:
             fts_count = conn.execute("SELECT COUNT(*) FROM memories_fts").fetchone()[0]
             mem_count = conn.execute("SELECT COUNT(*) FROM memories WHERE deleted = 0").fetchone()[0]
@@ -408,6 +831,9 @@ class MemoryRepository:
 
     def _fts_search(self, conn, search: str, min_confidence: float, limit: int):
         """Search memories using FTS5 tokenized matching. Returns rows or None if FTS unavailable."""
+        # Postgres has no FTS5 — fall back to LIKE path
+        if isinstance(conn, _PostgresConnectionWrapper) or _is_postgres():
+            return None
         try:
             # Tokenize query: split on non-alphanumeric, join with OR
             import re
@@ -601,7 +1027,7 @@ class MemoryRepository:
             )
             return cursor.rowcount
 
-    def _backfill_expires_at(self, conn: sqlite3.Connection):
+    def _backfill_expires_at(self, conn):
         """Add expires_at column if missing (backward compat for existing DBs)."""
         _backfill_expires_at_column(conn)
 
@@ -792,9 +1218,9 @@ class MemoryRepository:
         If route_key is provided, history is isolated per-channel (Telegram vs Web)
         while still sharing the same brain (session_id) for long-term memory.
 
-        Atomic: DELETE + INSERT runs inside a single BEGIN IMMEDIATE transaction
+        Atomic: DELETE + INSERT runs inside a single transaction
         so concurrent saves (web vs Telegram) cannot interleave and lose rows.
-        Retries on SQLITE_BUSY with back-off.
+        Retries on busy/deadlock with back-off.
         """
         import sqlite3 as _sqlite3
 
@@ -815,19 +1241,22 @@ class MemoryRepository:
                 )
             )
 
-        # Retry on SQLITE_BUSY up to 3 times with exponential back-off
+        # Retry on busy/deadlock up to 3 times with exponential back-off
         for _attempt in range(3):
             try:
                 with self._connection() as conn:
-                    try:
-                        _backfill_route_key_column(conn)
-                    except Exception:
-                        pass
-                    # BEGIN IMMEDIATE acquires write lock early to prevent concurrent DELETE+INSERT interleave
-                    try:
-                        conn.execute("BEGIN IMMEDIATE")
-                    except Exception:
-                        pass  # Turso/libsql may not support explicit BEGIN
+                    is_pg = isinstance(conn, _PostgresConnectionWrapper) or _is_postgres()
+                    if not is_pg:
+                        try:
+                            _backfill_route_key_column(conn)
+                        except Exception:
+                            pass
+                        # BEGIN IMMEDIATE acquires write lock early to prevent concurrent DELETE+INSERT interleave
+                        # Skip on Postgres — normal transaction is enough
+                        try:
+                            conn.execute("BEGIN IMMEDIATE")
+                        except Exception:
+                            pass  # Turso/libsql may not support explicit BEGIN
                     try:
                         conn.execute(
                             "DELETE FROM conversation_messages WHERE session_id = ? AND route_key = ?",
@@ -853,6 +1282,12 @@ class MemoryRepository:
                     _time.sleep(0.05 * (2 ** _attempt))
                     continue
                 raise
+            except Exception as e:
+                msg_lower = str(e).lower()
+                if any(k in msg_lower for k in ("busy", "deadlock", "timeout", "could not serialize")) and _attempt < 2:
+                    _time.sleep(0.05 * (2 ** _attempt))
+                    continue
+                raise
         return f"Saved {len(messages)} messages"
 
     def load_messages(self, session_id: str = "default", route_key: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -863,10 +1298,12 @@ class MemoryRepository:
         from ..config import MAX_CONVERSATION_HISTORY
 
         with self._connection() as conn:
-            try:
-                _backfill_route_key_column(conn)
-            except Exception:
-                pass
+            is_pg = isinstance(conn, _PostgresConnectionWrapper) or _is_postgres()
+            if not is_pg:
+                try:
+                    _backfill_route_key_column(conn)
+                except Exception:
+                    pass
             # Try route-aware query first if route_key provided
             if route_key is not None:
                 try:
@@ -952,30 +1389,63 @@ class MemoryRepository:
                 return row["session_id"] if row else None
             except sqlite3.OperationalError:
                 return None
+            except Exception:
+                return None
 
     # ── Execution Tracing ────────────────────────────────────
 
     def save_span(self, span: dict) -> None:
         """Persist a completed span. Called by Tracer. Full JSON, no truncation."""
         with self._connection() as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO spans
-                   (span_id, parent_span_id, run_id, name, status,
-                    input_json, output_json, error, started_at, ended_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    span["span_id"],
-                    span.get("parent_span_id"),
-                    span.get("run_id", ""),
-                    span.get("name", ""),
-                    span.get("status", "ok"),
-                    json.dumps(span.get("input") or {}, default=str),
-                    json.dumps(span.get("output"), default=str) if span.get("output") is not None else None,
-                    span.get("error"),
-                    span.get("started_at", 0),
-                    span.get("ended_at"),
-                ),
-            )
+            is_pg = isinstance(conn, _PostgresConnectionWrapper) or _is_postgres()
+            if is_pg:
+                conn.execute(
+                    """INSERT INTO spans
+                       (span_id, parent_span_id, run_id, name, status,
+                        input_json, output_json, error, started_at, ended_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT (span_id) DO UPDATE SET
+                         parent_span_id = EXCLUDED.parent_span_id,
+                         run_id = EXCLUDED.run_id,
+                         name = EXCLUDED.name,
+                         status = EXCLUDED.status,
+                         input_json = EXCLUDED.input_json,
+                         output_json = EXCLUDED.output_json,
+                         error = EXCLUDED.error,
+                         started_at = EXCLUDED.started_at,
+                         ended_at = EXCLUDED.ended_at""",
+                    (
+                        span["span_id"],
+                        span.get("parent_span_id"),
+                        span.get("run_id", ""),
+                        span.get("name", ""),
+                        span.get("status", "ok"),
+                        json.dumps(span.get("input") or {}, default=str),
+                        json.dumps(span.get("output"), default=str) if span.get("output") is not None else None,
+                        span.get("error"),
+                        span.get("started_at", 0),
+                        span.get("ended_at"),
+                    ),
+                )
+            else:
+                conn.execute(
+                    """INSERT OR REPLACE INTO spans
+                       (span_id, parent_span_id, run_id, name, status,
+                        input_json, output_json, error, started_at, ended_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        span["span_id"],
+                        span.get("parent_span_id"),
+                        span.get("run_id", ""),
+                        span.get("name", ""),
+                        span.get("status", "ok"),
+                        json.dumps(span.get("input") or {}, default=str),
+                        json.dumps(span.get("output"), default=str) if span.get("output") is not None else None,
+                        span.get("error"),
+                        span.get("started_at", 0),
+                        span.get("ended_at"),
+                    ),
+                )
 
     def get_spans_by_run(self, run_id: str) -> List[Dict[str, Any]]:
         """Get all spans for a run_id, ordered by start time. Parses JSON columns."""
@@ -1026,7 +1496,7 @@ class MemoryRepository:
 
     @staticmethod
     def _span_to_dict(row) -> Dict[str, Any]:
-        """Convert an sqlite3.Row span to a dict with parsed JSON columns."""
+        """Convert a row span to a dict with parsed JSON columns."""
         d = dict(row)
         try:
             d["input"] = json.loads(d.get("input_json") or "{}")
@@ -1191,6 +1661,4 @@ MEMORY_TOOL_SCHEMAS = [
         },
     },
 ]
-
-
 

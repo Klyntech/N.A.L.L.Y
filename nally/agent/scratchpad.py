@@ -22,8 +22,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..config import DATA_DIR, TURSO_URL, TURSO_TOKEN
+from ..config import DATA_DIR, DATABASE_URL, TURSO_TOKEN, TURSO_URL, memory_backend
 from ..utils.logger import logger
+
+# Reuse postgres helpers from memory.store (lazy import to avoid cycle)
+def _is_pg_backend() -> bool:
+    try:
+        return memory_backend() == "postgres"
+    except Exception:
+        return False
 
 
 @dataclass
@@ -183,6 +190,35 @@ class ScratchpadStore:
         self._db_path = db_path or DATA_DIR / "nally_memory.db"
 
     def _create_connection(self):
+        # Postgres (Neon/Supabase) — uses same connection factory as MemoryRepository
+        if _is_pg_backend():
+            # Reuse postgres wrapper from memory.store
+            try:
+                from ..memory.store import _PostgresConnectionWrapper
+            except ImportError:
+                _PostgresConnectionWrapper = None  # type: ignore
+            import os as _os
+            live_url = _os.getenv("DATABASE_URL", "") or DATABASE_URL or ""
+            last_err = None
+            for mod_name in ("psycopg", "psycopg2"):
+                try:
+                    if mod_name == "psycopg":
+                        import psycopg  # type: ignore
+                        raw = psycopg.connect(live_url, autocommit=False)  # type: ignore[arg-type]
+                    else:
+                        import psycopg2  # type: ignore
+                        raw = psycopg2.connect(live_url)  # type: ignore[arg-type]
+                    if _PostgresConnectionWrapper is not None:
+                        return _PostgresConnectionWrapper(raw)
+                    return raw  # type: ignore
+                except ImportError as e:
+                    last_err = e
+                    continue
+                except Exception as e:
+                    logger.warning(f"Scratchpad Postgres connection ({mod_name}) failed: {e} — falling back to SQLite")
+                    break
+            if last_err:
+                logger.debug(f"Scratchpad postgres fallback: {last_err}")
         if TURSO_URL and TURSO_TOKEN:
             try:
                 import libsql_experimental as libsql
@@ -196,7 +232,7 @@ class ScratchpadStore:
         conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
-    def _ensure_schema(self, conn: sqlite3.Connection):
+    def _ensure_schema(self, conn):
         """Create scratchpads table if it doesn't exist."""
         try:
             conn.execute(
@@ -215,18 +251,40 @@ class ScratchpadStore:
         conn = self._create_connection()
         try:
             self._ensure_schema(conn)
-            conn.execute(
-                "INSERT OR REPLACE INTO scratchpads (id, objective, data, status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    scratchpad.id,
-                    scratchpad.objective,
-                    json.dumps(scratchpad.to_dict(), ensure_ascii=False),
-                    scratchpad.status,
-                    scratchpad.created_at,
-                    scratchpad.updated_at,
-                ),
-            )
+            is_pg = False
+            try:
+                from ..memory.store import _PostgresConnectionWrapper
+                is_pg = isinstance(conn, _PostgresConnectionWrapper) or _is_pg_backend()
+            except Exception:
+                is_pg = _is_pg_backend()
+            if is_pg:
+                conn.execute(
+                    "INSERT INTO scratchpads (id, objective, data, status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT (id) DO UPDATE SET objective=EXCLUDED.objective, data=EXCLUDED.data, "
+                    "status=EXCLUDED.status, created_at=EXCLUDED.created_at, updated_at=EXCLUDED.updated_at",
+                    (
+                        scratchpad.id,
+                        scratchpad.objective,
+                        json.dumps(scratchpad.to_dict(), ensure_ascii=False),
+                        scratchpad.status,
+                        scratchpad.created_at,
+                        scratchpad.updated_at,
+                    ),
+                )
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO scratchpads (id, objective, data, status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        scratchpad.id,
+                        scratchpad.objective,
+                        json.dumps(scratchpad.to_dict(), ensure_ascii=False),
+                        scratchpad.status,
+                        scratchpad.created_at,
+                        scratchpad.updated_at,
+                    ),
+                )
             conn.commit()
         except Exception as e:
             logger.error(f"Scratchpad save failed: {e}")
