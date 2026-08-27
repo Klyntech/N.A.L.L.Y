@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import DATA_DIR, TURSO_URL, TURSO_TOKEN
+from ..utils.logger import logger
 from .confidence import boost_confidence, days_since, decay_confidence
 
 # ── Profile Keys ───────────────────────────────────────────
@@ -216,14 +217,33 @@ class LibSQLConnectionProxy:
         self._conn = conn
 
     def execute(self, sql, params=None):
-        if params is not None:
-            cur = self._conn.execute(sql, params)
-        else:
-            cur = self._conn.execute(sql)
-        return _LibSQLCursorWrapper(cur)
+        try:
+            if params is not None:
+                cur = self._conn.execute(sql, params)
+            else:
+                cur = self._conn.execute(sql)
+            return _LibSQLCursorWrapper(cur)
+        except AttributeError as e:
+            if "read-only" in str(e) and "execute" in str(e):
+                # The raw libsql connection doesn't support .execute() directly.
+                # Fall back to using cursor().execute() instead.
+                cursor = self._conn.cursor()
+                if params is not None:
+                    cursor.execute(sql, params)
+                else:
+                    cursor.execute(sql)
+                return _LibSQLCursorWrapper(cursor)
+            raise
 
     def executemany(self, sql, params_list):
-        return _LibSQLCursorWrapper(self._conn.executemany(sql, params_list))
+        try:
+            return _LibSQLCursorWrapper(self._conn.executemany(sql, params_list))
+        except AttributeError as e:
+            if "read-only" in str(e):
+                cursor = self._conn.cursor()
+                cursor.executemany(sql, params_list)
+                return _LibSQLCursorWrapper(cursor)
+            raise
 
     def executescript(self, sql):
         """Run multiple statements. libsql lacks executescript, so split manually."""
@@ -233,12 +253,16 @@ class LibSQLConnectionProxy:
             try:
                 last_cursor = self._conn.execute(stmt)
             except Exception:
-                # Silently skip unsupported PRAGMAs on Turso
-                if not stmt.upper().lstrip().startswith("PRAGMA"):
-                    raise
+                # Try cursor-based approach if execute fails
+                try:
+                    cursor = self._conn.cursor()
+                    cursor.execute(stmt)
+                    last_cursor = cursor
+                except Exception:
+                    if not stmt.upper().lstrip().startswith("PRAGMA"):
+                        raise
         if last_cursor is not None:
             return _LibSQLCursorWrapper(last_cursor)
-        # No-op cursor for empty/all-PRAGMA scripts
         return _NoOpCursor()
 
     def commit(self):
@@ -251,7 +275,13 @@ class LibSQLConnectionProxy:
         self._conn.close()
 
     def cursor(self):
-        return _LibSQLCursorWrapper(self._conn.cursor())
+        try:
+            return _LibSQLCursorWrapper(self._conn.cursor())
+        except AttributeError as e:
+            if "read-only" in str(e):
+                # If cursor() itself fails, create a minimal cursor
+                raise RuntimeError(f"LibSQL connection cursor() failed: {e}")
+            raise
 
     def __enter__(self):
         return self
@@ -280,9 +310,11 @@ class MemoryRepository:
     def _create_connection(self):
         """Create a fresh connection. Uses Turso/LibSQL if TURSO_URL is set, else local SQLite."""
         if TURSO_URL and TURSO_TOKEN:
+            logger.debug(f"Using Turso/LibSQL: TURSO_URL={TURSO_URL[:20]}...")
             import libsql_experimental as libsql
             raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
             return LibSQLConnectionProxy(raw)
+        logger.debug(f"Using local SQLite: {self._db_path}")
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

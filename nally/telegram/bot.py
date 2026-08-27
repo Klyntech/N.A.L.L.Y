@@ -661,6 +661,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     _write_stream_event(session_id, "final_response",
                         _json.dumps({"text": f"Web server error (HTTP {resp.status_code})"}))
             except Exception as e:
+                logger.error(f"HTTP to web server failed: {type(e).__name__}: {e}")
                 _write_stream_event(session_id, "final_response",
                     _json.dumps({"text": f"Web server unreachable: {e}"}))
 
