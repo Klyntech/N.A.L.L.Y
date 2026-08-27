@@ -184,10 +184,13 @@ class ScratchpadStore:
 
     def _create_connection(self):
         if TURSO_URL and TURSO_TOKEN:
-            import libsql_experimental as libsql
-            from ..memory.store import LibSQLConnectionProxy
-            raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
-            return LibSQLConnectionProxy(raw)
+            try:
+                import libsql_experimental as libsql
+                from ..memory.store import LibSQLConnectionProxy
+                raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+                return LibSQLConnectionProxy(raw)
+            except ImportError:
+                pass
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")

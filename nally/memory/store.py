@@ -335,10 +335,13 @@ class MemoryRepository:
     def _create_connection(self):
         """Create a fresh connection. Uses Turso/LibSQL if TURSO_URL is set, else local SQLite."""
         if TURSO_URL and TURSO_TOKEN:
-            logger.debug(f"Using Turso/LibSQL: TURSO_URL={TURSO_URL[:20]}...")
-            import libsql_experimental as libsql
-            raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
-            return LibSQLConnectionProxy(raw)
+            try:
+                import libsql_experimental as libsql
+                logger.debug(f"Using Turso/LibSQL: TURSO_URL={TURSO_URL[:20]}...")
+                raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+                return LibSQLConnectionProxy(raw)
+            except ImportError:
+                logger.warning("libsql-experimental not installed — falling back to local SQLite")
         logger.debug(f"Using local SQLite: {self._db_path}")
         conn = sqlite3.connect(str(self._db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
