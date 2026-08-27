@@ -49,6 +49,7 @@ class ConnectionManager:
     def __init__(self):
         self._connections: dict[str, WebSocket] = {}
         self._sessions: dict[str, set[str]] = {}  # session_id -> set of connection_ids
+        self._cid_to_session: dict[str, str] = {}  # connection_id -> session_id (for proper cleanup)
         self._counter = 0
 
     async def connect(self, websocket: WebSocket, session_id: str) -> str:
@@ -57,6 +58,7 @@ class ConnectionManager:
         self._counter += 1
         cid = f"ws_{self._counter}"
         self._connections[cid] = websocket
+        self._cid_to_session[cid] = session_id
 
         if session_id not in self._sessions:
             self._sessions[session_id] = set()
@@ -65,9 +67,14 @@ class ConnectionManager:
         logger.info(f"WebSocket connected: {cid} (session: {session_id}, total: {len(self._connections)})")
         return cid
 
-    def disconnect(self, cid: str, session_id: str):
+    def disconnect(self, cid: str, session_id: str = ""):
         """Remove a WebSocket connection."""
         self._connections.pop(cid, None)
+        # Look up session_id from mapping if not provided
+        if not session_id:
+            session_id = self._cid_to_session.pop(cid, "")
+        else:
+            self._cid_to_session.pop(cid, None)
         if session_id in self._sessions:
             self._sessions[session_id].discard(cid)
             if not self._sessions[session_id]:
@@ -75,13 +82,18 @@ class ConnectionManager:
         logger.info(f"WebSocket disconnected: {cid} (total: {len(self._connections)})")
 
     async def send_json(self, cid: str, data: dict):
-        """Send JSON to a specific connection."""
+        """Send JSON to a specific connection. Does NOT disconnect on failure —
+        the main receive loop's finally block handles cleanup with the correct session_id."""
         ws = self._connections.get(cid)
         if ws:
             try:
                 await ws.send_json(data)
             except Exception:
-                self.disconnect(cid, "")
+                # Don't disconnect here — the main loop's WebSocketDisconnect
+                # handler + finally block will clean up properly with the
+                # correct session_id. Disconnecting here with "" session_id
+                # silently kills the connection and drops all future responses.
+                logger.debug(f"send_json failed for {cid} (will retry on next send or clean up via disconnect)")
 
     async def broadcast(self, session_id: str, data: dict, exclude: str = ""):
         """Send JSON to all connections in a session (except excluded)."""
@@ -120,9 +132,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
     cid = await ws_manager.connect(websocket, session_id)
 
-    # Send initial connection confirmation so the client knows the WS is truly ready
+    # Send initial connection confirmation directly via websocket (bypasses ws_manager
+    # so a transient failure here can't accidentally remove the connection from the manager)
     try:
-        await ws_manager.send_json(cid, {"type": "connected", "session_id": session_id})
+        await websocket.send_json({"type": "connected", "session_id": session_id})
     except Exception:
         pass
 

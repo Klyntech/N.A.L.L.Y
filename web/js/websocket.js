@@ -15,8 +15,17 @@ NALLY.initWebSocket = function() {
   });
   
   s.ws.on('disconnected', function() {
-    console.log('[chat] WebSocket disconnected, falling back to SSE');
-    s.useWebSocket = false;
+    console.log('[chat] WebSocket disconnected, will retry...');
+    // Don't immediately set useWebSocket = false — the reconnect logic
+    // will retry. If it fails after max delay, sendChat will naturally
+    // fall back to SSE because s.ws.connected will be false.
+    // Only disable WS if it's been disconnected for more than 5 seconds
+    setTimeout(function() {
+      if (!s.ws || !s.ws.connected) {
+        console.log('[chat] WebSocket still disconnected after 5s, falling back to SSE');
+        s.useWebSocket = false;
+      }
+    }, 5000);
   });
   
   s.ws.on('thought', function(data) {
