@@ -393,6 +393,7 @@ async def _middleware(request: Request, call_next):
 _web_dir = _base / "web"
 _data_dir = _base / "data"
 _gen_dir = _data_dir / "generated"
+_gen_dir.mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/")
