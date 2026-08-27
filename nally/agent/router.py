@@ -954,40 +954,36 @@ def handle_brightness_down(match):
 
 
 def create_matcher() -> PatternMatcher:
-    """Create and configure the pattern matcher with all patterns"""
+    """Create and configure the pattern matcher — minimal allowlist.
+
+    Keeps only cheap, true, no-LLM-needed handlers (time/date).
+    Everything else goes to the LLM for one brain, one voice.
+    Heavy handlers (who_are_you hype, PC control, files, volume,
+    brightness, shutdown, eval) are intentionally NOT registered here.
+    They belong behind Bridge / IS_RENDER checks, not regex.
+
+    Recommendation: tiny allowlist — time/date (+ optional greet).
+    """
     m = PatternMatcher()
 
-    # Time & Date (high specificity)
-    m.add(r"what time is it|current time|what's the time|time is it|tell me the time|what time", handle_time, 10)
-    m.add(r"what date|today's date|what's today|what day is it|what's the date", handle_date, 10)
-    m.add(r"what day|day of week|what's the day", handle_day, 9)
-    m.add(r"what month|current month|what's the month", handle_month, 9)
-    m.add(r"what year|current year|what's the year", handle_year, 9)
-    m.add(r"timestamp|unix time", handle_timestamp, 8)
+    # Cheap, true, no LLM needed — keep
+    m.add(r"what time is it|current time|what's the time|what time\b", handle_time, 10)
+    m.add(r"what(?:'s| is) (?:the )?date|today's date|what day is it", handle_date, 10)
+    m.add(r"what day\b|day of week", handle_day, 10)
 
-    # Math
-    m.add(
-        r"calculate ([\d\+\-\*\/\.\(\)\s]+)|what's ([\d\+\-\*\/\.\(\)\s]+)|compute ([\d\+\-\*\/\.\(\)\s]+)",
-        handle_calculate,
-        14,
-    )
-    m.add(r"what is (\d+\s*[\+\-\*\/]\s*\d+)", handle_calculate, 13)
+    # Optional greet — cheap, uncomment if you want instant hello
+    m.add(r"^hello$|^hi$|^hey$|^howdy$", handle_greet, 5)
 
-    # Entertainment
-    m.add(r"tell me a joke|say something funny|what's a joke|joke please|joke", handle_joke, 12)
-    m.add(r"tell me a fact|random fact|fun fact", handle_fact, 12)
-    m.add(r"flip a coin|coin flip", handle_coin, 12)
-    m.add(r"roll a dice|roll dice|dice", handle_dice, 12)
-
-    # Greetings
-    m.add(r"^hello$|^hi$|^hey$|^howdy$", handle_greet, 11)
-    m.add(r"good morning|good afternoon|good evening", handle_greet_time, 11)
-    m.add(r"how are you|how's it going|how do you do", handle_how_are_you, 11)
-    m.add(r"who are you|what are you|introduce yourself", handle_who_are_you, 11)
-    m.add(r"^thanks$|^thank you$|^thx$", handle_thanks, 11)
-
-    # Exit (lowest specificity, checked last)
-    m.add(r"goodbye|bye|see you|exit|quit|shut down nally|close", handle_goodbye, 5)
+    # NOTE: Removed from minimal allowlist (go to LLM):
+    # - who are you / what are you (hype block, identity lies)
+    # - open app / browser / explorer / terminal / settings / task manager
+    # - volume / brightness / mute / screenshot / window / lock / shutdown / sleep
+    # - file list / read / delete / create / find / size
+    # - handle_calculate via eval (risky)
+    # - weather / system_info / cpu / memory / disk
+    # - jokes / facts / coin / dice
+    # - goodbye / thanks (let LLM handle tone)
+    # Enable PC-control handlers only when Bridge is up and not IS_RENDER.
 
     return m
 
