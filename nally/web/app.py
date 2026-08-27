@@ -522,11 +522,13 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
                 yield 'data: {"event": "done"}\n\n'
             return StreamingResponse(voice_redirect(), media_type="text/event-stream")
 
-    # Identity, not channel: web chat shares the owner's single brain session
-    # with Telegram/voice. The client-supplied session_id is kept only for
-    # backward compatibility and is not used to isolate the brain.
+    # Identity: same brain (user:{owner}) for memory, but per-route history isolation (web:default)
+    # Client-supplied session_id is kept only for backward compatibility.
     session_id = request.session_id
-    brain_session = owner_session_id()
+    from ..agent.identity import resolve_session
+    ref = resolve_session("web")
+    brain_session = ref.session_id
+    route_key = ref.route_key
     tab_id = request.tab_id
     queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
@@ -541,9 +543,9 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
     async def event_generator():
 
-        # Check if session is busy — queue the message
-        if session_manager.is_busy(brain_session):
-            pos = session_manager.queue_message(brain_session, message)
+        # Check if session is busy — queue the message (per-route)
+        if session_manager.is_busy(brain_session, route_key=route_key):
+            pos = session_manager.queue_message(brain_session, message, route_key=route_key)
             if pos < 0:
                 yield 'data: {"type": "error", "text": "Queue full — try again shortly."}\n\n'
             else:
@@ -553,7 +555,7 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
         def run_agent():
             try:
-                response = session_manager.process(brain_session, message, emit=stream_event)
+                response = session_manager.process(brain_session, message, emit=stream_event, route_key=route_key)
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
             except NallyError as e:
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
@@ -562,10 +564,10 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        # Clear any prior abort flag for this session
+        # Clear any prior abort flag for this route
         from ..core.abort import clear_abort
 
-        clear_abort(brain_session)
+        clear_abort(route_key)
 
         # Broadcast user message immediately to other tabs
         broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id})
@@ -573,11 +575,11 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         while True:
-            # Check for abort
-            if check_abort(brain_session):
+            # Check for abort (per-route)
+            if check_abort(route_key):
                 from ..core.abort import clear_abort
 
-                clear_abort(brain_session)
+                clear_abort(route_key)
                 yield 'data: {"type": "error", "text": "Operation aborted by user."}\n\n'
                 yield 'data: {"event": "done"}\n\n'
                 return
@@ -650,9 +652,11 @@ async def sse_events(request: Request):
 
 @app.get("/api/history")
 async def history(_auth=Depends(verify_auth)):
+    from ..agent.identity import resolve_session
+    ref = resolve_session("web")
     messages = [
         {"role": msg.get("role", "unknown"), "content": msg.get("content", "")}
-        for msg in session_manager.get_history(owner_session_id())
+        for msg in session_manager.get_history(ref.session_id, route_key=ref.route_key)
     ]
     return {"messages": [m for m in messages if m.get("role") not in ("system", "tool")]}
 
@@ -662,7 +666,9 @@ async def history(_auth=Depends(verify_auth)):
 
 @app.post("/api/clear")
 async def clear(_auth=Depends(verify_auth)):
-    agent = session_manager.get(owner_session_id(), channel="Web")
+    from ..agent.identity import resolve_session
+    ref = resolve_session("web")
+    agent = session_manager.get(ref.session_id, channel="Web", route_key=ref.route_key)
     agent.clear_history()
     broadcast_manager.broadcast("history_cleared", {})
     return {"status": "cleared"}
@@ -741,19 +747,20 @@ async def tg_message(request: Request):
     from ..telegram.bot import _make_emit_standalone, _write_stream_event
 
     session_id = data["session_id"]
-    emit = _make_emit_standalone(data["chat_id"], session_id=session_id)
+    route_key = data.get("route_key") or data.get("routeKey") or session_id
+    emit = _make_emit_standalone(data["chat_id"], session_id=route_key)
 
     async def _process():
         try:
             response = await asyncio.to_thread(
-                session_manager.process, session_id, data["text"], emit=emit
+                session_manager.process, session_id, data["text"], emit=emit, route_key=route_key
             )
         except Exception as e:
             logger.error(f"Telegram message processing failed: {e}")
             response = f"Error: {e}"
-        # Write final response to stream events so the bot picks it up
+        # Write final response to stream events so the bot picks it up (per-route)
         import json as _json
-        _write_stream_event(session_id, "final_response", _json.dumps({"text": response}))
+        _write_stream_event(route_key, "final_response", _json.dumps({"text": response}))
 
     asyncio.create_task(_process())
     return {"status": "processing"}
@@ -777,24 +784,30 @@ async def tg_approve(request: Request):
 
 def check_abort(session_id: Optional[str] = None) -> bool:
     from ..core.abort import check_abort as _check
-
-    return _check(session_id or owner_session_id())
+    from ..agent.identity import resolve_session
+    if session_id is None:
+        session_id = resolve_session("web").route_key
+    return _check(session_id)
 
 
 @app.post("/api/abort")
 async def abort_session(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
     from ..core.abort import set_abort
+    from ..agent.identity import resolve_session
 
-    # Whole-brain abort — any channel stops the shared session.
-    set_abort(owner_session_id())
+    # Per-route abort — only stops operations for this channel
+    route = resolve_session("web").route_key
+    set_abort(route)
     return {"status": "aborted"}
 
 
 @app.post("/api/abort/clear")
 async def abort_clear(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
     from ..core.abort import clear_abort
+    from ..agent.identity import resolve_session
 
-    clear_abort(owner_session_id())
+    route = resolve_session("web").route_key
+    clear_abort(route)
     return {"status": "cleared"}
 
 

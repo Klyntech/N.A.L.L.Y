@@ -90,13 +90,16 @@ def _extract_topics(user_msgs: List[str]) -> List[str]:
 
 
 class NallyAgent:
-    def __init__(self, session_id: Optional[str] = None, channel: Optional[str] = None):
+    def __init__(self, session_id: Optional[str] = None, channel: Optional[str] = None, route_key: Optional[str] = None):
         self.messages: List[dict] = []
         self._session_id = session_id or SESSION_ID
         # Human-facing channel label (e.g. "Telegram voice call"). Explicit
         # instead of sniffed from the session-id prefix, since one shared
         # session ("user:{owner}") is reached from many channels.
         self._channel = channel
+        # Per-channel route key for history isolation (Telegram vs Web).
+        # Same brain (session_id) but different chat logs.
+        self._route_key = route_key or self._session_id
         # Stable abort key. Must equal the session id used by set_abort()
         # (web/ws handlers) so abort flags match the graph's checks. The
         # graph appends a uuid suffix and registers it as an alias back to
@@ -155,9 +158,9 @@ class NallyAgent:
         self.messages = [{"role": "system", "content": system_content, "cache_control": {"type": "ephemeral"}}]
 
     def _load_history(self):
-        """Load conversation history from database on startup."""
+        """Load conversation history from database on startup (per-channel)."""
         try:
-            saved = memory_store.load_messages(self._session_id)
+            saved = memory_store.load_messages(self._session_id, route_key=self._route_key)
             if saved:
                 system_msg = self.messages[0] if self.messages else None
                 if system_msg:
@@ -170,17 +173,17 @@ class NallyAgent:
 
                 self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
-                logger.debug(f"Loaded {len(saved)} messages from session {self._session_id}")
+                logger.debug(f"Loaded {len(saved)} messages from session {self._session_id} route {self._route_key}")
         except Exception as e:
             logger.debug(f"No saved history to load: {e}")
 
     def _save_history(self):
-        """Save conversation history to database on shutdown."""
+        """Save conversation history to database on shutdown (per-channel)."""
         try:
             saveable = [m for m in self.messages if m.get("role") != "system"]
             if len(saveable) > 1:
-                memory_store.save_messages(saveable, self._session_id)
-                logger.debug(f"Saved {len(saveable)} messages to session {self._session_id}")
+                memory_store.save_messages(saveable, self._session_id, route_key=self._route_key)
+                logger.debug(f"Saved {len(saveable)} messages to session {self._session_id} route {self._route_key}")
         except Exception as e:
             logger.debug(f"Failed to save history: {e}")
 

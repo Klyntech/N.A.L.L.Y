@@ -589,11 +589,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def abort_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /abort command — cancel running operations."""
+    """Handle /abort command — cancel running operations (per-route)."""
     from ..core.abort import set_abort
 
-    session_id = _extract_session_id(update)
-    set_abort(session_id)
+    ref = _extract_session_ref(update)
+    set_abort(ref.route_key)
     await update.message.reply_text("Abort signal sent. I'll stop what I'm doing.")
 
 
@@ -620,12 +620,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Ignore empty after cleaning (e.g., just an @mention)
             return
 
-    session_id = _extract_session_id(update)
+    ref = _extract_session_ref(update)
+    session_id = ref.session_id
+    route_key = ref.route_key
 
-    # Text "abort" fallback — same as /abort command
+    # Text "abort" fallback — same as /abort command (per-route)
     if text.strip().lower() == "abort":
         from ..core.abort import set_abort
-        set_abort(session_id)
+        set_abort(route_key)
         await message.reply_text("Abort signal sent. I'll stop what I'm doing.")
         return
 
@@ -642,8 +644,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         sent_msg = None
 
-    # Clear old stream events for this session
-    _clear_stream_events(session_id)
+    # Clear old stream events for this session (per-route)
+    _clear_stream_events(route_key)
 
     # Fire HTTP request to web server (fire-and-forget — just triggers processing).
     # The response comes back via stream events (final_response), not the HTTP body.
@@ -655,14 +657,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 resp = await client.post(
                     f"{_web_base_url()}/api/telegram/message",
-                    json={"session_id": session_id, "text": text, "chat_id": chat.id},
+                    json={"session_id": session_id, "route_key": route_key, "text": text, "chat_id": chat.id},
                 )
                 if resp.status_code != 200:
-                    _write_stream_event(session_id, "final_response",
+                    _write_stream_event(route_key, "final_response",
                         _json.dumps({"text": f"Web server error (HTTP {resp.status_code})"}))
             except Exception as e:
                 logger.error(f"HTTP to web server failed: {type(e).__name__}: {e}")
-                _write_stream_event(session_id, "final_response",
+                _write_stream_event(route_key, "final_response",
                     _json.dumps({"text": f"Web server unreachable: {e}"}))
 
     import json as _json_mod
@@ -678,7 +680,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     while final_response is None and time.time() < _deadline:
         await asyncio.sleep(2)
-        events = _read_stream_events(session_id, after_id=last_event_id)
+        events = _read_stream_events(route_key, after_id=last_event_id)
         for eid, etype, payload in events:
             last_event_id = eid
             try:
@@ -747,7 +749,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not request_task.done():
         request_task.cancel()
 
-    _clear_stream_events(session_id)
+    _clear_stream_events(route_key)
 
     response = final_response
     if response is None:
@@ -818,7 +820,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat = update.effective_chat
-    session_id = _extract_session_id(update)
+    ref = _extract_session_ref(update)
+    session_id = ref.session_id
+    route_key = ref.route_key
 
     # Check if ffmpeg is available
     from .voice import check_ffmpeg
@@ -852,12 +856,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("Couldn't understand the voice message.")
             return
 
-        # Process through agent
+        # Process through agent (per-route isolated history, same brain)
         emit = _make_emit(chat.id)
         if not callable(emit):
             logger.error(f"_make_emit failed to return a callable emit callback (got {emit!r})")
             emit = None
-        response = await asyncio.to_thread(session_manager.process, session_id, text, emit=emit)
+        response = await asyncio.to_thread(session_manager.process, session_id, text, emit=emit, route_key=route_key)
 
         if not response or response == "__EXIT__":
             return
@@ -900,6 +904,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     ref = _extract_session_ref(update)
     session_id = ref.session_id
+    route_key = ref.route_key
 
     # Beta: handle all group media, mention optional
     caption = message.caption or message.text or ""
@@ -907,10 +912,10 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = _clean_message_text(caption)
         # caption may be empty — still process file with description
 
-    # Text "abort" fallback
+    # Text "abort" fallback (per-route)
     if caption.strip().lower() == "abort":
         from ..core.abort import set_abort
-        set_abort(session_id)
+        set_abort(route_key)
         await message.reply_text("Abort signal sent. I'll stop what I'm doing.")
         return
 
@@ -964,13 +969,13 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         sent_msg = None
 
-    _clear_stream_events(session_id)
+    _clear_stream_events(route_key)
 
     async def _do_request():
         async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(
                 f"{_web_base_url()}/api/telegram/message",
-                json={"session_id": session_id, "text": combined, "chat_id": chat.id},
+                json={"session_id": session_id, "route_key": route_key, "text": combined, "chat_id": chat.id},
             )
             if resp.status_code != 200:
                 return f"Web server error (HTTP {resp.status_code})"
@@ -981,7 +986,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     collected_text = ""
     while not request_task.done():
         await asyncio.sleep(2)
-        events = _read_stream_events(session_id, after_id=last_event_id)
+        events = _read_stream_events(route_key, after_id=last_event_id)
         for eid, etype, payload in events:
             last_event_id = eid
             try:
@@ -1012,7 +1017,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"HTTP to web server failed (media): {e}")
         response = f"Web server unreachable: {e}"
 
-    _clear_stream_events(session_id)
+    _clear_stream_events(route_key)
 
     if not response or response == "__EXIT__":
         return

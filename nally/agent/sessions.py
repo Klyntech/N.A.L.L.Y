@@ -32,27 +32,33 @@ class AgentSessionManager:
         # Guards _busy/_queue across the process/queue_message/is_busy paths.
         self._queue_lock = threading.Lock()
 
-    def _get_lock(self, session_id: str) -> threading.Lock:
-        """Get or create a lock for a session."""
-        if session_id not in self._locks:
-            with self._pool_lock:
-                if session_id not in self._locks:
-                    self._locks[session_id] = threading.Lock()
-        return self._locks[session_id]
+    def _effective_key(self, session_id: str, route_key: Optional[str] = None) -> str:
+        """Effective pool key — route_key isolates chat history per channel, session_id is brain."""
+        return route_key if route_key is not None else session_id
 
-    def get(self, session_id: str, channel: Optional[str] = None) -> NallyAgent:
-        """Get or create an agent for a session."""
-        if session_id not in self._sessions:
+    def _get_lock(self, session_id: str, route_key: Optional[str] = None) -> threading.Lock:
+        """Get or create a lock for a session (per-route for isolated history)."""
+        key = self._effective_key(session_id, route_key)
+        if key not in self._locks:
             with self._pool_lock:
-                if session_id not in self._sessions:
+                if key not in self._locks:
+                    self._locks[key] = threading.Lock()
+        return self._locks[key]
+
+    def get(self, session_id: str, channel: Optional[str] = None, route_key: Optional[str] = None) -> NallyAgent:
+        """Get or create an agent for a session (per-route for history isolation)."""
+        key = self._effective_key(session_id, route_key)
+        if key not in self._sessions:
+            with self._pool_lock:
+                if key not in self._sessions:
                     ensure_migrated()
-                    logger.info(f"Creating agent for session: {session_id}")
-                    self._sessions[session_id] = NallyAgent(
-                        session_id=session_id, channel=channel
+                    logger.info(f"Creating agent for session: {session_id} route: {key}")
+                    self._sessions[key] = NallyAgent(
+                        session_id=session_id, channel=channel, route_key=key
                     )
-        return self._sessions[session_id]
+        return self._sessions[key]
 
-    def commit_turn(self, session_id: str, user_text: str, reply: str) -> None:
+    def commit_turn(self, session_id: str, user_text: str, reply: str, route_key: Optional[str] = None) -> None:
         """Commit an externally-generated turn into the shared session brain.
 
         Used by the voice-call fast path (and any other lightweight LLM path)
@@ -60,10 +66,10 @@ class AgentSessionManager:
         latency. Acquires the session lock so it can't interleave with a
         concurrent process() on the same brain.
         """
-        lock = self._get_lock(session_id)
+        lock = self._get_lock(session_id, route_key)
         with lock:
             try:
-                agent = self.get(session_id)
+                agent = self.get(session_id, route_key=route_key)
                 agent.messages.append({"role": "user", "content": user_text})
                 if reply:
                     agent.messages.append({"role": "assistant", "content": reply})
@@ -71,60 +77,65 @@ class AgentSessionManager:
             except Exception as e:
                 logger.error(f"commit_turn failed: {type(e).__name__}: {e}")
 
-    def is_busy(self, session_id: str) -> bool:
-        """Check if session is currently processing a message."""
+    def is_busy(self, session_id: str, route_key: Optional[str] = None) -> bool:
+        """Check if session is currently processing a message (per-route)."""
+        key = self._effective_key(session_id, route_key)
         with self._queue_lock:
-            return self._busy.get(session_id, False)
+            return self._busy.get(key, False)
 
-    def queue_message(self, session_id: str, message: str) -> int:
+    def queue_message(self, session_id: str, message: str, route_key: Optional[str] = None) -> int:
         """Queue a message for later processing. Returns queue position (1-based), or 0 if rejected."""
+        key = self._effective_key(session_id, route_key)
         with self._queue_lock:
-            q = self._queue.setdefault(session_id, [])
+            q = self._queue.setdefault(key, [])
             if len(q) >= MAX_QUEUE_SIZE:
                 return -1  # Queue full
             q.append(message)
             return len(q)
 
-    def process(self, session_id: str, message: str, emit: Optional[Callable] = None) -> str:
-        """Process a message for a specific session (thread-safe).
+    def process(self, session_id: str, message: str, emit: Optional[Callable] = None, route_key: Optional[str] = None) -> str:
+        """Process a message for a specific session (thread-safe, per-route).
 
         Sets busy flag while processing, then drains queued messages.
         """
-        lock = self._get_lock(session_id)
+        key = self._effective_key(session_id, route_key)
+        lock = self._get_lock(session_id, route_key)
         with lock:
             with self._queue_lock:
-                self._busy[session_id] = True
-                self._last_activity[session_id] = time.time()
+                self._busy[key] = True
+                self._last_activity[key] = time.time()
             try:
-                agent = self.get(session_id)
+                agent = self.get(session_id, route_key=route_key)
                 result = agent.process(message, emit=emit)
                 return result
             finally:
                 with self._queue_lock:
-                    self._busy[session_id] = False
-                    self._last_activity[session_id] = time.time()
-                self._drain_queue(session_id)
+                    self._busy[key] = False
+                    self._last_activity[key] = time.time()
+                self._drain_queue(session_id, route_key)
 
-    def _drain_queue(self, session_id: str):
+    def _drain_queue(self, session_id: str, route_key: Optional[str] = None):
         """Process any queued messages after current op finishes."""
+        key = self._effective_key(session_id, route_key)
         with self._queue_lock:
-            q = self._queue.get(session_id, [])
+            q = self._queue.get(key, [])
             queued = list(q)
             q.clear()
-        agent = self.get(session_id)
+        if not queued:
+            return
+        agent = self.get(session_id, route_key=route_key)
         for msg in queued:
-            logger.info(f"Processing queued message for {session_id}")
+            logger.info(f"Processing queued message for {session_id} route {key}")
             try:
                 agent.process(msg)
             except Exception as e:
                 logger.error(f"Queued message failed: {type(e).__name__}: {e}")
-        if queued:
-            with self._queue_lock:
-                self._last_activity[session_id] = time.time()
+        with self._queue_lock:
+            self._last_activity[key] = time.time()
 
-    def get_history(self, session_id: str) -> list:
-        """Get conversation history for a session."""
-        agent = self.get(session_id)
+    def get_history(self, session_id: str, route_key: Optional[str] = None) -> list:
+        """Get conversation history for a session (per-route if route_key given)."""
+        agent = self.get(session_id, route_key=route_key)
         return agent.get_history()
 
     def all_idle(self, idle_threshold: float = 300.0) -> bool:

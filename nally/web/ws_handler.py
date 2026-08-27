@@ -128,9 +128,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     # plan events and aborts all target the shared brain.
     from ..agent.identity import resolve_session
 
-    session_id = resolve_session("web").session_id
+    ref = resolve_session("web")
+    session_id = ref.session_id
+    route_key = ref.route_key
 
-    cid = await ws_manager.connect(websocket, session_id)
+    cid = await ws_manager.connect(websocket, route_key)
 
     # Send initial connection confirmation directly via websocket (bypasses ws_manager
     # so a transient failure here can't accidentally remove the connection from the manager)
@@ -147,10 +149,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     def _on_plan_event(event_type, data):
         """Broadcast plan events to this session's WebSocket clients."""
         try:
-            asyncio.ensure_future(ws_manager.broadcast(session_id, {"type": event_type, **data}))
+            asyncio.ensure_future(ws_manager.broadcast(route_key, {"type": event_type, **data}))
         except RuntimeError:
             _loop.call_soon_threadsafe(
-                asyncio.ensure_future, ws_manager.broadcast(session_id, {"type": event_type, **data})
+                asyncio.ensure_future, ws_manager.broadcast(route_key, {"type": event_type, **data})
             )
         except Exception:
             pass
@@ -194,14 +196,14 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     await ws_manager.send_json(cid, {"type": "error", "text": "Empty message"})
                     continue
 
-                # Process in background
-                asyncio.create_task(_process_message(cid, session_id, text, tab_id))
+                # Process in background (per-route isolated history, same brain)
+                asyncio.create_task(_process_message(cid, session_id, text, tab_id, route_key))
 
             # ── Abort ───────────────────────────────────
             elif msg_type == "abort":
                 from ..core.abort import set_abort
 
-                set_abort(session_id)
+                set_abort(route_key)
                 await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted"})
 
             # ── Approval response ───────────────────────
@@ -213,7 +215,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 # resolve_approval does blocking SQLite I/O — keep it off the loop.
                 await asyncio.to_thread(resolve_approval, tool_call_id, approved)
                 await ws_manager.broadcast(
-                    session_id,
+                    route_key,
                     {"type": "approval_resolved", "tool_call_id": tool_call_id, "approved": approved},
                 )
 
@@ -225,7 +227,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 if not audio_b64:
                     await ws_manager.send_json(cid, {"type": "error", "text": "No audio data"})
                     continue
-                asyncio.create_task(_process_voice(cid, session_id, audio_b64, tab_id, audio_format))
+                asyncio.create_task(_process_voice(cid, session_id, audio_b64, tab_id, audio_format, route_key))
 
             # ── Pong from client (heartbeat response) ──
             elif msg_type == "pong":
@@ -250,12 +252,14 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 unsub()
             except Exception:
                 pass
-        ws_manager.disconnect(cid, session_id)
+        ws_manager.disconnect(cid, route_key)
 
 
-async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
-    """Process a user message and stream events back."""
+async def _process_message(cid: str, session_id: str, text: str, tab_id: str, route_key: str = None):
+    """Process a user message and stream events back (per-route isolated history, same brain)."""
     from ..core.abort import check_abort, clear_abort
+
+    rk = route_key or session_id
 
     # Intercept "call me" on web UI — redirect to Telegram
     if text.strip().lower() in ("call me", "call nally"):
@@ -267,9 +271,9 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
             })
             return
 
-    # Check if session is busy — queue the message
-    if session_manager.is_busy(session_id):
-        pos = session_manager.queue_message(session_id, text)
+    # Check if session is busy — queue the message (per-route)
+    if session_manager.is_busy(session_id, route_key=rk):
+        pos = session_manager.queue_message(session_id, text, route_key=rk)
         if pos < 0:
             await ws_manager.send_json(cid, {"type": "error", "text": "Queue full — try again shortly."})
         else:
@@ -293,7 +297,7 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
     def run_agent():
         """Run agent in thread pool."""
         try:
-            response = session_manager.process(session_id, text, emit=stream_event)
+            response = session_manager.process(session_id, text, emit=stream_event, route_key=rk)
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
         except NallyError as e:
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
@@ -305,7 +309,7 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
             try:
                 from ..memory.reflector import reflector
 
-                agent = session_manager._sessions.get(session_id)
+                agent = session_manager.get(session_id, route_key=rk)
                 if agent and len(agent.messages) > 4:
                     threading.Thread(
                         target=reflector.reflect_on_conversation,
@@ -315,12 +319,12 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
             except Exception:
                 pass
 
-    # Clear abort flag
-    clear_abort(session_id)
+    # Clear abort flag (per-route)
+    clear_abort(rk)
 
-    # Broadcast user message to other tabs
+    # Broadcast user message to other tabs (per-route)
     await ws_manager.broadcast(
-        session_id,
+        rk,
         {"type": "user_message", "text": text, "tab_id": tab_id},
         exclude=cid,
     )
@@ -330,9 +334,9 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
 
     # Stream events back to client
     while True:
-        # Check abort
-        if check_abort(session_id):
-            clear_abort(session_id)
+        # Check abort (per-route)
+        if check_abort(rk):
+            clear_abort(rk)
             await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
             await ws_manager.send_json(cid, {"type": "done"})
             return
@@ -343,17 +347,17 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
 
         await ws_manager.send_json(cid, item)
 
-        # Broadcast specific events to other tabs
+        # Broadcast specific events to other tabs (per-route)
         evt_type = item.get("type", "")
         if evt_type == "thought":
             await ws_manager.broadcast(
-                session_id,
+                rk,
                 {"type": "thinking", "text": item.get("text", ""), "tab_id": tab_id},
                 exclude=cid,
             )
         elif evt_type == "response":
             await ws_manager.broadcast(
-                session_id,
+                rk,
                 {"type": "assistant_message", "text": item.get("text", ""), "tab_id": tab_id},
                 exclude=cid,
             )
@@ -361,9 +365,10 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str):
     await ws_manager.send_json(cid, {"type": "done"})
 
 
-async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str, audio_format: str = ""):
-    """Process voice audio from browser: STT -> agent -> TTS -> stream audio back."""
+async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str, audio_format: str = "", route_key: str = None):
+    """Process voice audio from browser: STT -> agent -> TTS -> stream audio back (per-route)."""
     from ..core.abort import check_abort, clear_abort
+    rk = route_key or session_id
 
     loop = asyncio.get_event_loop()
 
@@ -460,7 +465,7 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
 
         def run_agent():
             try:
-                response = session_manager.process(session_id, text, emit=stream_event)
+                response = session_manager.process(session_id, text, emit=stream_event, route_key=rk)
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
             except NallyError as e:
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
@@ -469,14 +474,14 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        clear_abort(session_id)
+        clear_abort(rk)
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         # Stream events back, capture final response
         final_response = ""
         while True:
-            if check_abort(session_id):
-                clear_abort(session_id)
+            if check_abort(rk):
+                clear_abort(rk)
                 await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
                 await ws_manager.send_json(cid, {"type": "done"})
                 return
@@ -490,17 +495,17 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
             if item.get("type") == "response":
                 final_response = item.get("text", "")
 
-            # Broadcast to other tabs
+            # Broadcast to other tabs (per-route)
             evt_type = item.get("type", "")
             if evt_type == "thought":
                 await ws_manager.broadcast(
-                    session_id,
+                    rk,
                     {"type": "thinking", "text": item.get("text", ""), "tab_id": tab_id},
                     exclude=cid,
                 )
             elif evt_type == "response":
                 await ws_manager.broadcast(
-                    session_id,
+                    rk,
                     {"type": "assistant_message", "text": item.get("text", ""), "tab_id": tab_id},
                     exclude=cid,
                 )

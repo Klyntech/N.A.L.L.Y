@@ -100,6 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_semantic_pattern ON semantic(pattern);
 CREATE TABLE IF NOT EXISTS conversation_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
+    route_key TEXT DEFAULT NULL,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     tool_calls TEXT DEFAULT NULL,
@@ -107,6 +108,7 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
     timestamp TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conv_msg_session ON conversation_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_conv_msg_route ON conversation_messages(route_key);
 
 CREATE TABLE IF NOT EXISTS spans (
     span_id TEXT PRIMARY KEY,
@@ -144,6 +146,20 @@ def _backfill_expires_at_column(conn: sqlite3.Connection):
         if "expires_at" not in cols:
             conn.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT DEFAULT NULL")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at)")
+    except Exception:
+        pass
+
+
+def _backfill_route_key_column(conn):
+    """Add route_key column to conversation_messages if missing (per-channel history isolation)."""
+    try:
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(conversation_messages)").fetchall()]
+        if "route_key" not in cols:
+            conn.execute("ALTER TABLE conversation_messages ADD COLUMN route_key TEXT DEFAULT NULL")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_msg_route ON conversation_messages(route_key)")
+        # Backfill legacy rows where route_key is NULL -> use session_id as route_key for isolation
+        # This prevents old shared brain rows from leaking across channels.
+        # We keep existing rows as-is but new saves will be route-specific.
     except Exception:
         pass
 
@@ -349,6 +365,7 @@ class MemoryRepository:
         """Create tables if they don't exist. Runs once per connection."""
         if not self._schema_initialized:
             self._backfill_expires_at(conn)
+            self._backfill_route_key(conn)
             # libsql doesn't support executescript — run statements individually
             if TURSO_URL and TURSO_TOKEN:
                 for stmt in _SCHEMA.split(";"):
@@ -362,6 +379,17 @@ class MemoryRepository:
                 conn.executescript(_SCHEMA)
             self._schema_initialized = True
             self._backfill_fts(conn)
+            # Backfill route_key after schema creation (handles existing DBs)
+            try:
+                _backfill_route_key_column(conn)
+            except Exception:
+                pass
+        else:
+            # Ensure route_key exists even after initial schema init
+            try:
+                _backfill_route_key_column(conn)
+            except Exception:
+                pass
 
     def _backfill_fts(self, conn: sqlite3.Connection):
         """Populate FTS index from existing memories (one-time, idempotent)."""
@@ -574,6 +602,10 @@ class MemoryRepository:
         """Add expires_at column if missing (backward compat for existing DBs)."""
         _backfill_expires_at_column(conn)
 
+    def _backfill_route_key(self, conn):
+        """Add route_key column to conversation_messages if missing."""
+        _backfill_route_key_column(conn)
+
     # ── Episodic Memory ───────────────────────────────────────
 
     def add_episode(
@@ -751,19 +783,39 @@ class MemoryRepository:
 
     # ── Conversation History Persistence ──────────────────────
 
-    def save_messages(self, messages: List[Dict[str, Any]], session_id: str = "default") -> str:
-        """Save full conversation messages to database."""
-        now = self._now()
-        with self._connection() as conn:
-            # Clear old messages for this session
-            conn.execute("DELETE FROM conversation_messages WHERE session_id = ?", (session_id,))
+    def save_messages(self, messages: List[Dict[str, Any]], session_id: str = "default", route_key: Optional[str] = None) -> str:
+        """Save full conversation messages to database.
 
-            # Bulk insert with executemany
+        If route_key is provided, history is isolated per-channel (Telegram vs Web)
+        while still sharing the same brain (session_id) for long-term memory.
+        """
+        now = self._now()
+        # Effective route_key: if not provided, fall back to session_id for backward compat
+        eff_route = route_key if route_key is not None else session_id
+        with self._connection() as conn:
+            # Ensure route_key column exists (handles DBs created before migration)
+            try:
+                _backfill_route_key_column(conn)
+            except Exception:
+                pass
+            # Clear old messages for this session+route (isolated per channel)
+            # Use both columns so Telegram and Web don't wipe each other.
+            try:
+                conn.execute(
+                    "DELETE FROM conversation_messages WHERE session_id = ? AND route_key = ?",
+                    (session_id, eff_route),
+                )
+            except Exception:
+                # Fallback for DBs without route_key column yet
+                conn.execute("DELETE FROM conversation_messages WHERE session_id = ?", (session_id,))
+
+            # Bulk insert with executemany (include route_key)
             rows = []
             for msg in messages:
                 rows.append(
                     (
                         session_id,
+                        eff_route,
                         msg.get("role", "user"),
                         msg.get("content", ""),
                         json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
@@ -771,22 +823,53 @@ class MemoryRepository:
                         now,
                     )
                 )
-            conn.executemany(
-                "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                rows,
-            )
+            try:
+                conn.executemany(
+                    "INSERT INTO conversation_messages (session_id, route_key, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    rows,
+                )
+            except Exception:
+                # Fallback if route_key column doesn't exist yet
+                fallback_rows = [(r[0], r[2], r[3], r[4], r[5], r[6]) for r in rows]
+                conn.executemany(
+                    "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                    fallback_rows,
+                )
         return f"Saved {len(messages)} messages"
 
-    def load_messages(self, session_id: str = "default") -> List[Dict[str, Any]]:
-        """Load conversation messages from database (limited to recent messages)."""
+    def load_messages(self, session_id: str = "default", route_key: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Load conversation messages from database (limited to recent messages).
+
+        If route_key is provided, only messages for that channel are returned.
+        """
         from ..config import MAX_CONVERSATION_HISTORY
 
         with self._connection() as conn:
-            rows = conn.execute(
-                "SELECT role, content, tool_calls, tool_call_id FROM conversation_messages "
-                "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
-                (session_id, MAX_CONVERSATION_HISTORY),
-            ).fetchall()
+            try:
+                _backfill_route_key_column(conn)
+            except Exception:
+                pass
+            # Try route-aware query first if route_key provided
+            if route_key is not None:
+                try:
+                    rows = conn.execute(
+                        "SELECT role, content, tool_calls, tool_call_id FROM conversation_messages "
+                        "WHERE session_id = ? AND route_key = ? ORDER BY id DESC LIMIT ?",
+                        (session_id, route_key, MAX_CONVERSATION_HISTORY),
+                    ).fetchall()
+                except Exception:
+                    # Fallback if column missing
+                    rows = conn.execute(
+                        "SELECT role, content, tool_calls, tool_call_id FROM conversation_messages "
+                        "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                        (session_id, MAX_CONVERSATION_HISTORY),
+                    ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT role, content, tool_calls, tool_call_id FROM conversation_messages "
+                    "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                    (session_id, MAX_CONVERSATION_HISTORY),
+                ).fetchall()
 
             messages = []
             for row in reversed(rows):
