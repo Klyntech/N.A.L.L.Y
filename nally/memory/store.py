@@ -724,7 +724,7 @@ class MemoryRepository:
                     logger.warning(f"Postgres connection ({mod_name}) failed: {e} — falling back to SQLite")
                     break  # don't try next driver if connection itself failed
             # If we get here, no postgres driver worked
-            if last_err and "no postgres" not in str(last_err).lower():
+            if last_err and isinstance(last_err, ImportError):
                 logger.warning(f"psycopg not installed ({last_err}) — falling back to local SQLite")
 
         if TURSO_URL and TURSO_TOKEN:
