@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import uuid
+from threading import Lock
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -113,9 +114,46 @@ security = HTTPBearer(auto_error=False)
 
 
 async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    if credentials and hmac.compare_digest(credentials.credentials, NALLY_ACCESS_TOKEN):
+    if credentials and NALLY_ACCESS_TOKEN and hmac.compare_digest(credentials.credentials, NALLY_ACCESS_TOKEN):
         return True
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# Dedicated credential for same-host internal callers such as the standalone Telegram bot.
+# It is deliberately separate from the browser/API bearer token.
+_INTERNAL_MAX_SKEW_SECONDS = 300
+_internal_nonces: dict[str, float] = {}
+_internal_nonce_lock = Lock()
+
+
+async def verify_internal_auth(request: Request):
+    """Authenticate an internal request and reject timestamp/nonce replays."""
+    expected = os.getenv("NALLY_INTERNAL_TOKEN", "")
+    token = request.headers.get("X-NALLY-INTERNAL-TOKEN", "")
+    timestamp = request.headers.get("X-NALLY-INTERNAL-TIMESTAMP", "")
+    nonce = request.headers.get("X-NALLY-INTERNAL-NONCE", "")
+    client_ip = request.client.host if request.client else "unknown"
+
+    if not expected or not token or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        issued_at = int(timestamp)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if abs(time.time() - issued_at) > _INTERNAL_MAX_SKEW_SECONDS or not (8 <= len(nonce) <= 128):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not _internal_rate_limiter.allow(client_ip):
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    now = time.time()
+    with _internal_nonce_lock:
+        for old_nonce, seen_at in list(_internal_nonces.items()):
+            if now - seen_at > _INTERNAL_MAX_SKEW_SECONDS:
+                _internal_nonces.pop(old_nonce, None)
+        if nonce in _internal_nonces:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        _internal_nonces[nonce] = now
+    return True
 
 
 # ── Rate limiter (in-memory, per-IP) ─────────────────────
@@ -151,6 +189,7 @@ class _RateLimiter:
 
 
 _rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
+_internal_rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
 
 
 # ── Request models ────────────────────────────────────────
@@ -164,6 +203,22 @@ class ChatRequest(BaseModel):
 
 class ApprovalRequest(BaseModel):
     tool_call_id: str
+    approved: bool
+
+
+class TelegramMessageRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    session_id: str
+    route_key: Optional[str] = None
+    text: str
+    chat_id: int
+
+
+class TelegramApprovalRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    tc_id: str
     approved: bool
 
 
@@ -881,7 +936,10 @@ async def reload_hooks(_auth=Depends(verify_auth)):
 
 
 @app.post("/api/telegram/message")
-async def tg_message(request: Request):
+async def tg_message(
+    data: TelegramMessageRequest,
+    _auth=Depends(verify_internal_auth),
+):
     """Start processing a Telegram message in the background.
 
     Returns immediately with {"status": "processing"} so Render's proxy
@@ -889,18 +947,17 @@ async def tg_message(request: Request):
     approval). The final response is written to the stream_events SQLite
     table, which the bot process polls and edits into the Telegram placeholder.
     """
-    data = await request.json()
     from ..agent.sessions import session_manager
     from ..telegram.bot import _make_emit_standalone, _write_stream_event
 
-    session_id = data["session_id"]
-    route_key = data.get("route_key") or data.get("routeKey") or session_id
-    emit = _make_emit_standalone(data["chat_id"], session_id=route_key)
+    session_id = data.session_id
+    route_key = data.route_key or session_id
+    emit = _make_emit_standalone(data.chat_id, session_id=route_key)
 
     async def _process():
         try:
             response = await asyncio.to_thread(
-                session_manager.process, session_id, data["text"], emit=emit, route_key=route_key
+                session_manager.process, session_id, data.text, emit=emit, route_key=route_key
             )
         except Exception as e:
             logger.error(f"Telegram message processing failed: {e}")
@@ -914,12 +971,14 @@ async def tg_message(request: Request):
 
 
 @app.post("/api/telegram/approve")
-async def tg_approve(request: Request):
-    data = await request.json()
+async def tg_approve(
+    data: TelegramApprovalRequest,
+    _auth=Depends(verify_internal_auth),
+):
     from ..agent.graph import resolve_approval
 
     # resolve_approval does blocking SQLite I/O — keep it off the event loop.
-    resolved = await asyncio.to_thread(resolve_approval, data["tc_id"], data["approved"])
+    resolved = await asyncio.to_thread(resolve_approval, data.tc_id, data.approved)
     return {"resolved": resolved}
 
 
@@ -1338,7 +1397,7 @@ async def bridge_endpoint(websocket: WebSocket, device_id: str):
 
 
 @app.get("/api/bridges")
-async def list_bridges():
+async def list_bridges(_auth=Depends(verify_auth)):
     """List all connected NallyBridge devices."""
     from .bridge_handler import bridge_registry
 

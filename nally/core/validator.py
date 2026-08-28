@@ -157,6 +157,13 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
     # ── Telegram (optional) ────────────────────────────────
 
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    telegram_mode = os.getenv("TELEGRAM_MODE", "auto").lower()
+    if telegram_token and telegram_mode != "off":
+        internal_token = os.getenv("NALLY_INTERNAL_TOKEN", "")
+        if not internal_token:
+            _error("NALLY_INTERNAL_TOKEN", "Required when Telegram is enabled; internal bot-to-web calls must fail closed.")
+        elif len(internal_token) < 32:
+            _warning("NALLY_INTERNAL_TOKEN", "Token is shorter than 32 characters. Use a long random value.")
     if telegram_token:
         parts = telegram_token.split(":")
         if len(parts) != 2 or not parts[0].isdigit():

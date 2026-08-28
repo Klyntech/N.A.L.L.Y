@@ -11,9 +11,9 @@ ffmpeg required for voice support.
 import asyncio
 import io
 import os
-import re
-import threading
+import secrets
 import time
+import threading
 from typing import Optional
 
 from telegram.constants import UpdateType
@@ -98,6 +98,17 @@ def _web_base_url() -> str:
         return NALLY_BASE_URL
     port = os.getenv("NALLY_PORT", os.getenv("PORT", "5000"))
     return f"http://localhost:{port}"
+
+
+def _internal_auth_headers() -> dict[str, str]:
+    """Build replay-resistant headers for bot-to-web internal requests."""
+    from ..config import NALLY_INTERNAL_TOKEN
+    return {
+        "X-NALLY-INTERNAL-TOKEN": NALLY_INTERNAL_TOKEN,
+        "X-NALLY-INTERNAL-TIMESTAMP": str(int(time.time())),
+        "X-NALLY-INTERNAL-NONCE": secrets.token_urlsafe(16),
+    }
+
 
 # Telegram send retry policy (mirrors _call_llm_with_retry in agent/graph.py)
 _TG_MAX_RETRIES = 3
@@ -489,6 +500,7 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resp = await client.post(
                     f"{_web_base_url()}/api/telegram/approve",
                     json={"tc_id": full_tc_id, "approved": approved},
+                    headers=_internal_auth_headers(),
                 )
                 if resp.status_code == 200:
                     resolved = resp.json().get("resolved", False)
@@ -658,6 +670,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resp = await client.post(
                     f"{_web_base_url()}/api/telegram/message",
                     json={"session_id": session_id, "route_key": route_key, "text": text, "chat_id": chat.id},
+                    headers=_internal_auth_headers(),
                 )
                 if resp.status_code != 200:
                     _write_stream_event(route_key, "final_response",

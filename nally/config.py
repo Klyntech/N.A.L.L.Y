@@ -721,6 +721,8 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 NALLY_BASE_URL = os.getenv("NALLY_BASE_URL", "").strip().rstrip("/")
+# Dedicated bot-to-web credential; never reuse NALLY_ACCESS_TOKEN.
+NALLY_INTERNAL_TOKEN = os.getenv("NALLY_INTERNAL_TOKEN", "").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "").strip()
 TELEGRAM_MODE_ENV = os.getenv("TELEGRAM_MODE", "auto").strip().lower()
