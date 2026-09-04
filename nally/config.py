@@ -193,6 +193,10 @@ TOKEN_WARN_THRESHOLD = float(os.getenv("NALLY_TOKEN_WARN_THRESHOLD", "0.95"))
 APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
 
 # ── Planning ─────────────────────────────────────────────
+# PLAN_ENABLED is an operational kill-switch only.
+# Ordinary tasks do not require a user-facing "plan mode" toggle.
+# TaskRouter (agent/task_router.py) selects PLAN automatically from
+# harness classification + structural signals when PLAN_ENABLED is true.
 
 _plan_env = os.getenv("NALLY_PLAN_ENABLED", "true").lower() == "true"
 PLAN_ENABLED = _plan_env

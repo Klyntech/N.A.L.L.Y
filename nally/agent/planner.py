@@ -316,28 +316,28 @@ def validate_plan(plan: Plan) -> Plan:
 
 
 def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Classify whether the user request needs a plan.
+    """Decide execution strategy via TaskRouter (automatic planning).
 
-    Fast path: regex patterns. Only triggers for genuinely complex requests.
+    Preferred path: harness fields already on state (intent_class).
+    Falls back to TaskRouter rules + legacy pattern signals.
+    PLAN_ENABLED is only an operational kill-switch — ordinary tasks
+    do not require a user-facing plan toggle.
     """
     from langchain_core.messages import HumanMessage
 
+    from .task_router import RouteDecision, Strategy, route, strategy_to_plan_status
+
     thread_id = state.get("thread_id", "default")
 
-    # Abort check
     try:
         from ..core.abort import check_abort, clear_abort
 
         if check_abort(thread_id):
             clear_abort(thread_id)
-            return {**state, "plan_status": "none"}
+            return {**state, "plan_status": "none", "strategy": Strategy.REACT.value}
     except Exception:
         pass
 
-    if not PLAN_ENABLED:
-        return {**state, "plan_status": "none"}
-
-    # Extract latest user message
     user_text = ""
     messages = state.get("messages", [])
     for msg in reversed(messages):
@@ -346,22 +346,85 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
             break
 
     if not user_text:
-        return {**state, "plan_status": "none"}
+        return {**state, "plan_status": "none", "strategy": Strategy.REACT.value}
 
-    decision = classify_by_patterns(user_text)
+    # Reconstruct a minimal classification from state if core/harness attached one
+    classification = None
+    intent = state.get("intent_class") or state.get("task_class")
+    if intent:
+        class _Cls:
+            pass
 
-    cl_span = _span("plan_classify", {"text": user_text})
-    if cl_span is not None:
+        classification = _Cls()
+        classification.task_class = intent
+        classification.confidence = float(state.get("intent_confidence") or 0.0)
+        classification.reasoning = state.get("intent_reasoning") or ""
+        classification.method = "harness"
+
+    decision = route(user_text, classification=classification)
+
+    # Legacy pattern belt-and-suspenders when still REACT
+    if decision.strategy == Strategy.REACT and classify_by_patterns(user_text) == "plan":
+        decision = RouteDecision(
+            strategy=Strategy.PLAN,
+            task_class=decision.task_class or "COMPLEX",
+            confidence=max(decision.confidence, 0.6),
+            reasoning=(decision.reasoning + "; " if decision.reasoning else "")
+            + "legacy plan patterns",
+            method="hybrid",
+            pipeline=decision.pipeline,
+        )
         try:
-            tracer.end_span(cl_span.span_id, output={"decision": decision})
+            from ..config import PLAN_ENABLED
+
+            if not PLAN_ENABLED:
+                decision = RouteDecision(
+                    strategy=Strategy.REACT,
+                    task_class=decision.task_class,
+                    confidence=decision.confidence,
+                    reasoning=decision.reasoning + " (planning disabled by PLAN_ENABLED)",
+                    method=decision.method,
+                    pipeline=decision.pipeline,
+                )
         except Exception:
             pass
 
-    if decision == "plan":
-        logger.info(f"Planning triggered for: {user_text[:80]}")
-        return {**state, "plan_status": "planning"}
+    plan_status = strategy_to_plan_status(decision)
 
-    return {**state, "plan_status": "none"}
+    cl_span = _span(
+        "plan_classify",
+        {
+            "text": user_text[:200],
+            "strategy": decision.strategy.value,
+            "task_class": decision.task_class,
+            "method": decision.method,
+        },
+    )
+    if cl_span is not None:
+        try:
+            tracer.end_span(
+                cl_span.span_id,
+                output={"strategy": decision.strategy.value, "plan_status": plan_status},
+            )
+        except Exception:
+            pass
+
+    if plan_status == "planning":
+        logger.info(
+            "TaskRouter → PLAN (%s) for: %s",
+            decision.task_class or decision.method,
+            user_text[:80],
+        )
+    else:
+        logger.debug("TaskRouter → %s for: %s", decision.strategy.value, user_text[:80])
+
+    return {
+        **state,
+        "plan_status": plan_status,
+        "strategy": decision.strategy.value,
+        "route_decision": decision.to_dict(),
+    }
+
 
 
 def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:

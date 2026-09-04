@@ -292,6 +292,22 @@ class NallyAgent:
                     )
                 self._last_classification = _classification
 
+                # TaskRouter: automatic strategy (no user plan toggle)
+                try:
+                    from .task_router import route_from_classification
+
+                    _route = route_from_classification(_classification, user_text=user_input)
+                    self._last_route = _route
+                    logger.info(
+                        "TaskRouter strategy=%s (class=%s conf=%.2f)",
+                        _route.strategy.value,
+                        _route.task_class or "-",
+                        _route.confidence,
+                    )
+                except Exception as _tr_err:
+                    logger.debug("TaskRouter skipped: %s", _tr_err)
+                    self._last_route = None
+
                 # Create scratchpad per pipeline config
                 if HARNESS_ENABLED and _classification:
                     from .harness import get_pipeline_config

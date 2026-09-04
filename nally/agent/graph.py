@@ -518,6 +518,8 @@ class AgentState(TypedDict):
     tool_failures: List[Dict[str, Any]]
     intent_class: str
     intent_confidence: float
+    strategy: str  # TaskRouter decision: direct|react|plan|delegate|engineering
+    route_decision: Optional[Dict[str, Any]]
     wall_time_budget: int
     task_progress: Dict[str, str]
 
@@ -1941,6 +1943,8 @@ def run_agent(
         "tool_failures": [],
         "intent_class": intent_class,
         "intent_confidence": intent_confidence,
+        "strategy": "",  # filled by classify_node / TaskRouter
+        "route_decision": None,
         "wall_time_budget": WALL_TIME_OVERRIDES.get(intent_class, MAX_AGENT_WALL_TIME) if intent_class else MAX_AGENT_WALL_TIME,
         "task_progress": {},
     }
