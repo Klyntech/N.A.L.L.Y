@@ -23,8 +23,8 @@ class Tool:
         self.parameters = parameters or {}
         self.permission = permission  # "safe", "destructive", "read_only"
 
-    def execute(self, **kwargs) -> str:
-        """Override this method in subclasses"""
+    def execute(self, **kwargs):
+        """Override in subclasses. Return ``str`` (legacy) or ``ToolResult``."""
         raise NotImplementedError
 
     def to_openai_schema(self) -> dict:
@@ -89,19 +89,16 @@ class ToolRegistry:
             tools = list(self.tools.values())
         return [tool.to_openai_schema() for tool in tools]
 
-    def execute(self, name: str, arguments: dict) -> tuple[str, bool]:
-        """Execute a tool by name with output truncation.
+    def execute_result(self, name: str, arguments: dict):
+        """Execute a tool by name and return a structured ``ToolResult``.
 
-        Returns:
-            (result, success) — result string and whether the tool succeeded.
-            success is determined by the tool itself returning normally (no exception)
-            OR by checking if the result starts with "Error" as a fallback.
+        This is the canonical execution boundary. Legacy ``execute()`` remains
+        as a thin ``(text, success)`` adapter for existing callers.
         """
+        from .result import ToolResult, _safe_metadata
+
         tool = self.tools.get(name)
         if not tool:
-            # Lazy-load: if tools haven't been loaded yet (e.g., early agent call
-            # before web lifespan), try to load now. This prevents the
-            # "Tool 'run_code' not found" race seen in receipts.
             try:
                 from .registry_builder import is_tools_loaded, load_all_tools
 
@@ -111,27 +108,57 @@ class ToolRegistry:
             except Exception:
                 pass
         if not tool:
-            # Still not found — give a helpful hint for the two core tools
             if name in ("run_code", "run_command", "read_file", "file_ops"):
-                return f"Error: Tool '{name}' not found (registry not yet initialized — try again, or check load_all_tools() was called)", False
-            return f"Error: Tool '{name}' not found", False
+                msg = (
+                    f"Error: Tool '{name}' not found (registry not yet initialized — "
+                    "try again, or check load_all_tools() was called)"
+                )
+            else:
+                msg = f"Error: Tool '{name}' not found"
+            return ToolResult.failure(error=msg, tool=name)
 
         try:
-            result = tool.execute(**arguments)
-            result = str(result)
-            if len(result) > MAX_TOOL_OUTPUT:
-                result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
-            success = _result_is_success(name, result)
-            return result, success
+            raw = tool.execute(**(arguments or {}))
+            # Structured tools may return ToolResult directly
+            from .result import ToolResult as _TR
+
+            if isinstance(raw, _TR):
+                tr = raw
+            else:
+                tr = _TR.from_legacy(name, raw)
+
+            # Truncate LLM-facing text if needed
+            text = tr.to_llm_text()
+            if len(text) > MAX_TOOL_OUTPUT:
+                text = text[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(text)} chars total]"
+                if tr.ok:
+                    tr = _TR.success(value=text, **_safe_metadata(tr.metadata))
+                else:
+                    tr = _TR.failure(error=text, value=text, **_safe_metadata(tr.metadata))
+            # Ensure tool name is present for observability (non-secret)
+            if "tool" not in tr.metadata:
+                tr.metadata = {**tr.metadata, "tool": name}
+            tr.metadata = _safe_metadata(tr.metadata)
+            return tr
         except ToolError as e:
-            logger.warning(f"Tool '{name}' raised ToolError: {e.code}: {e.message}")
+            logger.warning("Tool '%s' raised ToolError: %s: %s", name, e.code, e.message)
             result = e.to_llm_format()
             if len(result) > MAX_TOOL_OUTPUT:
                 result = result[:MAX_TOOL_OUTPUT] + f"\n... [truncated, {len(result)} chars total]"
-            return result, False
+            return ToolResult.failure(error=result, value=result, tool=name, code=getattr(e, "code", None))
         except Exception as e:
-            logger.error(f"Tool '{name}' execution failed: {type(e).__name__}: {e}")
-            return f"Error executing {name}: {type(e).__name__}: {e}", False
+            logger.error("Tool '%s' execution failed: %s: %s", name, type(e).__name__, e)
+            msg = f"Error executing {name}: {type(e).__name__}: {e}"
+            return ToolResult.failure(error=msg, value=msg, tool=name, exception_type=type(e).__name__)
+
+    def execute(self, name: str, arguments: dict) -> tuple[str, bool]:
+        """Execute a tool by name with output truncation.
+
+        Returns:
+            (result, success) — compatibility adapter over ``execute_result``.
+            Prefer ``execute_result`` for new callers.
+        """
+        return self.execute_result(name, arguments).as_tuple()
 
     def load_plugins(self):
         """Load plugins from the plugins directory (allowlist-gated, safe import)"""

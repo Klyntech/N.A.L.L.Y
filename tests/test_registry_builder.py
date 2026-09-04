@@ -34,6 +34,7 @@ def test_registry_builder_module_exports():
 
 
 def test_load_all_tools_registers_builtins_once():
+    pytest.importorskip("openai")
     from nally.tools import is_tools_loaded, load_all_tools, registry
 
     count1, mcp1 = load_all_tools()
@@ -72,6 +73,7 @@ def test_load_all_tools_registers_builtins_once():
 
 
 def test_tool_registry_builder_build():
+    pytest.importorskip("openai")
     from nally.tools.registry_builder import ToolRegistryBuilder
 
     count, mcp = ToolRegistryBuilder().build()

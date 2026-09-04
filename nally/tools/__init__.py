@@ -7,10 +7,12 @@ connect MCP servers.
 
 from .registry import Tool, registry
 from .registry_builder import ToolRegistryBuilder, is_tools_loaded, load_all_tools
+from .result import ToolResult
 
 __all__ = [
     "Tool",
     "ToolRegistryBuilder",
+    "ToolResult",
     "is_tools_loaded",
     "load_all_tools",
     "registry",
