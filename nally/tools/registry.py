@@ -103,9 +103,9 @@ class ToolRegistry:
             # before web lifespan), try to load now. This prevents the
             # "Tool 'run_code' not found" race seen in receipts.
             try:
-                from . import _loaded, load_all_tools
+                from .registry_builder import is_tools_loaded, load_all_tools
 
-                if not _loaded:
+                if not is_tools_loaded():
                     load_all_tools()
                     tool = self.tools.get(name)
             except Exception:
