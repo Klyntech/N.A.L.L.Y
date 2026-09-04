@@ -7,6 +7,9 @@ Includes RFC 9470/8414 OAuth discovery for Notion MCP and
 SQLite-backed PKCE state persistence to survive server restarts.
 """
 
+from __future__ import annotations
+
+
 import asyncio
 import base64
 import hashlib
@@ -54,57 +57,128 @@ _pending_callbacks: dict[str, asyncio.Event] = {}
 _pending_codes: dict[str, str | None] = {}
 
 
-# ── Token encryption ──────────────────────────────────────
+# ── Token encryption (fail-closed) ────────────────────────
 # Always uses NALLY_CRED_KEY. Never couples to NALLY_ACCESS_TOKEN.
-# Plaintext fallback only for first run before .env is loaded.
+# If cryptography is missing or NALLY_CRED_KEY is unset/invalid:
+#   → HARD FAILURE on credential write and read.
+#   → Never silently store or load plaintext OAuth credentials.
+# Optional one-time legacy migration:
+#   NALLY_ALLOW_PLAINTEXT_TOKEN_MIGRATE=1 with a valid NALLY_CRED_KEY
+#   allows decrypt to accept a JSON-looking legacy plaintext blob so
+#   the next set_tokens re-encrypts it. Default is off.
+
 _FERNET = None
+_FERNET_RESOLVED = False  # True once we have attempted resolution (success or fail)
+
+
+class CredentialEncryptionError(RuntimeError):
+    """Raised when OAuth credential encryption is required but unavailable,
+    or when stored ciphertext cannot be decrypted safely.
+    """
+
+
+def _reset_fernet_cache() -> None:
+    """Test helper: clear cached Fernet so env changes take effect."""
+    global _FERNET, _FERNET_RESOLVED
+    _FERNET = None
+    _FERNET_RESOLVED = False
 
 
 def _get_fernet():
     """Get or create Fernet instance from NALLY_CRED_KEY.
 
-    Lazy-loaded, cached. If NALLY_CRED_KEY is missing, generates
-    a key and logs a warning — tokens will be re-encrypted once
-    the key is set.
+    Returns Fernet on success, None if encryption is unavailable.
+    Does not log secret material. Cached after first resolution.
     """
-    global _FERNET
-    if _FERNET is not None:
+    global _FERNET, _FERNET_RESOLVED
+    if _FERNET_RESOLVED:
         return _FERNET
+    _FERNET_RESOLVED = True
     try:
         from cryptography.fernet import Fernet
     except ImportError:
-        logger.warning("cryptography package not installed — tokens stored in plaintext")
+        logger.error(
+            "cryptography package not installed — OAuth credential encryption "
+            "unavailable. Refusing plaintext credential storage."
+        )
+        _FERNET = None
         return None
-    key = os.getenv("NALLY_CRED_KEY", "")
+    key = (os.getenv("NALLY_CRED_KEY") or "").strip()
     if not key:
-        logger.warning("NALLY_CRED_KEY not set — tokens stored in plaintext until key is provided")
+        logger.error(
+            "NALLY_CRED_KEY not set — OAuth credential encryption unavailable. "
+            "Generate a Fernet key and set NALLY_CRED_KEY. "
+            "Refusing plaintext credential storage."
+        )
+        _FERNET = None
         return None
     try:
         _FERNET = Fernet(key.encode() if isinstance(key, str) else key)
         return _FERNET
     except Exception as e:
-        logger.error(f"Invalid NALLY_CRED_KEY: {e}")
+        # Do not include the key material in logs
+        logger.error(
+            "Invalid NALLY_CRED_KEY (%s) — OAuth credential encryption unavailable. "
+            "Refusing plaintext credential storage.",
+            type(e).__name__,
+        )
+        _FERNET = None
         return None
 
 
-def _encrypt_token(plaintext: str) -> str:
-    """Encrypt a token string. Returns plaintext if encryption unavailable."""
+def _require_fernet():
+    """Return Fernet or raise CredentialEncryptionError (fail-closed)."""
     fernet = _get_fernet()
     if fernet is None:
-        return plaintext
+        raise CredentialEncryptionError(
+            "OAuth credential encryption unavailable. "
+            "Install the 'cryptography' package and set a valid NALLY_CRED_KEY "
+            "(Fernet key). Refusing to store or load credentials in plaintext."
+        )
+    return fernet
+
+
+def _encrypt_token(plaintext: str) -> str:
+    """Encrypt a token string. Raises CredentialEncryptionError if unavailable.
+
+    Never returns plaintext. Callers must not write credentials on failure.
+    """
+    if not isinstance(plaintext, str) or not plaintext:
+        raise CredentialEncryptionError("Refusing to encrypt empty credential payload")
+    fernet = _require_fernet()
     return fernet.encrypt(plaintext.encode()).decode()
 
 
 def _decrypt_token(ciphertext: str) -> str:
-    """Decrypt a token string. Returns as-is if not encrypted (migration)."""
-    fernet = _get_fernet()
-    if fernet is None:
-        return ciphertext
+    """Decrypt a token string. Fail-closed if encryption unavailable.
+
+    Legacy plaintext migration is opt-in only via
+    NALLY_ALLOW_PLAINTEXT_TOKEN_MIGRATE=1 (requires valid NALLY_CRED_KEY so
+    the next write re-encrypts). Otherwise decrypt failure forces re-auth.
+    """
+    if not isinstance(ciphertext, str) or not ciphertext:
+        raise CredentialEncryptionError("Empty credential ciphertext")
+    fernet = _require_fernet()
     try:
         return fernet.decrypt(ciphertext.encode()).decode()
     except Exception:
-        # Not encrypted yet — treat as plaintext (migration path)
-        return ciphertext
+        allow_migrate = (os.getenv("NALLY_ALLOW_PLAINTEXT_TOKEN_MIGRATE") or "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        # Only accept legacy plaintext if it looks like a JSON token blob
+        if allow_migrate and ciphertext.lstrip().startswith("{"):
+            logger.warning(
+                "Accepting legacy plaintext OAuth credential for one-time migration "
+                "(NALLY_ALLOW_PLAINTEXT_TOKEN_MIGRATE). Next store will re-encrypt."
+            )
+            return ciphertext
+        raise CredentialEncryptionError(
+            "Stored OAuth credential could not be decrypted. "
+            "Re-authenticate the service. To migrate legacy plaintext tokens once, "
+            "set NALLY_ALLOW_PLAINTEXT_TOKEN_MIGRATE=1 with a valid NALLY_CRED_KEY."
+        )
 
 
 class SQLiteTokenStorage:
@@ -141,26 +215,52 @@ class SQLiteTokenStorage:
         return {"tokens": row["tokens"], "client_info": row["client_info"]}
 
     async def get_tokens(self) -> OAuthToken | None:
+        """Load tokens. Fail-closed: encryption errors yield None (force re-auth).
+
+        Does not return plaintext credentials when encryption is unavailable.
+        """
         row = self._row()
         if row is None or row["tokens"] is None:
             return None
         try:
             decrypted = _decrypt_token(row["tokens"])
             return OAuthToken.model_validate_json(decrypted)
-        except Exception:
+        except CredentialEncryptionError as e:
+            logger.error(
+                "Cannot load OAuth tokens for %s: %s",
+                self.service,
+                e,
+            )
+            return None
+        except Exception as e:
+            # Malformed payload — do not surface raw ciphertext
+            logger.error(
+                "Cannot parse OAuth tokens for %s: %s",
+                self.service,
+                type(e).__name__,
+            )
             return None
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
+        """Persist tokens encrypted-at-rest. Fail-closed if encryption unavailable.
+
+        Encrypts fully before opening the DB write so a failure cannot leave
+        a partially written plaintext credential.
+        """
         raw = tokens.model_dump_json()
+        # Raises CredentialEncryptionError before any DB write
         encrypted = _encrypt_token(raw)
         conn = sqlite3.connect(self.db_path)
-        conn.execute(
-            "INSERT OR REPLACE INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)",
-            (self.service, encrypted, time.time()),
-        )
-        conn.commit()
-        conn.close()
-        logger.info(f"Stored tokens for {self.service}")
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)",
+                (self.service, encrypted, time.time()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        # Never log token material — service name only
+        logger.info("Stored encrypted tokens for %s", self.service)
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         row = self._row()
@@ -325,22 +425,33 @@ def _ensure_state_table(db_path: str):
 def save_oauth_state(
     db_path: str, service: str, code_verifier: str, client_id: str, state: str, token_endpoint: str, auth_endpoint: str
 ) -> None:
-    """Persist OAuth state to SQLite so it survives server restarts."""
+    """Persist OAuth state to SQLite so it survives server restarts.
+
+    code_verifier is encrypted-at-rest (fail-closed). CSRF state remains
+    unencrypted (non-secret challenge value) but is never logged with secrets.
+    """
+    # Encrypt before any write — raises CredentialEncryptionError if unavailable
+    enc_verifier = _encrypt_token(code_verifier)
     _ensure_state_table(db_path)
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        f"INSERT OR REPLACE INTO {_OAUTH_STATE_TABLE} "
-        "(service, code_verifier, client_id, state, token_endpoint, auth_endpoint, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (service, code_verifier, client_id, state, token_endpoint, auth_endpoint, time.time()),
-    )
-    conn.commit()
-    conn.close()
-    logger.debug(f"Saved OAuth state for {service}")
+    try:
+        conn.execute(
+            f"INSERT OR REPLACE INTO {_OAUTH_STATE_TABLE} "
+            "(service, code_verifier, client_id, state, token_endpoint, auth_endpoint, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (service, enc_verifier, client_id, state, token_endpoint, auth_endpoint, time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    logger.debug("Saved OAuth state for %s", service)
 
 
 def load_oauth_state(db_path: str, service: str) -> dict | None:
-    """Load persisted OAuth state from SQLite. Returns None if not found."""
+    """Load persisted OAuth state from SQLite. Returns None if not found.
+
+    Decrypts code_verifier fail-closed; encryption errors yield None (restart flow).
+    """
     _ensure_state_table(db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -352,8 +463,13 @@ def load_oauth_state(db_path: str, service: str) -> dict | None:
     conn.close()
     if row is None:
         return None
+    try:
+        code_verifier = _decrypt_token(row["code_verifier"])
+    except CredentialEncryptionError as e:
+        logger.error("Cannot load OAuth state for %s: %s", service, e)
+        return None
     return {
-        "code_verifier": row["code_verifier"],
+        "code_verifier": code_verifier,
         "client_id": row["client_id"],
         "state": row["state"],
         "token_endpoint": row["token_endpoint"],
