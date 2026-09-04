@@ -1,21 +1,17 @@
 """Nally Memory System — repository pattern with confidence scoring.
 
 Exports:
-    memory_store: MemoryRepository instance (the new interface)
-    memory_v2: Alias for backward compatibility
-    memory_tools_v2: MemoryToolsV2 instance for tool registration
+    memory_store: MemoryRepository instance (canonical)
     MemoryRepository: The repository class
+    MemoryToolsV2: Schema provider for memory tool registration
 """
 
 from .confidence import boost_confidence, decay_confidence
 from .models import ConversationSummary, Episode, Memory, SemanticPattern
 from .store import MEMORY_TOOL_SCHEMAS, MemoryRepository
 
-# Singleton repository
+# Singleton repository (canonical)
 memory_store = MemoryRepository()
-
-# Backward-compatible aliases
-memory_v2 = memory_store
 
 
 class MemoryToolsV2:
@@ -27,8 +23,6 @@ class MemoryToolsV2:
     def to_tool_list(self) -> list:
         return MEMORY_TOOL_SCHEMAS
 
-
-memory_tools_v2 = MemoryToolsV2(memory_store)
 
 # Try to load user profile (may not exist)
 try:
@@ -46,7 +40,5 @@ __all__ = [
     "boost_confidence",
     "decay_confidence",
     "memory_store",
-    "memory_tools_v2",
-    "memory_v2",
     "user_profile",
 ]

@@ -91,8 +91,9 @@ def _load_all_registered():
     gmail.register()
 
     # --- Memory (3 tools) ---
-    from ..memory import memory_store as mem_store
-    from ..memory import memory_tools_v2 as mem_tools
+    from ..memory import MemoryToolsV2, memory_store as mem_store
+
+    mem_tools = MemoryToolsV2(mem_store)
 
     for tool_def in mem_tools.to_tool_list():
         func = tool_def["function"]
