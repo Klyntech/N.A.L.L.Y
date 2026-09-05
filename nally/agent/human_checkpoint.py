@@ -230,8 +230,29 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
     )
     save_checkpoint(checkpoint)
 
-    # Emit confirmation event via event bus
+    # Emit confirmation event via event bus (observability; transports may not subscribe)
     event_bus.publish("human_checkpoint_required", checkpoint.to_dict())
+
+    # Live stream delivery — same path as tool confirmation_required.
+    # WS/SSE install emit via run_agent → _set_emit; thread-local is the
+    # graph invocation thread, so the blocked poller still can have already
+    # pushed this event before sleeping.
+    stream_payload = {
+        "thread_id": thread_id,
+        "plan_summary": plan_summary,
+        "steps": steps,
+        "task_class": intent_class,
+        "intent": intent_class,
+        "status": "pending",
+    }
+    try:
+        from .emit_context import get_emit
+
+        emit = get_emit()
+        if emit is not None:
+            emit("human_checkpoint_required", stream_payload)
+    except Exception as e:
+        logger.debug(f"human_checkpoint stream emit skipped: {e}")
 
     logger.info(f"Human checkpoint: plan stored (intent={intent_class}, thread={thread_id[:12]})")
 

@@ -395,15 +395,7 @@ def _execute_tool_with_retry(tool_name: str, tool_args: dict, tool_id: str):
 
 
 # ── Thread-local state ────────────────────────────────────
-_tlocal = threading.local()
-
-
-def _get_emit():
-    return getattr(_tlocal, "emit", None)
-
-
-def _set_emit(emit):
-    _tlocal.emit = emit
+from .emit_context import _get_emit, _set_emit, get_emit, set_emit  # noqa: F401
 
 
 def _ensure_tracer_store():
