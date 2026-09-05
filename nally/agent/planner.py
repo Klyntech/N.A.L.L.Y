@@ -562,8 +562,6 @@ def critique_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     from .llm import llm
 
-    from ..events.bus import event_bus
-
     plan = _get_plan(state)
     if not plan:
         return {**state, "plan_status": "complete"}
@@ -593,10 +591,8 @@ def critique_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if verdict.get("verdict") == "revise" and verdict.get("reason"):
             plan.status = PlanStatus.REVISING
             plan.critique = verdict["reason"]
-            event_bus.publish("plan_critiqued", {"verdict": "revise", "reason": plan.critique})
             return {**_plan_to_state(state, plan), "plan_status": "critique_revising"}
 
-        event_bus.publish("plan_critiqued", {"verdict": "approve"})
         return {**_plan_to_state(state, plan), "plan_status": "executing"}
 
     except Exception as e:
