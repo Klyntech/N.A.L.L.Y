@@ -24,6 +24,21 @@ from ..config import DATA_DIR
 
 logger = logging.getLogger("nally.human_checkpoint")
 
+def _ai_message(content: str):
+    """Build an AIMessage when langchain is available; plain object otherwise."""
+    try:
+        from langchain_core.messages import AIMessage
+        return AIMessage(content=content)
+    except Exception:
+        return type("AIMessage", (), {"content": content, "type": "ai"})()
+
+
+
+# Poll budget while waiting for plan approval. Tests may monkeypatch these
+# to avoid multi-minute sleeps. Timeout must never authorize execution.
+HUMAN_CHECKPOINT_POLL_INTERVAL_SEC = 2
+HUMAN_CHECKPOINT_MAX_POLLS = 150  # ~5 minutes at default interval
+
 
 class CheckpointAction(StrEnum):
     APPROVE = "approve"
@@ -221,8 +236,8 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"Human checkpoint: plan stored (intent={intent_class}, thread={thread_id[:12]})")
 
     # Wait for resolution via SQLite polling (same pattern as approval gate)
-    _poll_interval = 2
-    _max_polls = 150  # 5 minutes max
+    _poll_interval = HUMAN_CHECKPOINT_POLL_INTERVAL_SEC
+    _max_polls = HUMAN_CHECKPOINT_MAX_POLLS
     for _i in range(_max_polls):
         if check_abort(thread_id):
             resolve_checkpoint(thread_id, "rejected")
@@ -231,9 +246,8 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
         cp = get_checkpoint(thread_id)
         if cp and cp.status in ("approved", "rejected", "edited"):
             if cp.status == "rejected":
-                from langchain_core.messages import AIMessage
-                reject_msg = AIMessage(
-                    content="Plan was rejected. What would you like me to do instead?"
+                reject_msg = _ai_message(
+                    "Plan was rejected. What would you like me to do instead?"
                 )
                 return {**state, "messages": [reject_msg], "plan_status": "rejected"}
 
@@ -258,7 +272,13 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
         time.sleep(_poll_interval)
 
-    # Timeout — proceed without confirmation (fail open)
-    logger.warning(f"Human checkpoint timed out for {thread_id[:12]}, proceeding")
-    resolve_checkpoint(thread_id, "approved")
-    return {**state, "plan_status": "executing"}
+    # Timeout — fail closed. Silence is not authorization (including HIGH_STAKES).
+    logger.warning(
+        f"Human checkpoint timed out for {thread_id[:12]}, rejecting plan (fail closed)"
+    )
+    resolve_checkpoint(thread_id, "rejected")
+    timeout_msg = _ai_message(
+        "Plan approval timed out without confirmation. "
+        "I did not proceed. Say if you'd like me to try again or adjust the plan."
+    )
+    return {**state, "messages": [timeout_msg], "plan_status": "rejected"}
