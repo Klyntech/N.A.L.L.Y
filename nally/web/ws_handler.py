@@ -39,6 +39,68 @@ from ..core.errors import NallyError
 
 logger = logging.getLogger("nally.ws")
 
+
+def _track_connection_task(in_flight: set, coro) -> asyncio.Task:
+    """Register a connection-scoped task; auto-remove when done.
+
+    The WebSocket connection owns every agent/voice task it starts. On
+    disconnect the connection finally-block cancels any remaining members.
+    """
+    task = asyncio.create_task(coro)
+
+    def _done(t: asyncio.Task) -> None:
+        in_flight.discard(t)
+        # Retrieve exception so the event loop does not log "Task exception
+        # was never retrieved" for expected failures/cancellations.
+        if t.cancelled():
+            return
+        try:
+            exc = t.exception()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            return
+        if exc is not None and not isinstance(exc, asyncio.CancelledError):
+            logger.debug("connection task finished with error: %s", type(exc).__name__)
+
+    in_flight.add(task)
+    task.add_done_callback(_done)
+    return task
+
+
+async def _cancel_connection_tasks(
+    in_flight: set,
+    heartbeat_task: asyncio.Task | None,
+    route_key: str,
+) -> None:
+    """Cancel heartbeat + in-flight agent/voice work for one connection.
+
+    Signals cooperative abort so executor-backed agent loops can stop, then
+    cancels asyncio tasks and awaits their cleanup.
+    """
+    try:
+        from ..core.abort import set_abort
+
+        set_abort(route_key)
+    except Exception:
+        pass
+
+    pending: list[asyncio.Task] = []
+    if heartbeat_task is not None and not heartbeat_task.done():
+        heartbeat_task.cancel()
+        pending.append(heartbeat_task)
+
+    for t in list(in_flight):
+        if not t.done():
+            t.cancel()
+            pending.append(t)
+        in_flight.discard(t)
+
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
+
 # Read from env (same as app.py)
 NALLY_ACCESS_TOKEN = os.environ.get("NALLY_ACCESS_TOKEN", "")
 
@@ -164,6 +226,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
         event_bus.subscribe("plan_complete", lambda e: _on_plan_event("plan_complete", e.data)),
     ]
 
+    # Connection-owned work: heartbeat + every agent/voice task started here.
+    in_flight: set[asyncio.Task] = set()
+    heartbeat_task: asyncio.Task | None = None
+
     try:
         # Heartbeat: ping every 30s to keep connection alive through Render proxy
         async def _heartbeat():
@@ -196,8 +262,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     await ws_manager.send_json(cid, {"type": "error", "text": "Empty message"})
                     continue
 
-                # Process in background (per-route isolated history, same brain)
-                asyncio.create_task(_process_message(cid, session_id, text, tab_id, route_key))
+                # Process in background — owned by this connection
+                _track_connection_task(
+                    in_flight,
+                    _process_message(cid, session_id, text, tab_id, route_key),
+                )
 
             # ── Abort ───────────────────────────────────
             elif msg_type == "abort":
@@ -227,7 +296,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 if not audio_b64:
                     await ws_manager.send_json(cid, {"type": "error", "text": "No audio data"})
                     continue
-                asyncio.create_task(_process_voice(cid, session_id, audio_b64, tab_id, audio_format, route_key))
+                _track_connection_task(
+                    in_flight,
+                    _process_voice(cid, session_id, audio_b64, tab_id, audio_format, route_key),
+                )
 
             # ── Pong from client (heartbeat response) ──
             elif msg_type == "pong":
@@ -241,11 +313,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
-        # Cancel heartbeat
+        # Cancel all connection-owned work (heartbeat + agent/voice tasks)
         try:
-            heartbeat_task.cancel()
-        except Exception:
-            pass
+            await _cancel_connection_tasks(in_flight, heartbeat_task, route_key)
+        except Exception as e:
+            logger.debug(f"WS task cleanup error: {e}")
         # Unsubscribe from event bus
         for unsub in unsubscribers:
             try:
