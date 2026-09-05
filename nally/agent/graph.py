@@ -1875,8 +1875,13 @@ def run_agent(
     _run_id: Optional[str] = None,
     intent_class: str = "",
     intent_confidence: float = 0.0,
+    route_decision: Any = None,
 ) -> str:
-    """Run the agent graph and return the final response."""
+    """Run the agent graph and return the final response.
+
+    When core supplies the authoritative RouteDecision, it is seeded into
+    initial state so classify_node consumes it instead of routing again.
+    """
     _ensure_tracer_store()
     entry_depth = tracer.stack_depth()
     root_span = None
@@ -1942,6 +1947,24 @@ def run_agent(
 
     register_alias(fresh_thread, thread_id)
 
+    # Authoritative route decision from core (typed RouteDecision or dict).
+    # Kept typed as long as practical; only dict crosses the graph boundary.
+    _supplied_strategy = ""
+    _supplied_decision_dict = None
+    if route_decision is not None:
+        try:
+            to_dict = getattr(route_decision, "to_dict", None)
+            if callable(to_dict):
+                _supplied_decision_dict = to_dict()
+            elif isinstance(route_decision, dict):
+                _supplied_decision_dict = route_decision
+            strat = _supplied_decision_dict.get("strategy") if _supplied_decision_dict else None
+            if strat is not None:
+                _supplied_strategy = strat.value if hasattr(strat, "value") else str(strat)
+        except Exception:
+            _supplied_decision_dict = None
+            _supplied_strategy = ""
+
     initial_state = {
         "messages": lc_messages,
         "tools": tools,
@@ -1961,8 +1984,8 @@ def run_agent(
         "tool_failures": [],
         "intent_class": intent_class,
         "intent_confidence": intent_confidence,
-        "strategy": "",  # filled by classify_node / TaskRouter
-        "route_decision": None,
+        "strategy": _supplied_strategy,  # consumed by classify_node; empty = back-compat re-route once
+        "route_decision": _supplied_decision_dict,
         "wall_time_budget": WALL_TIME_OVERRIDES.get(intent_class, MAX_AGENT_WALL_TIME) if intent_class else MAX_AGENT_WALL_TIME,
         "task_progress": {},
     }

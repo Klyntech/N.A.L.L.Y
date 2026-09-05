@@ -318,8 +318,9 @@ def validate_plan(plan: Plan) -> Plan:
 def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Decide execution strategy via TaskRouter (automatic planning).
 
-    Preferred path: harness fields already on state (intent_class).
-    Falls back to TaskRouter rules + legacy pattern signals.
+    Preferred path: consume the authoritative RouteDecision supplied by core
+    via run_agent (no second routing). Falls back to a single TaskRouter
+    call only when no decision was supplied (legacy/tests/plan-step loops).
     PLAN_ENABLED is only an operational kill-switch — ordinary tasks
     do not require a user-facing plan toggle.
     """
@@ -337,6 +338,31 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
             return {**state, "plan_status": "none", "strategy": Strategy.REACT.value}
     except Exception:
         pass
+
+    # Authoritative path: core already decided. Consume it verbatim.
+    supplied = state.get("route_decision")
+    if isinstance(supplied, dict) and supplied.get("strategy"):
+        try:
+            strat_raw = supplied.get("strategy")
+            strat = Strategy(strat_raw.value if hasattr(strat_raw, "value") else str(strat_raw))
+        except Exception:
+            strat = Strategy.REACT
+        decision = RouteDecision(
+            strategy=strat,
+            task_class=str(supplied.get("task_class") or ""),
+            confidence=float(supplied.get("confidence") or 0.0),
+            reasoning=str(supplied.get("reasoning") or "authoritative route from core"),
+            method=str(supplied.get("method") or "core"),
+            pipeline=supplied.get("pipeline"),
+        )
+        plan_status = strategy_to_plan_status(decision)
+        logger.debug(f"classify_node: consuming authoritative strategy={decision.strategy.value} (no re-route)")
+        return {
+            **state,
+            "plan_status": plan_status,
+            "strategy": decision.strategy.value,
+            "route_decision": decision.to_dict(),
+        }
 
     user_text = ""
     messages = state.get("messages", [])
@@ -362,32 +388,9 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
         classification.method = "harness"
 
     decision = route(user_text, classification=classification)
-
-    # Legacy pattern belt-and-suspenders when still REACT
-    if decision.strategy == Strategy.REACT and classify_by_patterns(user_text) == "plan":
-        decision = RouteDecision(
-            strategy=Strategy.PLAN,
-            task_class=decision.task_class or "COMPLEX",
-            confidence=max(decision.confidence, 0.6),
-            reasoning=(decision.reasoning + "; " if decision.reasoning else "")
-            + "legacy plan patterns",
-            method="hybrid",
-            pipeline=decision.pipeline,
-        )
-        try:
-            from ..config import PLAN_ENABLED
-
-            if not PLAN_ENABLED:
-                decision = RouteDecision(
-                    strategy=Strategy.REACT,
-                    task_class=decision.task_class,
-                    confidence=decision.confidence,
-                    reasoning=decision.reasoning + " (planning disabled by PLAN_ENABLED)",
-                    method=decision.method,
-                    pipeline=decision.pipeline,
-                )
-        except Exception:
-            pass
+    # Single decision point: TaskRouter owns promotion + PLAN_ENABLED kill-switch.
+    # The legacy classify_by_patterns() override was removed here to prevent a
+    # second classifier silently overriding the authoritative decision.
 
     plan_status = strategy_to_plan_status(decision)
 
@@ -410,13 +413,9 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
             pass
 
     if plan_status == "planning":
-        logger.info(
-            "TaskRouter → PLAN (%s) for: %s",
-            decision.task_class or decision.method,
-            user_text[:80],
-        )
+        logger.info(f"TaskRouter → PLAN ({decision.task_class or decision.method}) for: {user_text[:80]}")
     else:
-        logger.debug("TaskRouter → %s for: %s", decision.strategy.value, user_text[:80])
+        logger.debug(f"TaskRouter → {decision.strategy.value} for: {user_text[:80]}")
 
     return {
         **state,

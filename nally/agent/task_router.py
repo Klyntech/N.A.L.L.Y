@@ -27,13 +27,18 @@ logger = logging.getLogger("nally.task_router")
 
 
 class Strategy(str, Enum):
-    """Canonical execution strategies."""
+    """Canonical execution strategies.
 
-    DIRECT = "direct"  # Instant answer / pattern matcher path (pre-graph)
+    Lifecycle: a strategy is a temporary per-request execution mode, not a
+    permanent mode. Each request gets ONE routing decision; the graph
+    consumes it and exits (via synthesize/END) when verification succeeds.
+    """
+
+    DIRECT = "direct"  # Instant answer / pattern matcher path (pre-graph, wired in core.process)
     REACT = "react"  # Default tool-using loop
-    PLAN = "plan"  # Plan → execute → verify
-    DELEGATE = "delegate"  # Subagent / parallel decomposition (reserved)
-    ENGINEERING = "engineering"  # Full engineering loop (reserved; large coding tasks)
+    PLAN = "plan"  # Plan → execute → verify (temporary, exits on sufficient verification)
+    DELEGATE = "delegate"  # Reserved: delegation is currently an LLM-invoked tool capability (subagent/), not a router branch
+    ENGINEERING = "engineering"  # Conversational alias of PLAN; full loop is CLI --engineer bypass (main.py)
 
 
 @dataclass

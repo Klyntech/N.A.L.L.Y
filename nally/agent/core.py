@@ -226,6 +226,18 @@ class NallyAgent:
                 result = _capitalize_sentences(_strip_emojis(result))
                 logger.nally_response(result)
                 logger.debug(f"Response time: {elapsed:.0f}ms (local)")
+                try:
+                    from .task_router import RouteDecision, Strategy
+
+                    self._last_route = RouteDecision(
+                        strategy=Strategy.DIRECT,
+                        task_class="SIMPLE",
+                        confidence=1.0,
+                        reasoning="pattern matcher direct answer (pre-graph)",
+                        method="rules",
+                    )
+                except Exception:
+                    pass
                 self._save_history()
                 return result
 
@@ -298,14 +310,9 @@ class NallyAgent:
 
                     _route = route_from_classification(_classification, user_text=user_input)
                     self._last_route = _route
-                    logger.info(
-                        "TaskRouter strategy=%s (class=%s conf=%.2f)",
-                        _route.strategy.value,
-                        _route.task_class or "-",
-                        _route.confidence,
-                    )
+                    logger.info(f"TaskRouter strategy={_route.strategy.value} (class={_route.task_class or '-'} conf={_route.confidence:.2f})")
                 except Exception as _tr_err:
-                    logger.debug("TaskRouter skipped: %s", _tr_err)
+                    logger.debug(f"TaskRouter skipped: {_tr_err}")
                     self._last_route = None
 
                 # Create scratchpad per pipeline config
@@ -518,6 +525,7 @@ class NallyAgent:
                 thread_id=self._thread_id,
                 intent_class=_intent_class,
                 intent_confidence=_intent_confidence,
+                route_decision=getattr(self, "_last_route", None),
             )
 
             # ── Harness v2: Critique Pipeline (Phase 2) ──
