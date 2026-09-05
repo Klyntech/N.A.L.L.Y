@@ -344,6 +344,41 @@ def get_agent():
     return _instance
 ```
 
+## Voice paths (runtime truth)
+
+Nally does **not** run a second agent for voice. Audio I/O is specialized; the **brain** is still `session_id` + `session_manager` for persistence. One intentional reasoning exception exists for Telegram **live** calls.
+
+```
+CLI / Web mic / Telegram voice *message*
+        → STT (batch) → session_manager.process → TTS
+        → full stack: harness, TaskRouter, graph, tools, checkpoints
+
+Telegram *realtime* voice chat (NALLY_VOICE_CALLS_ENABLED)
+        → VoicePipeline (streaming STT / VAD / barge-in / TTS)
+        → VoiceCallSession._stream_transcript
+              PRIMARY (latency):
+                 NallyLLM.stream_chat(
+                   VOICE_SYSTEM_PROMPT + _voice_history[-8:] + user
+                 )  → sentence stream → TTS
+                 then session_manager.commit_turn (shared brain history)
+              FALLBACK (if fast path fails before any token):
+                 session_manager.process  → full agent stack
+              Mid-stream LLM failure after tokens yielded:
+                 no fallback (avoids stuttered duplicate audio)
+              Pending tool approval from a prior full-agent turn:
+                 yes/no utterance → graph.resolve_approval
+
+LiveKit SIP (optional separate process)
+        → python -m nally.voice.livekit_agent
+        → session_manager.process (canonical reasoning)
+```
+
+**Identity:** call session uses the owner brain `session_id`. Fast-path turns are written back via `commit_turn` so text/web/Telegram history converge.
+
+**Not on the fast path:** TaskRouter, harness classification, LangGraph tools/planner, human checkpoint, plan EventBus fan-out. That is an explicit latency tradeoff for token-by-token TTS, not a second product brain.
+
+**Shadow state:** `_voice_history` is a short in-call window (seeded once from brain history). It is not a substitute for TaskState or long-term memory.
+
 ## Data Flow
 
 ### Conversation Persistence
