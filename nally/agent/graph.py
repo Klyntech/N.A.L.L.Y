@@ -530,6 +530,7 @@ class AgentState(TypedDict):
     last_error: Optional[str]
     tool_calls_total: int
     thread_id: str
+    session_id: str  # stable brain identity (not fresh_thread)
     plan: Optional[Dict[str, Any]]
     plan_status: str
     step_results: Dict[str, str]
@@ -1527,10 +1528,13 @@ def tool_executor(state: AgentState) -> AgentState:
                 from ..tools.task_state import task_state_manager, TaskState
                 from ..config import SESSION_ID
 
-                state = task_state_manager.get(SESSION_ID)
-                if not state:
-                    state = TaskState(SESSION_ID)
-                    state.task_description = "Auto-tracked work"
+                # Brain session_id (stable), not LangGraph fresh_thread and not
+                # process-wide SESSION_ID alone — matches NallyAgent._session_id.
+                brain_id = state.get("session_id") or SESSION_ID
+                task_st = task_state_manager.get(brain_id)
+                if not task_st:
+                    task_st = TaskState(brain_id)
+                    task_st.task_description = "Auto-tracked work"
 
                 args = tool_args if isinstance(tool_args, dict) else {}
                 fp = args.get("file_path", "")
@@ -1538,43 +1542,41 @@ def tool_executor(state: AgentState) -> AgentState:
 
                 if tool_name == "file_ops":
                     if action == "write" and fp:
-                        if fp not in state.files_created:
-                            state.files_created.append(fp)
-                        state.current_step = f"Wrote {fp}"
-                        state.last_tool_result = f"Created: {fp}"
+                        if fp not in task_st.files_created:
+                            task_st.files_created.append(fp)
+                        task_st.current_step = f"Wrote {fp}"
+                        task_st.last_tool_result = f"Created: {fp}"
                     elif action == "delete" and fp:
-                        if fp in state.files_created:
-                            state.files_created.remove(fp)
-                        state.current_step = f"Deleted {fp}"
+                        if fp in task_st.files_created:
+                            task_st.files_created.remove(fp)
+                        task_st.current_step = f"Deleted {fp}"
 
                 elif tool_name == "read_file" and fp:
-                    # Track that we've read this file (don't need to re-read)
                     tag = f"read:{fp}"
-                    if tag not in state.key_decisions:
-                        state.key_decisions.append(tag)
-                    state.current_step = f"Read {fp}"
+                    if tag not in task_st.key_decisions:
+                        task_st.key_decisions.append(tag)
+                    task_st.current_step = f"Read {fp}"
 
                 elif tool_name == "execute":
                     code = args.get("code", "")[:100]
-                    state.current_step = f"Executed code: {code}..."
-                    state.last_tool_result = str(result)[:200]
+                    task_st.current_step = f"Executed code: {code}..."
+                    task_st.last_tool_result = str(result)[:200]
 
                 elif tool_name in ("design_fetch", "design_sources"):
-                    state.current_step = f"Fetched from {tool_name}: {args.get('category', '')}"
-                    state.last_tool_result = str(result)[:200]
+                    task_st.current_step = f"Fetched from {tool_name}: {args.get('category', '')}"
+                    task_st.last_tool_result = str(result)[:200]
 
                 elif tool_name == "web_search":
-                    state.current_step = f"Searched: {args.get('query', '')}"
-                    state.last_tool_result = str(result)[:200]
+                    task_st.current_step = f"Searched: {args.get('query', '')}"
+                    task_st.last_tool_result = str(result)[:200]
 
                 elif tool_name == "task_state":
-                    # Don't track task_state tool calls (avoid recursion)
                     pass
 
                 else:
-                    state.current_step = f"Used {tool_name}"
+                    task_st.current_step = f"Used {tool_name}"
 
-                task_state_manager.save(state)
+                task_state_manager.save(task_st)
             except Exception as e:
                 logger.debug(f"Auto-save task state skipped: {e}")
 
@@ -1957,6 +1959,7 @@ def run_agent(
         "last_error": None,
         "tool_calls_total": 0,
         "thread_id": fresh_thread,
+        "session_id": thread_id,  # canonical brain id for TaskState / cross-channel
         "plan": None,
         "plan_status": "",
         "step_results": {},
