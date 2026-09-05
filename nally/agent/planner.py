@@ -17,7 +17,6 @@ from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
 from ..config import (
-    PLAN_ENABLED,
     PLAN_MAX_REVISIONS,
     PLAN_MAX_STEPS,
     PLAN_STEP_MAX_ITERATIONS,
@@ -470,7 +469,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if existing_plan.goal == user_text or (
             existing_plan.goal and user_text in existing_plan.goal
         ):
-            logger.info(f"Planner dedup: existing plan covers goal, skipping re-plan")
+            logger.info("Planner dedup: existing plan covers goal, skipping re-plan")
             return {**_plan_to_state(state, existing_plan), "plan_status": "executing"}
 
     if is_revision and existing_plan.critique:
