@@ -178,7 +178,6 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
     The tool_executor will poll for resolution (same pattern as approval gate).
     """
     from ..core.abort import check_abort
-    from ..events.bus import event_bus
 
     intent_class = state.get("intent_class", "")
     thread_id = state.get("thread_id", "default")
@@ -229,9 +228,6 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
         created_at=time.time(),
     )
     save_checkpoint(checkpoint)
-
-    # Emit confirmation event via event bus (observability; transports may not subscribe)
-    event_bus.publish("human_checkpoint_required", checkpoint.to_dict())
 
     # Live stream delivery — same path as tool confirmation_required.
     # WS/SSE install emit via run_agent → _set_emit; thread-local is the

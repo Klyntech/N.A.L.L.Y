@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from unittest.mock import patch
 
 import pytest
@@ -176,3 +178,10 @@ def test_no_emit_when_callback_unset_still_saves(cp_db, monkeypatch):
         out = human_checkpoint_node(_base_state(thread_id=tid))
     assert get_checkpoint(tid) is not None
     assert out["plan_status"] == "rejected"
+
+
+def test_human_checkpoint_does_not_publish_to_event_bus():
+    """Client path is emit; bus publish was residue with no consumer."""
+    src = Path("nally/agent/human_checkpoint.py").read_text()
+    assert "event_bus.publish" not in src
+    assert "from ..events.bus import event_bus" not in src
