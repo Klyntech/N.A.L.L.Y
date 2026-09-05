@@ -71,19 +71,25 @@ def _track_connection_task(in_flight: set, coro) -> asyncio.Task:
 async def _cancel_connection_tasks(
     in_flight: set,
     heartbeat_task: asyncio.Task | None,
-    route_key: str,
+    *,
+    brain_session_id: str | None = None,
+    abort_shared_brain: bool = False,
 ) -> None:
     """Cancel heartbeat + in-flight agent/voice work for one connection.
 
-    Signals cooperative abort so executor-backed agent loops can stop, then
-    cancels asyncio tasks and awaits their cleanup.
+    Always cancels this connection's asyncio children. Cooperative abort of the
+    shared brain (``set_abort(session_id)``) runs only when
+    ``abort_shared_brain`` is True — i.e. this was the last WebSocket for the
+    route. Abort uses the canonical brain ``session_id``, not the route key,
+    so graph aliases resolve correctly without cross-tab false aborts.
     """
-    try:
-        from ..core.abort import set_abort
+    if abort_shared_brain and brain_session_id:
+        try:
+            from ..core.abort import set_abort
 
-        set_abort(route_key)
-    except Exception:
-        pass
+            set_abort(brain_session_id)
+        except Exception:
+            pass
 
     pending: list[asyncio.Task] = []
     if heartbeat_task is not None and not heartbeat_task.done():
@@ -163,6 +169,11 @@ class ConnectionManager:
         for cid in cids:
             if cid != exclude:
                 await self.send_json(cid, data)
+
+
+    def connection_count(self, session_id: str) -> int:
+        """How many WebSockets are currently registered for this route/room key."""
+        return len(self._sessions.get(session_id, set()))
 
 
 # Singleton
@@ -313,9 +324,16 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
-        # Cancel all connection-owned work (heartbeat + agent/voice tasks)
+        # Cancel this connection's children always. Abort the shared brain only
+        # when this is the last WebSocket still registered on the route.
         try:
-            await _cancel_connection_tasks(in_flight, heartbeat_task, route_key)
+            is_last = ws_manager.connection_count(route_key) <= 1
+            await _cancel_connection_tasks(
+                in_flight,
+                heartbeat_task,
+                brain_session_id=session_id,
+                abort_shared_brain=is_last,
+            )
         except Exception as e:
             logger.debug(f"WS task cleanup error: {e}")
         # Unsubscribe from event bus
