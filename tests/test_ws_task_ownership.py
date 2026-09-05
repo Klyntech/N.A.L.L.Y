@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import sys
 import types
 
@@ -311,3 +312,39 @@ def test_heartbeat_cancelled_with_inflight():
         assert flags["msg"] is True
 
     asyncio.run(_run())
+
+
+def test_client_abort_targets_brain_not_route_in_source():
+    """Regression: WS abort message must set_abort(session_id), not route_key."""
+    src = Path("nally/web/ws_handler.py").read_text()
+    # Find the client abort handler block
+    start = src.find('elif msg_type == "abort":')
+    assert start > 0
+    block = src[start:start + 350]
+    assert "set_abort(session_id)" in block
+    assert "set_abort(route_key)" not in block
+
+
+def test_stream_abort_checks_session_id_in_source():
+    src = Path("nally/web/ws_handler.py").read_text()
+    assert "if check_abort(session_id):" in src
+    assert "if check_abort(rk):" not in src
+    assert "if check_abort(route_key):" not in src
+
+
+def test_abort_flag_brain_visible_to_graph_key():
+    """set_abort(session_id) is what graph aliases resolve to."""
+    from nally.core import abort as abort_mod
+
+    brain = "user:owner-client-abort"
+    route = "web:default"
+    abort_mod.clear_abort(brain)
+    abort_mod.clear_abort(route)
+    abort_mod.set_abort(brain)
+    assert abort_mod.check_abort(brain) is True
+    assert abort_mod.check_abort(route) is False
+    # Graph-style alias: transient thread resolves to brain
+    abort_mod.register_alias(f"{brain}-abc123", brain)
+    assert abort_mod.check_abort(f"{brain}-abc123") is True
+    abort_mod.clear_abort(brain)
+    abort_mod.clear_alias(f"{brain}-abc123")

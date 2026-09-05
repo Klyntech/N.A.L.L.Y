@@ -283,7 +283,8 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
             elif msg_type == "abort":
                 from ..core.abort import set_abort
 
-                set_abort(route_key)
+                # Brain identity for graph cooperative abort — not route_key.
+                set_abort(session_id)
                 await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted"})
 
             # ── Approval response ───────────────────────
@@ -409,8 +410,10 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
             except Exception:
                 pass
 
-    # Clear abort flag (per-route)
-    clear_abort(rk)
+    # Brain-scoped abort flags (graph uses session_id / aliases).
+    clear_abort(session_id)
+    if rk != session_id:
+        clear_abort(rk)
 
     # Broadcast user message to other tabs (per-route)
     await ws_manager.broadcast(
@@ -424,9 +427,8 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
 
     # Stream events back to client
     while True:
-        # Check abort (per-route)
-        if check_abort(rk):
-            clear_abort(rk)
+        if check_abort(session_id):
+            clear_abort(session_id)
             await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
             await ws_manager.send_json(cid, {"type": "done"})
             return
@@ -564,14 +566,16 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        clear_abort(rk)
+        clear_abort(session_id)
+        if rk != session_id:
+            clear_abort(rk)
         asyncio.ensure_future(loop.run_in_executor(None, run_agent))
 
         # Stream events back, capture final response
         final_response = ""
         while True:
-            if check_abort(rk):
-                clear_abort(rk)
+            if check_abort(session_id):
+                clear_abort(session_id)
                 await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
                 await ws_manager.send_json(cid, {"type": "done"})
                 return
