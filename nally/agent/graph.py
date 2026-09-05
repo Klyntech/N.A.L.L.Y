@@ -342,35 +342,56 @@ def _tool_is_destructive(tool_name: str, tool_args: dict) -> bool:
 
 
 def _is_transient_error(result: str) -> bool:
+    """Heuristic: is this failure worth retrying?
+
+    Separate from ToolResult.ok — ok says failure happened; this decides
+    whether a retry is sensible based on error text / known transient hints.
+    """
     r = (result or "").lower()
     return any(hint in r for hint in _RETRYABLE_ERROR_HINTS)
 
 
-def _execute_tool_with_retry(tool_name: str, tool_args: dict, tool_id: str) -> tuple:
-    """Execute a tool, retrying transient failures up to TOOL_RETRY_LIMIT.
+def _execute_tool_with_retry(tool_name: str, tool_args: dict, tool_id: str):
+    """Execute a tool via ``execute_result``, retrying transient failures.
 
-    Destructive tools are never retried (a failed shell command should not be
-    re-run blindly). After the limit is exhausted the exact last error is
-    returned so the agent can report it to the user verbatim.
+    ``ToolResult.ok`` is authoritative for success/failure.
+    Transient detection uses error/observation text only when ok is False.
+    Destructive tools are never retried.
+
+    Returns:
+        ToolResult — callers use ``.ok`` for control flow and ``to_llm_text()``
+        for the LLM observation.
     """
-    if _tool_is_destructive(tool_name, tool_args):
-        return registry.execute(tool_name, tool_args)
+    from ..tools.result import ToolResult
 
-    last_result, last_success = "", False
+    if _tool_is_destructive(tool_name, tool_args):
+        return registry.execute_result(tool_name, tool_args)
+
+    last: ToolResult | None = None
     for attempt in range(1, TOOL_RETRY_LIMIT + 1):
-        result, success = registry.execute(tool_name, tool_args)
-        last_result, last_success = result, success
-        if success or not _is_transient_error(result):
-            return result, success
+        tr = registry.execute_result(tool_name, tool_args)
+        last = tr
+        if tr.ok:
+            return tr
+        # Failure: decide retry from error/observation text, not by
+        # reconstructing success from string prefixes alone.
+        err_text = tr.error if tr.error is not None else tr.to_llm_text()
+        if not _is_transient_error(str(err_text)):
+            return tr
         logger.warning(
-            f"Tool '{tool_name}' transient failure (attempt {attempt}/{TOOL_RETRY_LIMIT}), retrying: {result[:80]}"
+            f"Tool '{tool_name}' transient failure "
+            f"(attempt {attempt}/{TOOL_RETRY_LIMIT}), retrying: {str(err_text)[:80]}"
         )
         if attempt < TOOL_RETRY_LIMIT:
             time.sleep(min(2 ** attempt, 8))
 
-    if not last_success:
-        logger.error(f"Tool '{tool_name}' failed after {TOOL_RETRY_LIMIT} attempts: {last_result[:200]}")
-    return last_result, last_success
+    assert last is not None
+    if not last.ok:
+        logger.error(
+            f"Tool '{tool_name}' failed after {TOOL_RETRY_LIMIT} attempts: "
+            f"{last.to_llm_text()[:200]}"
+        )
+    return last
 
 
 # ── Thread-local state ────────────────────────────────────
@@ -1313,7 +1334,9 @@ def tool_executor(state: AgentState) -> AgentState:
 
         start = time.time()
         try:
-            result, success = _execute_tool_with_retry(tool_name, tool_args, tool_id)
+            _tr = _execute_tool_with_retry(tool_name, tool_args, tool_id)
+            result = _tr.to_llm_text()
+            success = _tr.ok  # ToolResult.ok is authoritative
         except Exception as e:
             result = f"Error executing {tool_name}: {e!s}"
             success = False

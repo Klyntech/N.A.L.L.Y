@@ -1,8 +1,7 @@
 """NallyBridge Tool — sends commands to connected bridge devices."""
 
-import os
-
 from .registry import Tool
+from .result import ToolResult
 
 
 class BridgeTool(Tool):
@@ -28,41 +27,60 @@ class BridgeTool(Tool):
                 },
                 "args": {
                     "type": "object",
-                    "description": "Arguments for the tool. E.g. for run_command: {'command': 'dir'}. For file_ops: {'action': 'list', 'file_path': 'C:\\\\Users\\\\Desktop'}.",
+                    "description": (
+                        "Arguments for the tool. E.g. for run_command: {'command': 'dir'}. "
+                        "For file_ops: {'action': 'list', 'file_path': 'C:\\\\Users\\\\Desktop'}."
+                    ),
                 },
             },
             permission="safe",
         )
 
-    def execute(self, device: str, tool: str, args=None) -> str:
+    def execute(self, device: str, tool: str, args=None):
+        """Run a remote tool; preserve remote success as ToolResult.ok.
+
+        The bridge WS protocol still returns (result, success). This method
+        maps that tuple into ToolResult so the registry does not re-infer
+        success from the result string alone.
+        """
         # Ensure args is a dict (LLM may pass it as a JSON string)
         if args is None:
             args = {}
         elif isinstance(args, str):
             import json
+
             try:
                 args = json.loads(args)
             except (json.JSONDecodeError, TypeError):
                 args = {}
 
-        # Validate tool name
         allowed_tools = ["run_command", "file_ops", "read_file", "system_health"]
         if tool not in allowed_tools:
-            return f"Error: Unsupported bridge tool: {tool}. Allowed: {', '.join(allowed_tools)}"
+            return ToolResult.failure(
+                error=(
+                    f"Error: Unsupported bridge tool: {tool}. "
+                    f"Allowed: {', '.join(allowed_tools)}"
+                ),
+                tool="bridge_execute",
+            )
 
         # Import here to avoid circular imports at module level
         from ..web.bridge_handler import bridge_registry
 
-        # Find device
         if device == "any":
             target = bridge_registry.find_device_for_tool(tool)
             if not target:
-                return "Error: No bridge devices connected. Make sure NallyBridge is running and connected."
+                return ToolResult.failure(
+                    error=(
+                        "Error: No bridge devices connected. "
+                        "Make sure NallyBridge is running and connected."
+                    ),
+                    tool="bridge_execute",
+                )
             device_id = target.device_id
         else:
             target = bridge_registry.get_device(device)
             if not target:
-                # Try to find by suffix match
                 for did, d in bridge_registry.devices.items():
                     if did.endswith(f":{device}") or did == device:
                         target = d
@@ -70,18 +88,26 @@ class BridgeTool(Tool):
                         break
                 else:
                     available = list(bridge_registry.devices.keys())
-                    return (
-                        f"Error: Bridge device '{device}' not connected. "
-                        f"Available devices: {available if available else '(none)'}"
+                    return ToolResult.failure(
+                        error=(
+                            f"Error: Bridge device '{device}' not connected. "
+                            f"Available devices: {available if available else '(none)'}"
+                        ),
+                        tool="bridge_execute",
                     )
-            device_id = device
+            else:
+                device_id = device
 
-        # Check tool is supported by this bridge
         if tool not in target.tools:
-            return f"Error: Bridge '{device_id}' does not support tool '{tool}'. Available: {target.tools}"
+            return ToolResult.failure(
+                error=(
+                    f"Error: Bridge '{device_id}' does not support tool '{tool}'. "
+                    f"Available: {target.tools}"
+                ),
+                tool="bridge_execute",
+            )
 
-        # Send request and wait for result — always use asyncio.run() since
-        # this method runs inside a thread pool executor (no event loop present).
+        # Always asyncio.run — this method runs inside a thread pool executor.
         import asyncio
 
         try:
@@ -89,9 +115,29 @@ class BridgeTool(Tool):
                 bridge_registry.send_tool_request(device_id, tool, args)
             )
         except Exception as e:
-            return f"Error communicating with bridge: {e}"
+            return ToolResult.failure(
+                error=f"Error communicating with bridge: {e}",
+                tool="bridge_execute",
+                remote_tool=tool,
+            )
 
-        return result
+        # Preserve remote success bit — do not drop it.
+        if success:
+            return ToolResult.success(
+                value=result,
+                tool="bridge_execute",
+                remote_tool=tool,
+                device=device_id,
+            )
+
+        err = result if str(result).lower().startswith("error") else f"Error: {result}"
+        return ToolResult.failure(
+            error=err,
+            value=result,
+            tool="bridge_execute",
+            remote_tool=tool,
+            device=device_id,
+        )
 
 
 def register(registry):
