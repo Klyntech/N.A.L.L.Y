@@ -483,26 +483,12 @@ class NallyAgent:
                     {"role": "system", "content": f"[SCRATCHPAD] Objective: {_scratchpad.objective}\nConstraints: {_scratchpad.constraints or ''}"},
                 )
 
-            # Confirmation gate: force plan-before-execute for complex tasks
-            if _classification and _classification.task_class.value in ("COMPLEX", "HIGH_STAKES"):
-                self.messages.insert(
-                    1,
-                    {
-                        "role": "system",
-                        "content": (
-                            "[EXECUTION MODE: PLAN FIRST]\n"
-                            "This task is classified as COMPLEX or HIGH_STAKES.\n"
-                            "BEFORE executing any tool calls, you MUST:\n"
-                            "1. Present a brief plan (3-5 bullet points) of what you will do\n"
-                            "2. Ask the user: 'Should I proceed?'\n"
-                            "3. WAIT for user confirmation before executing\n"
-                            "4. If the user says yes/proceed/go, execute the plan\n"
-                            "5. If the user says no/cancel/stop, stop and ask what they want instead\n\n"
-                            "Do NOT start executing tools until the user confirms. "
-                            "The plan should be concise — one line per step."
-                        ),
-                    },
-                )
+            # NOTE: the former [EXECUTION MODE: PLAN FIRST] text gate lived here.
+            # Retired: strategy confirmation belongs to the graph's
+            # human_checkpoint (the single confirmation mechanism), not to a
+            # prompt injection the model may obey, ignore, or double-enforce.
+            # Complex tasks still route to PLAN via TaskRouter; confirmation
+            # policy is decided separately from execution strategy.
 
             # ── Auto-inject task state on "continue" ──
             # When the user says continue/resume/pick up, check for saved task state
