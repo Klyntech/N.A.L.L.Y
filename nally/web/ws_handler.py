@@ -6,7 +6,6 @@ better for multi-tab sync.
 Protocol:
   Client -> Server:
     {"type": "user_message", "text": "hello", "tab_id": "tab_1"}
-    {"type": "voice_audio", "audio": "<base64>", "tab_id": "tab_1"}
     {"type": "abort", "session_id": "web:default"}
     {"type": "approval", "tool_call_id": "...", "approved": true/false}
 
@@ -17,10 +16,10 @@ Protocol:
     {"type": "tool_result", "name": "...", "result": "..."}
     {"type": "confirmation_required", "tool_call_id": "...", "name": "..."}
     {"type": "response", "text": "final answer"}
-    {"type": "voice_transcript", "text": "transcribed speech"}
-    {"type": "tts_audio", "audio": "<base64 WAV>"}
     {"type": "error", "text": "..."}
     {"type": "done"}
+
+  Voice: web is text-only. Voice input/output is via Telegram bot voice notes.
 """
 
 import asyncio
@@ -300,18 +299,13 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     {"type": "approval_resolved", "tool_call_id": tool_call_id, "approved": approved},
                 )
 
-            # ── Voice audio (from browser mic) ──────────
+            # Voice audio removed — web is text-only. Bot voice notes remain via Telegram.
             elif msg_type == "voice_audio":
-                audio_b64 = msg.get("audio", "")
-                tab_id = msg.get("tab_id", "")
-                audio_format = msg.get("format", "")
-                if not audio_b64:
-                    await ws_manager.send_json(cid, {"type": "error", "text": "No audio data"})
-                    continue
-                _track_connection_task(
-                    in_flight,
-                    _process_voice(cid, session_id, audio_b64, tab_id, audio_format, route_key),
+                await ws_manager.send_json(
+                    cid,
+                    {"type": "error", "text": "Voice input is not available on web — use Telegram voice notes for voice replies."},
                 )
+                continue
 
             # ── Pong from client (heartbeat response) ──
             elif msg_type == "pong":
@@ -456,203 +450,4 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
 
     await ws_manager.send_json(cid, {"type": "done"})
 
-
-async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str, audio_format: str = "", route_key: str = None):
-    """Process voice audio from browser: STT -> agent -> TTS -> stream audio back (per-route)."""
-    from ..core.abort import check_abort, clear_abort
-    rk = route_key or session_id
-
-    loop = asyncio.get_event_loop()
-
-    try:
-        # Decode base64 audio to bytes
-        audio_bytes = base64.b64decode(audio_b64)
-
-        if audio_format == "pcm_s16le":
-            # Client decoded to raw 16kHz mono int16 PCM — use directly
-            pcm_bytes = audio_bytes
-        else:
-            # Browser sent raw webm — decode with ffmpeg
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_in:
-                tmp_in.write(audio_bytes)
-                tmp_in_path = tmp_in.name
-
-            tmp_out_path = tmp_in_path.replace(".webm", ".pcm")
-
-            try:
-                from ..utils import ffmpeg_available
-
-                if not ffmpeg_available():
-                    await ws_manager.send_json(
-                        cid,
-                        {
-                            "type": "error",
-                            "text": "ffmpeg not installed — required for voice. Install: choco install ffmpeg",
-                        },
-                    )
-                    return
-
-                proc = await asyncio.create_subprocess_exec(
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    tmp_in_path,
-                    "-f",
-                    "s16le",
-                    "-acodec",
-                    "pcm_s16le",
-                    "-ar",
-                    "16000",
-                    "-ac",
-                    "1",
-                    tmp_out_path,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-                await proc.wait()
-
-                if proc.returncode != 0:
-                    await ws_manager.send_json(cid, {"type": "error", "text": "Audio decode failed"})
-                    return
-
-                with open(tmp_out_path, "rb") as f:
-                    pcm_bytes = f.read()
-            finally:
-                for p in [tmp_in_path, tmp_out_path]:
-                    try:
-                        os.unlink(p)
-                    except OSError:
-                        pass
-
-        if len(pcm_bytes) < 3200:  # < 0.1s at 16kHz
-            await ws_manager.send_json(cid, {"type": "error", "text": "Audio too short"})
-            return
-
-        # STT
-        import numpy as np
-
-        audio_f32 = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-
-        from ..voice.stt import transcribe
-
-        text = await loop.run_in_executor(None, transcribe, audio_f32.tobytes())
-
-        if not text.strip():
-            await ws_manager.send_json(cid, {"type": "error", "text": "Could not understand audio"})
-            return
-
-        # Send transcript back
-        await ws_manager.send_json(cid, {"type": "voice_transcript", "text": text})
-
-        # Process through agent
-        queue: asyncio.Queue = asyncio.Queue()
-
-        def stream_event(event, payload):
-            try:
-                flat = {"type": event}
-                flat.update(payload)
-                loop.call_soon_threadsafe(queue.put_nowait, flat)
-            except Exception:
-                pass
-
-        def run_agent():
-            try:
-                response = session_manager.process(session_id, text, emit=stream_event, route_key=rk)
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
-            except NallyError as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-
-        clear_abort(session_id)
-        if rk != session_id:
-            clear_abort(rk)
-        asyncio.ensure_future(loop.run_in_executor(None, run_agent))
-
-        # Stream events back, capture final response
-        final_response = ""
-        while True:
-            if check_abort(session_id):
-                clear_abort(session_id)
-                await ws_manager.send_json(cid, {"type": "error", "text": "Operation aborted by user."})
-                await ws_manager.send_json(cid, {"type": "done"})
-                return
-
-            item = await queue.get()
-            if item is None:
-                break
-
-            await ws_manager.send_json(cid, item)
-
-            if item.get("type") == "response":
-                final_response = item.get("text", "")
-
-            # Broadcast to other tabs (per-route)
-            evt_type = item.get("type", "")
-            if evt_type == "thought":
-                await ws_manager.broadcast(
-                    rk,
-                    {"type": "thinking", "text": item.get("text", ""), "tab_id": tab_id},
-                    exclude=cid,
-                )
-            elif evt_type == "response":
-                await ws_manager.broadcast(
-                    rk,
-                    {"type": "assistant_message", "text": item.get("text", ""), "tab_id": tab_id},
-                    exclude=cid,
-                )
-
-        # TTS the response with voice summary — via SpeechPlanner streaming adapter
-        if final_response:
-            from ..voice.formatter import VoiceFormatter, VoiceMode
-            from ..voice.speech_output import render_to_wav
-
-            # Generate voice summary via lightweight LLM
-            voice_summary = await _generate_ws_voice_summary(final_response)
-
-            # Format for speech (visual cleanup) → planner handles conversational prosody
-            formatter = VoiceFormatter()
-            speak_text = formatter.format(final_response, mode=VoiceMode.SMART, summary=voice_summary)
-
-            wav_bytes = await render_to_wav(speak_text)
-            if not wav_bytes:
-                from ..voice.tts import synthesize_to_wav
-
-                wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, speak_text)
-            if wav_bytes:
-                wav_b64 = base64.b64encode(wav_bytes).decode("ascii")
-                await ws_manager.send_json(cid, {"type": "tts_audio", "audio": wav_b64})
-
-        await ws_manager.send_json(cid, {"type": "done"})
-
-    except Exception as e:
-        logger.error(f"Voice processing failed: {e}", exc_info=True)
-        await ws_manager.send_json(cid, {"type": "error", "text": f"Voice processing failed: {e}"})
-
-
-async def _generate_ws_voice_summary(text: str) -> str:
-    """Generate a 1-2 sentence voice summary using the main LLM."""
-    import re
-
-    try:
-        if len(text) <= 200:
-            return text
-
-        from ..agent.llm import llm
-
-        summary_response = await asyncio.to_thread(
-            llm.simple_chat,
-            user_message=f"Rewrite this as a 1-2 sentence spoken summary. Keep it conversational and natural, like you're talking to a friend. No markdown, no lists, just flowing speech:\n\n{text}",
-            system_prompt="You are a voice assistant. Rewrite responses for natural spoken delivery. Be conversational, warm, concise. Never use markdown, bullet points, or lists. Just flowing sentences.",
-        )
-        return summary_response.strip()
-    except Exception as e:
-        logger.warning(f"Voice summary generation failed: {e}")
-        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-        if len(sentences) >= 2:
-            return " ".join(sentences[:2])
-        elif sentences:
-            return sentences[0]
-        return text[:200]
+# Voice removed — web is text-only. Bot voice notes remain via Telegram.
