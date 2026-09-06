@@ -1095,9 +1095,12 @@ def route_after_replan(state: Dict[str, Any]) -> str:
     if plan_status == "revising":
         return "planner"
 
-    # No plan / plan was None — exit to synthesize (error message)
-    if plan_status in ("none", None) or not state.get("plan"):
+    if plan_status == "executing":
+        if state.get("plan") and any(
+            s.status == StepStatus.PENDING for s in _get_plan(state).steps
+        ) if _get_plan(state) else False:
+            return "execute_step"
         return "synthesize"
 
-    # Still executing — go back to execute_step
-    return "execute_step"
+    # Unknown statuses must terminate, never spin.
+    return "synthesize"

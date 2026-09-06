@@ -202,6 +202,17 @@ class TestRouting:
         assert result["plan_status"] in ("partial", "failed", "revising")
         assert result["plan_status"] != "complete"
 
+    def test_unknown_status_never_executes(self):
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="step 1")])
+        state = {"plan_status": "foo", "plan": plan}
+        assert route_after_replan(state) == "synthesize"
+
+    def test_executing_without_pending_terminates(self):
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="step 1")])
+        plan.steps[0].status = StepStatus.COMPLETED
+        state = {"plan_status": "executing", "plan": plan, "iteration": 0, "max_iterations": 100}
+        assert route_after_replan(state) == "synthesize"
+
 
 class TestPlannerOutcomeSplit:
     """PLAN_READY goes to critique; PLAN_FAILED goes to ReAct, never critique."""
