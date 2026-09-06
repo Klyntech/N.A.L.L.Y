@@ -446,10 +446,12 @@ class NallyAgent:
         # Skip for benchmark sessions so the test can measure explicit web_search tool use
         if _needs_web_search(user_input) and not self._session_id.startswith("bench_"):
             try:
-                from ..tools.websearch import WebSearch
+                from ..tools.registry import registry
 
-                ws = WebSearch()
-                results = ws.execute(query=user_input, num_results=3)
+                tr = registry.execute_result(
+                    "web_search", {"query": user_input, "num_results": 3}
+                )
+                results = tr.value if tr.ok else ""
                 if results:
                     self.messages.insert(
                         1, {"role": "system", "content": f"[Auto-searched web for '{user_input}']:\n{results}"}
