@@ -829,8 +829,14 @@ class MemoryRepository:
         except Exception:
             pass  # FTS table might not exist yet on older DBs
 
-    def _fts_search(self, conn, search: str, min_confidence: float, limit: int):
-        """Search memories using FTS5 tokenized matching. Returns rows or None if FTS unavailable."""
+    def _fts_search(self, conn, search: str, min_confidence: float, limit: int, expired_after=None):
+        """Search memories using FTS5 tokenized matching. Returns rows or None if FTS unavailable.
+
+        Args:
+            expired_after: ISO now-string to exclude expired rows (same
+                definition of expired as the LIKE path in recall()), or None
+                to skip expiry filtering (include_expired=True).
+        """
         # Postgres has no FTS5 — fall back to LIKE path
         if isinstance(conn, _PostgresConnectionWrapper) or _is_postgres():
             return None
@@ -841,13 +847,23 @@ class MemoryRepository:
             if not tokens:
                 return None
             fts_query = " OR ".join(tokens)
-            rows = conn.execute(
-                """SELECT m.* FROM memories m
-                   JOIN memories_fts f ON m.id = f.rowid
-                   WHERE memories_fts MATCH ? AND m.deleted = 0 AND m.confidence >= ?
-                   ORDER BY m.confidence DESC LIMIT ?""",
-                (fts_query, min_confidence, limit),
-            ).fetchall()
+            if expired_after is None:
+                rows = conn.execute(
+                    """SELECT m.* FROM memories m
+                       JOIN memories_fts f ON m.id = f.rowid
+                       WHERE memories_fts MATCH ? AND m.deleted = 0 AND m.confidence >= ?
+                       ORDER BY m.confidence DESC LIMIT ?""",
+                    (fts_query, min_confidence, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT m.* FROM memories m
+                       JOIN memories_fts f ON m.id = f.rowid
+                       WHERE memories_fts MATCH ? AND m.deleted = 0 AND m.confidence >= ?
+                       AND (m.expires_at IS NULL OR m.expires_at > ?)
+                       ORDER BY m.confidence DESC LIMIT ?""",
+                    (fts_query, min_confidence, expired_after, limit),
+                ).fetchall()
             return rows
         except Exception:
             return None  # Fall back to LIKE
@@ -948,7 +964,12 @@ class MemoryRepository:
                 # FTS5 tokenized search with LIKE fallback.
                 # A provided category applies as an AND filter on either path —
                 # callers (e.g. curiosity dedup) rely on combined semantics.
-                rows = self._fts_search(conn, search, min_confidence, limit)
+                # expired_after reuses recall()'s now_iso so FTS and LIKE share
+                # one definition of expired.
+                rows = self._fts_search(
+                    conn, search, min_confidence, limit,
+                    expired_after=None if include_expired else now_iso,
+                )
                 if rows:
                     if category:
                         rows = [r for r in rows if r["category"] == category]
