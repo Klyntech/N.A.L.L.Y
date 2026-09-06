@@ -362,7 +362,20 @@ class NallyAgent:
                     )
                     # Grant skill's allowed-tools temporarily
                     if skill_obj and skill_obj.allowed_tools:
-                        perm_gate.set_skill_overrides(matched[0], skill_obj.allowed_tools)
+                        from ..tools.registry import registry as tool_registry
+
+                        missing = [t for t in skill_obj.allowed_tools if tool_registry.get(t) is None]
+                        valid = [t for t in skill_obj.allowed_tools if t not in missing]
+                        if missing:
+                            logger.warning(f"Skill '{matched[0]}' advertises unknown tools {missing} — skipping invalid overrides")
+                            self.messages.append(
+                                {
+                                    "role": "system",
+                                    "content": f"[SKILL TOOL MISMATCH: skill '{matched[0]}' lists unknown tools {missing} — those overrides were ignored. Available capabilities are in the CAPABILITIES block above.]",
+                                }
+                            )
+                        if valid:
+                            perm_gate.set_skill_overrides(matched[0], valid)
         except Exception as e:
             logger.warning(f"Skill activation failed: {e}")
 
