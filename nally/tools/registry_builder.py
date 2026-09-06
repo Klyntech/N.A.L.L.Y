@@ -75,11 +75,10 @@ def _load_all_registered():
 
     registry.register(FetchTool())
 
-    # --- Design Sources (2 tools — curated design source library) ---
-    from .design_fetch import DesignFetchTool, DesignSourcesTool
+    # --- Web design (1 tool — curated design source library; modules stay separate) ---
+    from .design_fetch import WebDesignTool
 
-    registry.register(DesignSourcesTool())
-    registry.register(DesignFetchTool())
+    registry.register(WebDesignTool())
 
     # --- Task State (1 tool — save/resume multi-step work) ---
     from .task_state import TaskStateTool

@@ -34,9 +34,8 @@ EXPECTED_SURFACE = sorted(
         # web (2)
         "web_search",
         "fetch",
-        # design (2)
-        "design_sources",
-        "design_fetch",
+        # design (1)
+        "web_design",
         # state (1)
         "task_state",
         # image/vision (3)
@@ -64,8 +63,7 @@ EXPECTED_SURFACE = sorted(
 DEFAULT_ASK = sorted(
     [
         "fetch",
-        "design_sources",
-        "design_fetch",
+        "web_design",
         "task_state",
         "analyze_image",
         "edit_image",

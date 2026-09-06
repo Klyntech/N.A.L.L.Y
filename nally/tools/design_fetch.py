@@ -329,28 +329,35 @@ def fetch_from_source(
 
 # ── Tool class ──────────────────────────────────────────
 
-class DesignFetchTool(Tool):
+class WebDesignTool(Tool):
     """Browse and extract CSS/HTML/JS code from curated design source websites.
 
     Categories: cursors, animations, components, gradients, waves, shadows, patterns, borders.
-    Use design_sources to see all available sources, then design_fetch to extract code.
+    action=discover lists available sources; action=fetch extracts code.
     """
 
     def __init__(self):
         super().__init__(
-            name="design_fetch",
+            name="web_design",
             description=(
-                "Fetch CSS/HTML/JS code from curated design source websites. "
+                "Curated web-design capability. action=discover lists available design "
+                "source websites by category; action=fetch extracts CSS/HTML/JS code "
+                "from a source. "
                 "Categories: cursors, animations, components, gradients, waves, shadows, patterns, borders. "
-                "Use design_sources first to see available sources, then use this tool to extract code. "
+                "Use discover first to find the right source, then fetch to extract code. "
                 "Always fetch from a design source before writing components from scratch."
             ),
             permission="safe",
             parameters={
+                "action": {
+                    "type": "string",
+                    "description": "Design operation: discover (list sources), fetch (extract code)",
+                    "required": True,
+                },
                 "category": {
                     "type": "string",
                     "description": "Design category: cursors, animations, components, gradients, waves, shadows, patterns, borders",
-                    "required": True,
+                    "enum": ["cursors", "animations", "components", "gradients", "waves", "shadows", "patterns", "borders"],
                 },
                 "query": {
                     "type": "string",
@@ -365,11 +372,33 @@ class DesignFetchTool(Tool):
                     "description": "Preferred code format: css, html, react, tailwind, svg, javascript",
                     "enum": ["css", "html", "react", "tailwind", "svg", "javascript"],
                 },
+                "method": {
+                    "type": "string",
+                    "description": "Filter sources by extraction method (discover only; optional). Empty = show all.",
+                    "enum": ["api", "mcp", "github", "npm", "playwright", "static"],
+                },
             },
         )
 
-    def execute(self, category: str, query: str = "", source_name: str = "", format: str = "") -> str:
-        category = category.lower().strip()
+    def execute(
+        self,
+        action: str = "discover",
+        category: str = "",
+        query: str = "",
+        source_name: str = "",
+        format: str = "",
+        method: str = "",
+        **kwargs,
+    ) -> str:
+        action = (action or "discover").strip().lower()
+        if action == "fetch":
+            return self._fetch(category, query, source_name, format)
+        if action == "discover":
+            return self._discover(category, method)
+        return f"Error: unknown web_design action '{action}' (discover|fetch)"
+
+    def _fetch(self, category: str, query: str = "", source_name: str = "", format: str = "") -> str:
+        category = (category or "").lower().strip()
 
         # List sources for category
         if not query and not source_name:
@@ -384,7 +413,7 @@ class DesignFetchTool(Tool):
                 formats = ", ".join(s["code_formats"])
                 lines.append(f"- {s['name']}: {s['description']} ({method}, {formats})")
             lines.append("")
-            lines.append("Use design_fetch with a query to extract code from one of these sources.")
+            lines.append("Use web_design with action=fetch and a query to extract code from one of these sources.")
             return "\n".join(lines)
 
         # Find the source
@@ -392,7 +421,7 @@ class DesignFetchTool(Tool):
         if source_name:
             source = get_source_by_name(source_name)
             if not source:
-                return f"Source '{source_name}' not found. Use design_sources to see available sources."
+                return f"Source '{source_name}' not found. Use web_design with action=discover to see available sources."
         else:
             # Pick best source for category
             sources = get_sources_by_category(category)
@@ -425,33 +454,7 @@ class DesignFetchTool(Tool):
             logger.error(f"Design fetch failed: {e}")
             return f"Error fetching from {source['name']}: {type(e).__name__}: {e}"
 
-
-class DesignSourcesTool(Tool):
-    """List all available design sources by category."""
-
-    def __init__(self):
-        super().__init__(
-            name="design_sources",
-            description=(
-                "List all available design source websites by category. "
-                "Use this first to find the right source, then use design_fetch to extract code."
-            ),
-            permission="safe",
-            parameters={
-                "category": {
-                    "type": "string",
-                    "description": "Filter by category (optional). Empty = show all.",
-                    "enum": ["cursors", "animations", "components", "gradients", "waves", "shadows", "patterns", "borders"],
-                },
-                "method": {
-                    "type": "string",
-                    "description": "Filter by extraction method (optional). Empty = show all.",
-                    "enum": ["api", "mcp", "github", "npm", "playwright", "static"],
-                },
-            },
-        )
-
-    def execute(self, category: str = "", method: str = "") -> str:
+    def _discover(self, category: str = "", method: str = "") -> str:
         if category:
             sources = get_sources_by_category(category.lower())
             if not sources:
@@ -491,5 +494,5 @@ class DesignSourcesTool(Tool):
                 if s.get("highlights"):
                     lines.append(f"  Highlights: {s['highlights']}")
 
-        lines.append(f"\nUse design_fetch to extract code from any source.")
+        lines.append("\nUse web_design with action=fetch to extract code from any source.")
         return "\n".join(lines)

@@ -481,7 +481,7 @@ def format_for_prompt() -> str:
             lines.append(f"  - {s['name']}: {s['description']} ({method}, {formats})")
         lines.append("")
 
-    lines.append("Use the design_fetch tool to browse and extract code from these sources.")
+    lines.append("Use the web_design tool (action=discover) to browse and action=fetch to extract code from these sources.")
     lines.append("Always fetch from the BEST source for each category before writing code from scratch.")
 
     return "\n".join(lines)

@@ -1,7 +1,7 @@
 ---
 name: design_assembly
 description: Fetch components from curated design source websites and assemble them into projects. Use when building UIs that need animations, cursors, gradients, waves, shadows, patterns, borders, or reusable components. Always fetch before writing from scratch.
-allowed-tools: design_sources design_fetch read_file file_ops
+allowed-tools: web_design read_file file_ops
 ---
 
 # Design Assembly
@@ -34,17 +34,17 @@ Example for a landing page:
 
 ### Step 2: FETCH — Get code from the right design source
 
-For each component, use `design_fetch` to get real, working code:
+For each component, use `web_design` to get real, working code:
 
 ```
-design_fetch(category="gradients", query="dark purple to blue")
-design_fetch(category="waves", query="wave divider")
-design_fetch(category="cursors", query="rainbow trail")
-design_fetch(category="shadows", query="glassmorphism card")
-design_fetch(category="animations", query="fade in up")
-design_fetch(category="patterns", query="dots background")
-design_fetch(category="borders", query="blob shape")
-design_fetch(category="components", query="toggle switch")
+web_design(action="fetch", category="gradients", query="dark purple to blue")
+web_design(action="fetch", category="waves", query="wave divider")
+web_design(action="fetch", category="cursors", query="rainbow trail")
+web_design(action="fetch", category="shadows", query="glassmorphism card")
+web_design(action="fetch", category="animations", query="fade in up")
+web_design(action="fetch", category="patterns", query="dots background")
+web_design(action="fetch", category="borders", query="blob shape")
+web_design(action="fetch", category="components", query="toggle switch")
 ```
 
 **Priority order (fastest to slowest):**
@@ -127,25 +127,24 @@ Best: `Fancy Border Radius` — 8-value syntax, blob shapes
 ## Quick Reference
 
 ### Available Tools
-- `design_sources` — List all available design sources by category
-- `design_fetch` — Extract CSS/HTML/JS code from a design source
+- `web_design` — List design sources (action=discover) and extract CSS/HTML/JS code from a source (action=fetch)
 
 ### Tool Usage
 ```
 # List all sources for a category
-design_sources(category="gradients")
+web_design(action="discover", category="gradients")
 
 # List sources by extraction method
-design_sources(method="api")
+web_design(action="discover", method="api")
 
 # Fetch code from the best source for a category
-design_fetch(category="gradients", query="sunset colors")
+web_design(action="fetch", category="gradients", query="sunset colors")
 
 # Fetch from a specific source
-design_fetch(category="components", source_name="UIverse", query="toggle switch")
+web_design(action="fetch", category="components", source_name="UIverse", query="toggle switch")
 
 # Fetch in a specific format
-design_fetch(category="animations", query="fade in", format="css")
+web_design(action="fetch", category="animations", query="fade in", format="css")
 ```
 
 ## Example: Building a Landing Page
@@ -162,12 +161,12 @@ design_fetch(category="animations", query="fade in", format="css")
 
 ### 2. Fetch each component
 ```
-design_fetch(category="gradients", query="dark purple to blue")
-design_fetch(category="waves", query="wave divider")
-design_fetch(category="cursors", query="rainbow trail")
-design_fetch(category="shadows", query="glassmorphism")
-design_fetch(category="animations", query="fade in up")
-design_fetch(category="patterns", query="dots")
+web_design(action="fetch", category="gradients", query="dark purple to blue")
+web_design(action="fetch", category="waves", query="wave divider")
+web_design(action="fetch", category="cursors", query="rainbow trail")
+web_design(action="fetch", category="shadows", query="glassmorphism")
+web_design(action="fetch", category="animations", query="fade in up")
+web_design(action="fetch", category="patterns", query="dots")
 ```
 
 ### 3. Adapt colors to project theme

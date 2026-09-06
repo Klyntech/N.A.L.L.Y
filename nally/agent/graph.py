@@ -1554,7 +1554,7 @@ def tool_executor(state: AgentState) -> AgentState:
                     task_st.current_step = f"Executed code: {code}..."
                     task_st.last_tool_result = str(result)[:200]
 
-                elif tool_name in ("design_fetch", "design_sources"):
+                elif tool_name in ("web_design",):
                     task_st.current_step = f"Fetched from {tool_name}: {args.get('category', '')}"
                     task_st.last_tool_result = str(result)[:200]
 
