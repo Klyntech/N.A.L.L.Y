@@ -33,6 +33,7 @@ from ..config import (
     MAX_AGENT_WALL_TIME,
     MAX_TOOL_FAILURES_PER_TURN,
     MAX_TOOL_CALLS,
+    MAX_TOOL_OUTPUT,
     PLAN_ENABLED,
     RECURSION_LIMIT,
     SESSION_ID,
@@ -1158,6 +1159,19 @@ def tool_executor(state: AgentState) -> AgentState:
         tool_args = tc["args"]
         tool_id = tc["id"]
 
+        tool_span = None
+
+        def _finish(success_flag, result_str, error_str=None):
+            if tool_span is not None:
+                try:
+                    tracer.end_span(
+                        tool_span.span_id,
+                        output={"success": success_flag, "result": result_str},
+                        error=error_str,
+                    )
+                except Exception:
+                    pass
+
         # ── Idempotency (task_id) ───────────────────────────
         # If the model supplied a task_id, skip re-execution when that task was
         # already completed in this session. Makes tools safe to retry/duplicate.
@@ -1174,7 +1188,6 @@ def tool_executor(state: AgentState) -> AgentState:
             except Exception as e:
                 logger.debug(f"Idempotency check skipped: {e}")
 
-        tool_span = None
         try:
             tool_span = tracer.start_span(
                 f"tool:{tool_name}",
@@ -1184,17 +1197,6 @@ def tool_executor(state: AgentState) -> AgentState:
             )
         except Exception:
             tool_span = None
-
-        def _finish(success_flag, result_str, error_str=None):
-            if tool_span is not None:
-                try:
-                    tracer.end_span(
-                        tool_span.span_id,
-                        output={"success": success_flag, "result": result_str},
-                        error=error_str,
-                    )
-                except Exception:
-                    pass
 
         # ── Hooks: PreToolUse (deterministic, can deny even bypass) ──
         try:
@@ -1444,7 +1446,7 @@ def tool_executor(state: AgentState) -> AgentState:
                 and state["_scratchpad"]
             ):
                 _sp = state["_scratchpad"]
-                if tool_success:
+                if success:
                     _sp.add_action(tool_name, str(tool_args)[:100])
                     _sp.add_result(str(result)[:200])
                 else:
@@ -1518,10 +1520,12 @@ def tool_executor(state: AgentState) -> AgentState:
         if success:
             try:
                 from ..tools.task_state import task_state_manager, TaskState
-                from ..config import SESSION_ID
 
                 # Brain session_id (stable), not LangGraph fresh_thread and not
                 # process-wide SESSION_ID alone — matches NallyAgent._session_id.
+                # NOTE: SESSION_ID is the module-level config import; do NOT
+                # re-import it here — a function-local import would rebind the
+                # name for this whole scope and break the idempotency reads above.
                 brain_id = state.get("session_id") or SESSION_ID
                 task_st = task_state_manager.get(brain_id)
                 if not task_st:
