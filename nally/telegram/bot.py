@@ -1088,16 +1088,16 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _send_voice_response(message, text: str):
-    """Send a voice response (LLM summary -> TTS -> OGG -> Telegram voice message)."""
+    """Send a voice response (LLM summary -> planner -> streaming TTS -> OGG)."""
     try:
         from ..voice.formatter import VoiceFormatter, VoiceMode
-        from ..voice.tts import synthesize_to_wav
+        from ..voice.speech_output import render_to_wav
         from .voice import wav_to_ogg
 
         # Generate voice summary via lightweight LLM
         voice_summary = await _generate_voice_summary(text)
 
-        # Format for speech (strip code, tables, etc.)
+        # Format for speech (strip code, tables, etc.) — visual cleanup
         formatter = VoiceFormatter()
         speak_text = formatter.format(text, mode=VoiceMode.SMART, summary=voice_summary)
 
@@ -1105,8 +1105,14 @@ async def _send_voice_response(message, text: str):
             await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")
             return
 
-        # Synthesize to WAV, then convert to OGG
-        wav_bytes = await asyncio.to_thread(synthesize_to_wav, speak_text)
+        # Render via SpeechPlanner + streaming TTS (single OGG contract preserved,
+        # interior is now sentence-aware streaming with pause hints)
+        wav_bytes = await render_to_wav(speak_text)
+        if not wav_bytes:
+            # Fallback to legacy monolithic path
+            from ..voice.tts import synthesize_to_wav
+
+            wav_bytes = await asyncio.to_thread(synthesize_to_wav, speak_text)
         if not wav_bytes:
             # Fallback to text
             await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")

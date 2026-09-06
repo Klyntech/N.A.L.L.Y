@@ -252,10 +252,10 @@ async def _generate_voice_summary(text: str) -> str:
         return text[:200]
 
 async def _send_voice_response_telethon(client, peer, text: str):
-    """Send voice reply via Telethon (TTS -> OGG) with text fallback."""
+    """Send voice reply via Telethon (planner -> streaming TTS -> OGG)."""
     try:
         from ..voice.formatter import VoiceFormatter, VoiceMode
-        from ..voice.tts import synthesize_to_wav
+        from ..voice.speech_output import render_to_wav
         from .voice import wav_to_ogg, check_ffmpeg
 
         if not check_ffmpeg():
@@ -270,10 +270,14 @@ async def _send_voice_response_telethon(client, peer, text: str):
             await client.send_message(peer, text[:4096])
             return
 
-        wav_bytes = await asyncio.to_thread(synthesize_to_wav, speak_text)
+        wav_bytes = await render_to_wav(speak_text)
         if not wav_bytes:
-            await client.send_message(peer, text[:4096])
-            return
+            from ..voice.tts import synthesize_to_wav
+
+            wav_bytes = await asyncio.to_thread(synthesize_to_wav, speak_text)
+            if not wav_bytes:
+                await client.send_message(peer, text[:4096])
+                return
 
         ogg_bytes = await asyncio.to_thread(wav_to_ogg, wav_bytes)
         if not ogg_bytes:

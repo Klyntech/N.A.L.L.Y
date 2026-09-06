@@ -604,19 +604,23 @@ async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str,
                     exclude=cid,
                 )
 
-        # TTS the response with voice summary
+        # TTS the response with voice summary — via SpeechPlanner streaming adapter
         if final_response:
             from ..voice.formatter import VoiceFormatter, VoiceMode
-            from ..voice.tts import synthesize_to_wav
+            from ..voice.speech_output import render_to_wav
 
             # Generate voice summary via lightweight LLM
             voice_summary = await _generate_ws_voice_summary(final_response)
 
-            # Format for speech
+            # Format for speech (visual cleanup) → planner handles conversational prosody
             formatter = VoiceFormatter()
             speak_text = formatter.format(final_response, mode=VoiceMode.SMART, summary=voice_summary)
 
-            wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, speak_text)
+            wav_bytes = await render_to_wav(speak_text)
+            if not wav_bytes:
+                from ..voice.tts import synthesize_to_wav
+
+                wav_bytes = await loop.run_in_executor(None, synthesize_to_wav, speak_text)
             if wav_bytes:
                 wav_b64 = base64.b64encode(wav_bytes).decode("ascii")
                 await ws_manager.send_json(cid, {"type": "tts_audio", "audio": wav_b64})
