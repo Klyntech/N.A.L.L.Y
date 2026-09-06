@@ -89,6 +89,16 @@ def _extract_topics(user_msgs: List[str]) -> List[str]:
     return topics[:3] or ["general"]
 
 
+def _strip_ts_prefix(text: str) -> str:
+    """Remove the temporal prefix _llm_process prepends to user messages.
+
+    Episode content construction must see the user's actual words, not the
+    "[Current time: ...]" bracket that fills the topic/context slices.
+    Only the exact prefix shape is stripped; user content is untouched.
+    """
+    return re.sub(r"^\[Current time: [^\]]+\]\n\n", "", text or "", count=1)
+
+
 class NallyAgent:
     def __init__(self, session_id: Optional[str] = None, channel: Optional[str] = None, route_key: Optional[str] = None):
         self.messages: List[dict] = []
@@ -668,10 +678,10 @@ class NallyAgent:
                     name = m.get("name", "unknown")
                     if name not in tools_used:
                         tools_used.append(name)
-            recent_context = " | ".join([m[:60] for m in user_msgs[-3:]])
+                recent_context = " | ".join([_strip_ts_prefix(m)[:60] for m in user_msgs[-3:]])
             topics = _extract_topics(user_msgs)
             memory_store.add_episode(
-                topic=last_user[:50],
+                topic=_strip_ts_prefix(last_user)[:50],
                 what_happened=f"Context: {recent_context}",
                 outcome=response[:300] if response else "completed",
                 solution=f"Tools: {','.join(tools_used[:5])}" if tools_used else "direct response",
