@@ -76,6 +76,8 @@ class PlanStatus(StrEnum):
     COMPLETE = "complete"
     FAILED = "failed"
     REVISING = "revising"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
 
 
 class PlanStep:
@@ -713,6 +715,16 @@ def replan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _terminal_non_success(plan: Plan) -> str:
+    """Cap-exhaustion outcome: PARTIAL if anything completed, else FAILED.
+
+    A bounded failure must never manufacture COMPLETE. REPLAN_REQUIRED is a
+    control condition (budget remains -> planner), never a terminal outcome.
+    """
+    completed = [s for s in plan.steps if s.status == StepStatus.COMPLETED]
+    return PlanStatus.PARTIAL.value if completed else PlanStatus.FAILED.value
+
+
 def _replan_decision(state: Dict[str, Any]) -> Dict[str, Any]:
     plan = _get_plan(state)
     if not plan:
@@ -726,18 +738,20 @@ def _replan_decision(state: Dict[str, Any]) -> Dict[str, Any]:
     iteration += 1
 
     if iteration >= max_iterations:
-        plan.status = PlanStatus.COMPLETE
-        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": "complete"}
+        terminal = _terminal_non_success(plan)
+        plan.status = PlanStatus(terminal)
+        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": terminal}
 
     # All done — no pending, no failed
     if not pending and not failed:
         plan.status = PlanStatus.COMPLETE
         return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": "complete"}
 
-    # Too many revisions — give up
+    # Too many revisions — terminate truthfully, never as COMPLETE
     if plan.revision_count >= PLAN_MAX_REVISIONS:
-        plan.status = PlanStatus.COMPLETE
-        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": "complete"}
+        terminal = _terminal_non_success(plan)
+        plan.status = PlanStatus(terminal)
+        return {**_plan_to_state(state, plan), "iteration": iteration, "plan_status": terminal}
 
     # Has failures — revise the plan
     if failed:
@@ -766,6 +780,14 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
             ],
         }
 
+    # Terminal outcome comes from the lifecycle, never manufactured here.
+    # rejected (declined checkpoint) renders as BLOCKED: an external condition
+    # stopped progress, not an execution failure.
+    incoming = state.get("plan_status", "complete")
+    terminal = "blocked" if incoming == "rejected" else incoming
+    if terminal not in ("complete", "partial", "failed", "blocked"):
+        terminal = "complete"
+
     # Build synthesis prompt
     step_summaries = []
     for s in plan.steps:
@@ -773,12 +795,30 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         result = step_results.get(s.id, s.result or "no result")
         step_summaries.append(f"[{status_icon}] {s.goal}\n  Result: {result[:500] if result else 'none'}")
 
+    outcome_frame = {
+        "complete": "All steps completed. Report the completed objective with evidence.",
+        "partial": (
+            "Some steps completed and some did not. Report WHAT COMPLETED and "
+            "WHAT REMAINS separately. Do not imply the overall objective is complete."
+        ),
+        "failed": (
+            "The objective could not be completed. Report the attempted work and "
+            "evidence, then report the failure plainly. Do not imply any successful completion."
+        ),
+        "blocked": (
+            "Progress stopped because of an external condition (declined approval, "
+            "permission, or unavailable dependency). Report what completed, identify "
+            "the blocking condition, and do not present it as an execution failure."
+        ),
+    }[terminal]
+
     synthesis_prompt = (
         f"The user asked: {plan.goal}\n\n"
+        f"Outcome of this plan: {terminal.upper()}.\n"
+        f"{outcome_frame}\n\n"
         f"Here are the results from each execution step:\n\n"
         + "\n".join(step_summaries)
-        + "\n\nSynthesize these results into a clear, complete response for the user. "
-        "Be specific about what was accomplished and what failed (if any). "
+        + "\n\nSynthesize these results into a clear response for the user. "
         "Use Nally's casual, direct tone. Start with a capital letter."
     )
 
@@ -798,12 +838,13 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 pass
 
         plan.summary = response
-        plan.status = PlanStatus.COMPLETE
+        plan.status = PlanStatus(terminal)
 
         event_bus.publish(
             "plan_complete",
             {
                 "goal": plan.goal,
+                "outcome": terminal,
                 "steps_completed": sum(1 for s in plan.steps if s.status == StepStatus.COMPLETED),
                 "steps_total": len(plan.steps),
             },
@@ -811,24 +852,26 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
         return {
             **_plan_to_state(state, plan),
-            "plan_status": "complete",
+            "plan_status": terminal,
             "messages": [AIMessage(content=response)],
         }
 
     except concurrent.futures.TimeoutError:
         logger.warning("Synthesis LLM call timed out, using fallback")
         fallback = _fallback_synthesis(plan, step_results)
+        plan.status = PlanStatus(terminal)
         return {
             **_plan_to_state(state, plan),
-            "plan_status": "complete",
+            "plan_status": terminal,
             "messages": [AIMessage(content=fallback)],
         }
     except Exception as e:
         logger.error(f"Synthesis failed: {e}")
         fallback = _fallback_synthesis(plan, step_results)
+        plan.status = PlanStatus(terminal)
         return {
             **_plan_to_state(state, plan),
-            "plan_status": "complete",
+            "plan_status": terminal,
             "messages": [AIMessage(content=fallback)],
         }
 
@@ -941,10 +984,16 @@ def route_after_classify(state: Dict[str, Any]) -> str:
 
 
 def route_after_replan(state: Dict[str, Any]) -> str:
-    """Route after replan check."""
+    """Route after replan check.
+
+    Terminal states (complete/partial/failed/blocked/rejected) all exit to
+    synthesize, which renders each distinctly. Only REVISING loops to planner
+    and only live execution returns to execute_step. Unknown statuses must
+    terminate, never spin.
+    """
     plan_status = state.get("plan_status", "none")
 
-    if plan_status == "complete":
+    if plan_status in ("complete", "partial", "failed", "blocked", "rejected"):
         return "synthesize"
 
     if plan_status == "revising":

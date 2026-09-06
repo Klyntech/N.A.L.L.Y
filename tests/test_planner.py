@@ -21,8 +21,10 @@ from nally.agent.planner import (
     route_after_critique,
     route_after_planner,
     route_after_replan,
+    synthesize_node,
     validate_plan,
 )
+from nally.config import PLAN_MAX_REVISIONS
 
 # ── Classification ────────────────────────────────────────
 
@@ -151,6 +153,55 @@ class TestRouting:
         state = {"plan_status": "executing", "plan": plan, "iteration": 0, "max_iterations": 100}
         assert route_after_replan(state) == "execute_step"
 
+    def test_replan_rejected_routes_to_synthesize(self):
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="step 1")])
+        state = {"plan_status": "rejected", "plan": plan}
+        assert route_after_replan(state) == "synthesize"
+
+    def test_replan_partial_routes_to_synthesize(self):
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="step 1")])
+        state = {"plan_status": "partial", "plan": plan}
+        assert route_after_replan(state) == "synthesize"
+
+    def test_replan_failed_routes_to_synthesize(self):
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="step 1")])
+        state = {"plan_status": "failed", "plan": plan}
+        assert route_after_replan(state) == "synthesize"
+
+    def test_cap_exhaustion_partial_when_some_completed(self):
+        from nally.agent.planner import _replan_decision
+
+        plan = Plan(
+            goal="test",
+            steps=[PlanStep(id="s1", goal="ok"), PlanStep(id="s2", goal="bad")],
+        )
+        plan.steps[0].status = StepStatus.COMPLETED
+        plan.steps[1].status = StepStatus.FAILED
+        plan.revision_count = PLAN_MAX_REVISIONS
+        state = {"plan": plan, "iteration": 0, "max_iterations": 100}
+        result = _replan_decision(state)
+        assert result["plan_status"] == "partial"
+        assert plan.status == PlanStatus.PARTIAL
+
+    def test_cap_exhaustion_failed_when_none_completed(self):
+        from nally.agent.planner import _replan_decision
+
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="bad")])
+        plan.steps[0].status = StepStatus.FAILED
+        plan.revision_count = PLAN_MAX_REVISIONS
+        state = {"plan": plan, "iteration": 0, "max_iterations": 100}
+        assert _replan_decision(state)["plan_status"] == "failed"
+
+    def test_iteration_cap_never_manufactures_complete(self):
+        from nally.agent.planner import _replan_decision
+
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="bad")])
+        plan.steps[0].status = StepStatus.FAILED
+        state = {"plan": plan, "iteration": 99, "max_iterations": 100}
+        result = _replan_decision(state)
+        assert result["plan_status"] in ("partial", "failed", "revising")
+        assert result["plan_status"] != "complete"
+
 
 class TestPlannerOutcomeSplit:
     """PLAN_READY goes to critique; PLAN_FAILED goes to ReAct, never critique."""
@@ -192,6 +243,52 @@ class TestPlannerOutcomeSplit:
         result = execute_step_node({"thread_id": "t", "plan": None})
         assert result["plan_status"] == "plan_failed"
         assert result["plan"] is None
+
+
+class TestSynthesizeTerminals:
+    """Synthesize renders DONE/PARTIAL/BLOCKED/FAILED distinctly."""
+
+    def _make_state(self, terminal, completed=True):
+        from nally.agent.planner import _plan_to_state
+
+        plan = Plan(goal="test goal", steps=[PlanStep(id="s1", goal="step 1")])
+        plan.steps[0].status = StepStatus.COMPLETED if completed else StepStatus.FAILED
+        plan.steps[0].result = "did the thing"
+        state = _plan_to_state({"messages": []}, plan)
+        state["plan_status"] = terminal
+        return state
+
+    def _run(self, terminal, completed=True):
+        with patch("nally.agent.llm.llm") as mock_llm:
+            mock_llm.simple_chat.return_value = "synthesized"
+            result = synthesize_node(self._make_state(terminal, completed))
+        call = mock_llm.simple_chat.call_args
+        prompt = call.kwargs.get("user_message", "")
+        if not prompt and call.args:
+            prompt = call.args[0]
+        return result, prompt
+
+    def test_complete_preserved(self):
+        result, prompt = self._run("complete")
+        assert result["plan_status"] == "complete"
+        assert "Outcome of this plan: COMPLETE" in prompt
+
+    def test_partial_rendered_distinctly(self):
+        result, prompt = self._run("partial")
+        assert result["plan_status"] == "partial"
+        assert "WHAT COMPLETED" in prompt
+        assert "WHAT REMAINS" in prompt
+
+    def test_failed_rendered_distinctly(self):
+        result, prompt = self._run("failed", completed=False)
+        assert result["plan_status"] == "failed"
+        assert "could not be completed" in prompt
+
+    def test_rejected_renders_as_blocked(self):
+        result, prompt = self._run("rejected", completed=False)
+        assert result["plan_status"] == "blocked"
+        assert "Outcome of this plan: BLOCKED" in prompt
+        assert "blocking condition" in prompt
 
 
 # ── Critique Node ─────────────────────────────────────────
