@@ -3,7 +3,10 @@
 Extracted from the store to keep scoring logic testable and decoupled from persistence.
 """
 
+import logging
 from datetime import datetime
+
+logger = logging.getLogger("nally.memory.confidence")
 
 
 def decay_confidence(days_since_confirmed: float) -> float:
@@ -29,11 +32,46 @@ def boost_confidence(current: float, amount: float = 0.1, maximum: float = 1.0) 
     return min(maximum, current + amount)
 
 
-def days_since(iso_timestamp: str) -> float:
-    """Calculate days between an ISO timestamp and now."""
+def days_since(timestamp) -> float:
+    """Days between a timestamp and now.
+
+    Canonical contract: ISO-8601 strings (as written by MemoryRepository).
+    Also accepted (defensively, for legacy/external rows): unix epoch
+    int/float (or numeric strings) and datetime objects.
+    None/empty means "no age info" and yields 0.0 (no decay).
+    Unparseable non-empty values yield 0.0 WITH a warning — never silent,
+    and never treated as ancient (which would nuke confidence on corrupt
+    data) nor as fresh-by-policy. Callers needing strictness should
+    validate before storing.
+    """
+    if timestamp is None:
+        return 0.0
+    if isinstance(timestamp, datetime):
+        then = timestamp
+    elif isinstance(timestamp, (int, float)):
+        try:
+            then = datetime.fromtimestamp(timestamp)
+        except (ValueError, OSError, OverflowError):
+            logger.warning(f"Unparseable memory timestamp: {timestamp!r}")
+            return 0.0
+    elif isinstance(timestamp, str):
+        text = timestamp.strip()
+        if not text:
+            return 0.0
+        try:
+            then = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                then = datetime.fromtimestamp(float(text))
+            except (ValueError, OSError, OverflowError):
+                logger.warning(f"Unparseable memory timestamp: {timestamp!r}")
+                return 0.0
+    else:
+        logger.warning(f"Unparseable memory timestamp of type {type(timestamp).__name__}")
+        return 0.0
     try:
-        then = datetime.fromisoformat(iso_timestamp)
         delta = datetime.now() - then
-        return delta.total_seconds() / 86400
-    except (ValueError, TypeError):
+        return max(0.0, delta.total_seconds() / 86400)
+    except Exception:
+        logger.warning(f"Unparseable memory timestamp: {timestamp!r}")
         return 0.0
