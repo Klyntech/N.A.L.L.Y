@@ -291,12 +291,13 @@ def classify_intent(
     Args:
         text: The user's request text.
         llm_call_fn: Optional LLM callable for classification. If None, uses regex only.
-        override: Manual override class name (bypasses classification).
+        override: Internal testing/debug hook to pin a class (bypasses LLM and
+            regex). Not a user-facing mode — production callers leave it None.
 
     Returns:
         Classification with task_class, confidence, reasoning.
     """
-    # Manual override
+    # Debug override (tests/internal only)
     if override:
         override_upper = override.upper()
         try:

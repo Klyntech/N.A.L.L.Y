@@ -72,11 +72,19 @@ class SkillRegistry:
         """Find skills whose description matches the user's message intent.
 
         Returns list of matching skill names, ordered by relevance.
+
+        NOTE: the `plan` skill is doctrine-only — it documents planning
+        principles but must not independently select execution strategy.
+        Strategy is owned solely by TaskRouter/RouteDecision. The registry
+        therefore never returns `plan` via intent matching; it remains
+        reachable only by explicit name.
         """
         message_lower = message.lower()
         matches = []
 
         for name, skill in self._skills.items():
+            if name == "plan":
+                continue
             desc_lower = skill.description.lower()
             # Simple keyword matching — description words in message
             desc_words = set(desc_lower.split())

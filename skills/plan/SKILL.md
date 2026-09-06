@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use when the user needs a complex task broken into actionable steps. Triggers on requests to plan, strategize, create a roadmap, organize work, or break down a project. Produces ordered steps with dependencies, estimates, and risk assessment.
+description: Doctrine for breaking complex work into verifiable steps — reference material only. Does not independently trigger planning; strategy selection is owned by the router.
 allowed-tools: []
 ---
 
