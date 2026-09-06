@@ -1373,7 +1373,7 @@ class MemoryRepository:
                 return 0
             placeholders = ",".join("?" * len(source_session_ids))
             rows = conn.execute(
-                f"SELECT role, content, tool_calls, tool_call_id FROM conversation_messages "
+                f"SELECT role, content, tool_calls, tool_call_id, route_key FROM conversation_messages "
                 f"WHERE session_id IN ({placeholders}) ORDER BY timestamp ASC, id ASC",
                 tuple(source_session_ids),
             ).fetchall()
@@ -1382,9 +1382,9 @@ class MemoryRepository:
             rows = rows[-limit:]
             now = self._now()
             conn.executemany(
-                "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp, route_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
-                    (target_session_id, r["role"], r["content"], r["tool_calls"], r["tool_call_id"], now)
+                    (target_session_id, r["role"], r["content"], r["tool_calls"], r["tool_call_id"], now, r["route_key"])
                     for r in rows
                 ],
             )
