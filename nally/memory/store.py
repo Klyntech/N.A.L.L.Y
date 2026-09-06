@@ -937,7 +937,7 @@ class MemoryRepository:
                     return row["value"]
                 return None
 
-            if category:
+            if category and not search:
                 rows = conn.execute(
                     f"SELECT * FROM memories WHERE category = ? AND deleted = 0 AND confidence >= ? {expired_clause} ORDER BY confidence DESC, last_confirmed DESC LIMIT ?",
                     (category, min_confidence, now_iso, limit) if not include_expired else (category, min_confidence, limit),
@@ -945,9 +945,13 @@ class MemoryRepository:
                 return {row["key"]: row["value"] for row in rows}
 
             if search:
-                # FTS5 tokenized search with LIKE fallback
+                # FTS5 tokenized search with LIKE fallback.
+                # A provided category applies as an AND filter on either path —
+                # callers (e.g. curiosity dedup) rely on combined semantics.
                 rows = self._fts_search(conn, search, min_confidence, limit)
                 if rows:
+                    if category:
+                        rows = [r for r in rows if r["category"] == category]
                     return {row["key"]: row["value"] for row in rows}
                 # Fallback to LIKE if FTS unavailable or empty
                 like_pattern = f"%{search}%"
@@ -955,6 +959,8 @@ class MemoryRepository:
                     f"SELECT * FROM memories WHERE deleted = 0 AND confidence >= ? AND (key LIKE ? OR value LIKE ? OR category LIKE ?) {expired_clause} ORDER BY confidence DESC LIMIT ?",
                     (min_confidence, like_pattern, like_pattern, like_pattern, now_iso, limit) if not include_expired else (min_confidence, like_pattern, like_pattern, like_pattern, limit),
                 ).fetchall()
+                if category:
+                    rows = [r for r in rows if r["category"] == category]
                 return {row["key"]: row["value"] for row in rows}
 
             # Return all high-confidence memories
