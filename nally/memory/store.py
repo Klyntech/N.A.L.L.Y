@@ -1190,9 +1190,12 @@ class MemoryRepository:
 
     def get_user_facts(self) -> str:
         """Get formatted user facts for system prompt injection."""
+        now = datetime.now().isoformat()
         with self._connection() as conn:
             rows = conn.execute(
-                "SELECT key, value, confidence FROM memories WHERE deleted = 0 AND confidence >= 0.2 ORDER BY confidence DESC LIMIT 30"
+                "SELECT key, value, confidence FROM memories WHERE deleted = 0 AND confidence >= 0.2 "
+                "AND (expires_at IS NULL OR expires_at > ?) ORDER BY confidence DESC LIMIT 30",
+                (now,),
             ).fetchall()
             if not rows:
                 return "No user facts stored yet."
