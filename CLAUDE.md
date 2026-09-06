@@ -46,7 +46,6 @@ N.A.L.L.Y/
 │   │   ├── gmail.py        # Gmail direct tools (bypasses broken Google MCP)
 │   │   ├── websearch.py    # Web search (Parallel.ai primary, DuckDuckGo fallback)
 │   │   ├── fetch.py        # Web page fetch tool
-│   │   ├── phone.py        # Plivo telephony tool (PLIVO_* env vars)
 │   │   ├── mcp.py          # MCP status tool (shows server connection status)
 │   │   ├── receipts.py     # HMAC-signed tool execution receipts (tamper-evident audit trail)
 │   │   └── __init__.py     # load_all_tools() — registers everything

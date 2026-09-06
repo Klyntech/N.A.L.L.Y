@@ -25,8 +25,8 @@ Nally uses a declarative permission gate (`nally/config/permissions.json`) to co
 
 Permissions are declared in `nally/config/permissions.json` and enforced at execution.
 
-- **Allow by default** (`"run_command": { "*": "allow", ... }`): most shell commands run WITHOUT approval. Also allowed: `read_file`, `system_health`, `code_analysis`, `run_code`, `web_search`, `think`, `mcp_status`, memory tools (`remember`, `recall`, `forget`, `memory_stats`), `agent`, `generate_image`, `get_call_status`, `list_calls`, the Gmail tools, and `mcp_*`
-- **Ask for approval** (ask): `git push` / `git push *`, `file_ops` delete, `engineering_build`, `hangup_call`
+- **Allow by default** (`"run_command": { "*": "allow", ... }`): most shell commands run WITHOUT approval. Also allowed: `read_file`, `system_health`, `code_analysis`, `run_code`, `web_search`, `think`, `mcp_status`, memory tools (`remember`, `recall`, `forget`, `memory_stats`), `agent`, `generate_image`, the Gmail tools, and `mcp_*`
+- **Ask for approval** (ask): `git push` / `git push *`, `file_ops` delete, `engineering_build`
 - **Denied** (deny) — a hardcoded deny-list that cannot be overridden:
   `rm -rf /`, `rm -rf ~`, `rm -rf *`, `sudo rm *`, `git push --force` / `git push -f *`, `git reset --hard`, `git clean -fd`, `chmod 777`, `shutdown`, `reboot`, `format *`, `dd if=`, `kill -9`, `killall`
 

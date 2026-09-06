@@ -31,9 +31,6 @@ numpy>=1.24.0
 pycaw>=20230407; sys_platform == 'win32'
 comtypes>=1.4.0; sys_platform == 'win32'
 
-# Phone calls (Plivo API — nally/tools/phone.py)
-plivo>=4.0
-
 # Fetch tool readability extraction (nally/tools/fetch.py; has fallback if absent)
 readability-lxml>=0.8
 

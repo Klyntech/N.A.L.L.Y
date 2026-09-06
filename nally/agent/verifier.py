@@ -7,7 +7,6 @@ Detects:
   4. count_mismatch: Agent says "deleted 5 files" but receipt shows 1
   5. tool_existence: Agent claims to have used a tool that doesn't exist in registry
   6. fabricated_limits: Agent invents quota/limit/credit numbers not in any receipt
-  7. phone_hallucination: Agent claims phone call made/checked when no phone tool was called
 
 Every finding is deterministic — no LLM in the hot path.
 """
@@ -73,11 +72,6 @@ _ACTION_CLAIMS = [
     (r"(?:I |we )?(?:searched|looked up)\s+(?:the\s+)?(?:info|results|answer)", "web_search", "search"),
     # Memory
     (r"(?:I |we )?(?:saved|stored)\s+(?:that|this|it|the)", "remember", "store"),
-    # Phone calls
-    (r"(?:I |we )?(?:made|placed|initiated|dialed)\s+(?:a\s+)?(?:call|phone call)", "make_call", "call"),
-    (r"(?:I |we )?(?:checked|looked up|got)\s+(?:the\s+)?(?:call status|status of)", "get_call_status", "status"),
-    (r"(?:I |we )?(?:ended|hung up|terminated)\s+(?:the\s+)?call", "hangup_call", "hangup"),
-    (r"(?:I |we )?(?:listed|fetched|retrieved)\s+(?:the\s+)?(?:call log|recent calls|call history)", "list_calls", "list"),
     # Image generation
     (r"(?:I |we )?(?:generated|created|made)\s+(?:an?\s+)?(?:image|picture|photo|illustration)", "generate_image", "image_gen"),
 ]

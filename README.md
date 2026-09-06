@@ -73,7 +73,6 @@ nally/
 │   ├── gmail.py        # Gmail direct API tools
 │   ├── websearch.py    # Web search (Parallel.ai + DuckDuckGo)
 │   ├── fetch.py        # Web page fetch tool
-│   ├── phone.py        # Plivo telephony tool
 │   └── mcp.py          # MCP server status
 ├── memory/             # Memory repository + models
 ├── subagent/           # Sub-agent spawning

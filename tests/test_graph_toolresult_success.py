@@ -1,12 +1,10 @@
-"""Graph/Bridge consume ToolResult.ok as authoritative success."""
+"""Graph consumes ToolResult.ok as authoritative success."""
 
 from __future__ import annotations
 
 import sys
 import types
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from nally.tools.registry import Tool, ToolRegistry
 from nally.tools.result import ToolResult
@@ -38,15 +36,6 @@ def _stub_graph_deps():
     g.StateGraph = type("StateGraph", (), {})
     msg = ensure("langgraph.graph.message")
     msg.add_messages = lambda x: x
-
-
-def _install_fake_bridge_registry(fake):
-    web = types.ModuleType("nally.web")
-    bh = types.ModuleType("nally.web.bridge_handler")
-    bh.bridge_registry = fake
-    web.bridge_handler = bh
-    sys.modules["nally.web"] = web
-    sys.modules["nally.web.bridge_handler"] = bh
 
 
 def test_execute_result_ok_true_for_success():
@@ -166,55 +155,6 @@ def test_graph_destructive_no_retry():
         tr = g._execute_tool_with_retry("run_command", {"command": "x"}, "tc1")
     assert tr.ok is False
     assert calls["n"] == 1
-
-
-def test_bridge_remote_failure_cannot_become_success():
-    from nally.tools.bridge import BridgeTool
-
-    tool = BridgeTool()
-
-    class FakeReg:
-        devices = {"desktop": MagicMock(tools=["run_command"], device_id="desktop")}
-
-        def get_device(self, name):
-            return self.devices.get(name)
-
-        async def send_tool_request(self, device_id, tool, args):
-            return ("device offline", False)
-
-    _install_fake_bridge_registry(FakeReg())
-    tr = tool.execute(device="desktop", tool="run_command", args={"command": "dir"})
-    assert isinstance(tr, ToolResult)
-    assert tr.ok is False
-
-    reg = ToolRegistry()
-    reg.register(tool)
-    out = reg.execute_result(
-        "bridge_execute",
-        {"device": "desktop", "tool": "run_command", "args": {"command": "dir"}},
-    )
-    assert out.ok is False
-
-
-def test_bridge_remote_success_remains_success():
-    from nally.tools.bridge import BridgeTool
-
-    tool = BridgeTool()
-
-    class FakeReg:
-        devices = {"desktop": MagicMock(tools=["run_command"], device_id="desktop")}
-
-        def get_device(self, name):
-            return self.devices.get(name)
-
-        async def send_tool_request(self, device_id, tool, args):
-            return ("file list ok", True)
-
-    _install_fake_bridge_registry(FakeReg())
-    tr = tool.execute(device="desktop", tool="run_command", args={"command": "dir"})
-    assert isinstance(tr, ToolResult)
-    assert tr.ok is True
-    assert tr.value == "file list ok"
 
 
 def test_legacy_tools_still_work_through_adapter():

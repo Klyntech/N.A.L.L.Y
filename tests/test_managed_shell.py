@@ -44,14 +44,24 @@ def test_write_stdin_and_kill(tmp_path: Path):
     assert info["session"]["status"] in ("killed", "completed", "running")
 
 
-def test_shell_tools_registered():
+def test_removed_tools_absent_from_registry():
     from nally.tools import load_all_tools
     from nally.tools.registry import registry
 
     load_all_tools()
-    assert "shell_sessions" in registry.tools
-    assert "shell_output" in registry.tools
-    assert "shell_stdin" in registry.tools
+    for name in (
+        "shell_sessions",
+        "shell_output",
+        "shell_stdin",
+        "bridge_execute",
+        "make_call",
+        "get_call_status",
+        "hangup_call",
+        "list_calls",
+    ):
+        assert name not in registry.tools, f"removed tool still registered: {name}"
+    for name in ("run_command", "run_code", "code_analysis"):
+        assert name in registry.tools, f"surviving tool missing: {name}"
 
 
 def test_run_command_background(tmp_path: Path):
@@ -61,20 +71,46 @@ def test_run_command_background(tmp_path: Path):
     # Background should return session handle, not block
     result = tool.execute(command='echo bg_test', background=True)
     assert "Started background shell session" in result
-    assert "shell_output" in result
+    assert 'run_command(action="session_output"' in result
 
 
-def test_shell_output_tool(tmp_path: Path):
-    from nally.core.managed_shell.manager import get_manager
-    from nally.tools.managed import ShellOutput, ShellSessions
+def test_run_command_session_lifecycle(tmp_path: Path):
+    import sys
 
-    mgr = get_manager()
-    sess = mgr.start('echo shell_output_test', cwd=str(tmp_path))
-    time.sleep(0.8)
-    tool = ShellOutput()
-    result = tool.execute(session_id=sess.session_id, cursor=0)
-    assert "shell_output_test" in result or "cursor" in result.lower()
+    from nally.tools.system import RunCommand
 
-    tool2 = ShellSessions()
-    result2 = tool2.execute(action="list")
-    assert "shell_" in result2
+    tool = RunCommand()
+    sleep_cmd = f'{sys.executable} -c "import time; time.sleep(60)"'
+    started = tool.execute(command=sleep_cmd, background=True)
+    assert "Started background shell session" in started
+    session_id = started.split("session ")[1].split(" ")[0]
+
+    listed = tool.execute(action="session_list")
+    assert session_id in listed
+
+    killed = tool.execute(action="session_kill", session_id=session_id)
+    assert "killed" in killed.lower()
+
+    echo_started = tool.execute(command='echo session_lifecycle_test', background=True)
+    echo_id = echo_started.split("session ")[1].split(" ")[0]
+    output = ""
+    for _ in range(20):
+        output = tool.execute(action="session_output", session_id=echo_id)
+        if "session_lifecycle_test" in output:
+            break
+        time.sleep(0.1)
+    assert "session_lifecycle_test" in output
+    assert "next_cursor=" in output
+
+    inspected = tool.execute(action="session_inspect", session_id=echo_id)
+    assert echo_id in inspected
+
+
+def test_run_command_session_unknown():
+    from nally.tools.system import RunCommand
+
+    tool = RunCommand()
+    assert "Error" in tool.execute(action="session_output", session_id="nope-missing")
+    assert "Error" in tool.execute(action="session_stdin", session_id="nope-missing", text="x")
+    assert "Error" in tool.execute(action="session_kill", session_id="nope-missing")
+    assert "Error" in tool.execute(action="session_stdin", session_id="whatever", text="")

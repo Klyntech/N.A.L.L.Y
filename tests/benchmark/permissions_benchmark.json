@@ -116,9 +116,5 @@
   "agent": "allow",
   "engineering_build": "ask",
   "generate_image": "allow",
-  "make_call": "allow",
-  "get_call_status": "allow",
-  "hangup_call": "ask",
-  "list_calls": "allow",
   "mcp_*": "allow"
 }

@@ -38,7 +38,7 @@ def _is_blocked_on_render(command: str) -> str | None:
         if cmd_lower.startswith(blocked) or f" {blocked}" in cmd_lower:
             return (
                 f"Blocked: '{blocked}' cannot run on Render free tier (512MB RAM). "
-                "Use bridge_execute to run installs on your local machine, or start NallyBridge on your PC."
+                "Run installs on your local machine instead."
             )
     return None
 
@@ -252,10 +252,108 @@ class RunCommand(Tool):
                     "type": "string",
                     "description": "Working directory for the command (overrides default).",
                 },
+                "action": {
+                    "type": "string",
+                    "description": (
+                        "Session operation (default exec). exec runs command (use background=true "
+                        "to start a persistent session). session_list lists sessions. session_output "
+                        "polls a session. session_stdin sends input. session_kill ends a session. "
+                        "session_inspect shows the tail of a session."
+                    ),
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Managed session id for session_* actions.",
+                },
+                "cursor": {
+                    "type": "integer",
+                    "description": "Output cursor for session_output polling (use next_cursor from prior output).",
+                },
+                "max_bytes": {
+                    "type": "integer",
+                    "description": "Max output bytes for session_output/session_inspect.",
+                },
+                "wait_seconds": {
+                    "type": "number",
+                    "description": "Seconds to wait for new output in session_output.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Input text for session_stdin.",
+                },
             },
         )
 
-    def execute(self, command: str = "", background: bool = False, timeout: int = 0, **kwargs) -> str:
+    def execute(
+        self,
+        command: str = "",
+        background: bool = False,
+        timeout: int = 0,
+        action: str = "exec",
+        session_id: str = "",
+        cursor: int = 0,
+        max_bytes: int = 30000,
+        wait_seconds: float = 0.5,
+        text: str = "",
+        **kwargs,
+    ) -> str:
+        action = (action or kwargs.get("session_action") or "exec").strip().lower()
+        session_id = session_id or kwargs.get("session_id", "")
+        text = text or kwargs.get("input", "")
+
+        # ── Managed session operations (persistent shell, same backend as background start) ──
+        if action in ("session_list", "session_output", "session_stdin", "session_kill", "session_inspect"):
+            try:
+                from nally.core.managed_shell.manager import get_manager
+                mgr = get_manager()
+                if action == "session_list":
+                    sessions = mgr.list_sessions()
+                    if not sessions:
+                        return "No managed shell sessions."
+                    lines = ["Managed shell sessions:"]
+                    for s in sessions:
+                        lines.append(
+                            f"  - {s.get('session_id', '?')} [{s.get('status', '?')}] "
+                            f"pid={s.get('pid', '?')}: {str(s.get('command', ''))[:100]}"
+                        )
+                    return "\n".join(lines)
+                if not session_id:
+                    return "Error: session_id is required for session_* actions"
+                if action == "session_output":
+                    sess, data, next_cursor = mgr.read_output(
+                        session_id,
+                        cursor=int(cursor or 0),
+                        max_bytes=int(kwargs.get("max_bytes", max_bytes)),
+                        wait_seconds=float(kwargs.get("wait_seconds", wait_seconds)),
+                    )
+                    text_out = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
+                    return (
+                        f"Session {session_id} [{sess.status}] cursor={cursor}:\n"
+                        f"{text_out}\n-- next_cursor={next_cursor} --"
+                    )
+                if action == "session_stdin":
+                    if not text:
+                        return "Error: text is required for session_stdin"
+                    mgr.write_stdin(session_id, text)
+                    return f"Sent {len(text)} chars to session {session_id}."
+                if action == "session_kill":
+                    if not mgr.kill(session_id):
+                        return f"Error: session {session_id} not found or already finished"
+                    return f"Session {session_id} killed."
+                # session_inspect
+                info = mgr.inspect(session_id, max_bytes=int(kwargs.get("max_bytes", max_bytes)))
+                sess_info = info.get("session", {}) if isinstance(info, dict) else {}
+                tail = info.get("tail", "") if isinstance(info, dict) else str(info)
+                return (
+                    f"Session {session_id} [{sess_info.get('status', '?')}] "
+                    f"pid={sess_info.get('pid', '?')}: {sess_info.get('command', '')}\n"
+                    f"Tail:\n{tail}"
+                )
+            except FileNotFoundError as e:
+                return f"Error: {e}"
+            except Exception as e:
+                return f"Error: session operation failed: {e}"
+
         if not command:
             return "Error: No command provided"
 
@@ -279,9 +377,9 @@ class RunCommand(Tool):
                 return (
                     f"Started background shell session {session.session_id} [running] pid={session.pid}\n"
                     f"Command: {command}\n"
-                    f"Use shell_output(session_id=\"{session.session_id}\") to poll, "
-                    f"shell_stdin(session_id=\"{session.session_id}\", text=\"...\") to send input, "
-                    f"shell_sessions(action=\"inspect\", session_id=\"{session.session_id}\") for tail."
+                    f"Use run_command(action=\"session_output\", session_id=\"{session.session_id}\") to poll, "
+                    f"run_command(action=\"session_stdin\", session_id=\"{session.session_id}\", text=\"...\") to send input, "
+                    f"run_command(action=\"session_inspect\", session_id=\"{session.session_id}\") for tail."
                 )
             except Exception as e:
                 return f"Error: failed to start managed session: {e}"

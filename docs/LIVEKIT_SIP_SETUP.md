@@ -98,7 +98,5 @@ the caller, and the conversation starts.
 - **STT**: local faster-whisper is free; Groq/Deepgram have their own free tiers.
 - **TTS**: Piper is fully local and free; ElevenLabs has a free tier.
 
-No Twilio SDK is used anywhere in this project.
-
-> **Note**: `nally/tools/phone.py` is a **separate** Plivo outbound-call tool
-> (uses `PLIVO_*` env vars) and is unrelated to this LiveKit SIP setup.
+No Twilio SDK is used anywhere in this project. There is no Plivo/outbound-call
+tool; voice calls go through the LiveKit SIP setup described above.

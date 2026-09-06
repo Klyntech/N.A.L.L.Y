@@ -1,7 +1,7 @@
 """Tool registry bootstrap — explicit application startup wiring.
 
 This module owns the one-time registration of built-ins, memory tools,
-subagents, engineering, managed shell, bridge, plugins, and MCP servers.
+subagents, engineering, plugins, and MCP servers.
 
 ``nally.tools`` remains a thin export surface; it must not orchestrate
 application lifecycle on import.
@@ -98,12 +98,7 @@ def _load_all_registered():
     registry.register(AnalyzeImage())
     registry.register(EditImage())
 
-    # --- Phone Calls (5 tools — AgenticCalling API) ---
-    from . import phone
-
-    phone.register()
-
-    # --- Gmail Direct (4 tools — bypasses broken MCP server) ---
+    # --- Gmail Direct (9 tools — bypasses broken MCP server) ---
     from . import gmail
 
     gmail.register()
@@ -305,15 +300,9 @@ def _load_all_registered():
 
     register_engineering()
 
-    # --- Managed shell (Phase 2: persistent PTY-like sessions) ---
-    from .managed import register_managed_shell_tools
-
-    register_managed_shell_tools(registry)
-
-    # --- NallyBridge (remote execution on connected devices) ---
-    from . import bridge
-
-    bridge.register(registry)
+    # NOTE: managed-shell sessions are exposed via run_command(action=...);
+    # the former shell_sessions/shell_output/shell_stdin tools were removed.
+    # The ManagedShellManager backend (nally/core/managed_shell) stays internal.
 
     # --- Load user plugins ---
     registry.load_plugins()

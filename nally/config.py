@@ -580,27 +580,8 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     except Exception:
         pass
 
-    # Bridge context — connected NallyBridge devices
-    try:
-        from nally.web.bridge_handler import bridge_registry
-
-        devices = bridge_registry.devices
-        if devices:
-            bridge_lines = []
-            for did, d in devices.items():
-                bridge_lines.append(f"  - {did}: platform={d.platform}, tools={d.tools}")
-            bridge_list = "\n".join(bridge_lines)
-            prompt += (
-                "\n\nNALLYBRIDGE DEVICES (connected to this NALLY instance):"
-                f"\n{bridge_list}"
-                "\n\nTo execute commands on a connected device, use the bridge_execute tool."
-                "\nExample: bridge_execute(device='desktop', tool='run_command', args={'command': 'dir'})"
-                "\nUse device='any' to target the first available bridge."
-            )
-    except Exception:
-        pass
-
-    # Render/bridge architecture — enforce the split
+    # Render architecture — enforce the split (local execution only;
+    # remote bridge routing was removed from the model-facing tool plane)
     try:
         import os as _os
         is_render = bool(_os.getenv("RENDER")) or "onrender.com" in _os.getenv("NALLY_BASE_URL", "")
@@ -609,16 +590,8 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
                 "\n\nRENDER FREE TIER RULES (NON-NEGOTIABLE):"
                 "\n- You are running on Render free tier (~512MB RAM). Heavy work will OOM and kill the server."
                 "\n- NEVER run: pip install, npm install, cargo build, docker build, apt-get, or any install/compile commands via run_command."
-                "\n- For installs, builds, tests, file edits, or any heavy work: use bridge_execute to route to the user's PC."
-                "\n- If no bridge is connected, tell the user: 'Start NallyBridge on your PC so I can run that there.'"
                 "\n- Safe on Render: chat, planning, web_search, gmail, read_file (small files), memory, API calls."
-                "\n- The bridge is your execution plane. Your PC has the RAM; Render only thinks."
-            )
-        elif devices:
-            prompt += (
-                "\n\nLOCAL EXECUTION:"
-                "\n- You have NallyBridge devices connected. Prefer bridge_execute for installs, builds, tests, and file operations."
-                "\n- run_command executes on THIS machine (the server). Use it only for lightweight tasks."
+                "\n- If a task needs heavy work, tell the user to run it locally."
             )
     except Exception:
         pass
@@ -765,9 +738,6 @@ def resolve_telegram_mode() -> str:
         return "polling"
     # auto: prefer webhook when a URL is configured, else polling
     return "webhook" if TELEGRAM_WEBHOOK_URL else "polling"
-PLIVO_AUTH_ID = os.getenv("PLIVO_AUTH_ID", "")
-PLIVO_AUTH_TOKEN = os.getenv("PLIVO_AUTH_TOKEN", "")
-PLIVO_PHONE_NUMBER = os.getenv("PLIVO_PHONE_NUMBER", "")
 
 
 # ── Validation ─────────────────────────────────────────────
