@@ -88,7 +88,10 @@ def test_validator_requires_internal_token_when_telegram_enabled(monkeypatch):
     monkeypatch.setenv("NALLY_ACCESS_TOKEN", ACCESS_TOKEN)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
     monkeypatch.setenv("TELEGRAM_MODE", "polling")
-    monkeypatch.delenv("NALLY_INTERNAL_TOKEN", raising=False)
+    # Empty string, not delenv: _ensure_env_loaded() repopulates missing vars
+    # from the repo .env (override=False), so deletion alone does not simulate
+    # "no usable internal token" on machines with a real .env present.
+    monkeypatch.setenv("NALLY_INTERNAL_TOKEN", "")
     errors = validate_config(strict=False)
     assert any(key == "NALLY_INTERNAL_TOKEN" and level == "error" for level, key, _ in errors)
 
