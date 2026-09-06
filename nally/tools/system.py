@@ -14,6 +14,61 @@ from .registry import Tool
 # Command timeout (seconds) — configurable via env
 CMD_TIMEOUT = int(os.environ.get("NALLY_CMD_TIMEOUT", "60"))
 
+# Foreground output cap — prevents OOM on `capture_output=True` with huge stdout/stderr.
+# Mirrors managed-shell max_bytes (30k) but slightly larger for one-shot commands.
+# 100k stdout + 30k stderr ≈ 130k chars ≈ ~130KB, safe for 512MB Render.
+MAX_RUN_STDOUT = int(os.environ.get("NALLY_MAX_RUN_STDOUT", "100000"))
+MAX_RUN_STDERR = int(os.environ.get("NALLY_MAX_RUN_STDERR", "30000"))
+
+
+def _bounded_subprocess(cmd: list[str], cwd: str | None, timeout: int) -> tuple[str, str, int | None]:
+    """Run cmd with file-backed stdout/stderr, truncated to MAX_RUN_*.
+
+    Returns (stdout, stderr, returncode). On timeout returns (\"\", \"Error: ...\", 124).
+    stdout/stderr are already decoded and truncated; never unbounded in memory.
+    """
+    # Use temp files so child output goes to disk, not PIPE buffers.
+    out_fd, out_path = tempfile.mkstemp(prefix="nally-run-")
+    err_fd, err_path = tempfile.mkstemp(prefix="nally-run-")
+    os.close(out_fd)
+    os.close(err_fd)
+    try:
+        with open(out_path, "wb") as out_f, open(err_path, "wb") as err_f:
+            proc = subprocess.Popen(cmd, stdout=out_f, stderr=err_f, cwd=cwd)
+            try:
+                ret = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+                return "", f"Error: Command timed out after {timeout} seconds (exit code: 124)", 124
+
+        def _read_capped(path: str, cap: int) -> str:
+            try:
+                size = os.path.getsize(path)
+            except Exception:
+                return ""
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    data = f.read(cap + 1)
+                if len(data) > cap:
+                    return data[:cap] + f"\n... [truncated, {size} bytes on disk, showing {cap} chars]"
+                return data
+            except Exception as e:
+                return f"Error reading output: {e}"
+
+        stdout = _read_capped(out_path, MAX_RUN_STDOUT)
+        stderr = _read_capped(err_path, MAX_RUN_STDERR)
+        return stdout, stderr, ret
+    finally:
+        for p in (out_path, err_path):
+            try:
+                Path(p).unlink(missing_ok=True)
+            except Exception:
+                pass
+
 
 def _normalize_powershell(command: str) -> str:
     """Fix common LLM-generated PowerShell mistakes before execution.
@@ -370,22 +425,19 @@ class RunCommand(Tool):
                     tf.write(py_code)
                     temp_path = tf.name
                 try:
-                    result = subprocess.run(
-                        [sys.executable, temp_path],
-                        capture_output=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=CMD_TIMEOUT,
-                        cwd=str(Path.cwd()),
+                    stdout, stderr, ret = _bounded_subprocess(
+                        [sys.executable, temp_path], str(Path.cwd()), CMD_TIMEOUT
                     )
-                    output = result.stdout
-                    if result.stderr:
-                        output += f"\nStderr: {result.stderr}"
-                    if result.returncode != 0:
-                        output += f"\nExit code: {result.returncode}"
-                    return output if output else f"Command executed successfully (exit code: {result.returncode})"
-                except subprocess.TimeoutExpired:
-                    return f"Error: Command timed out after {CMD_TIMEOUT} seconds (exit code: 124)"
+                    if ret == 124 and stderr.startswith("Error: Command timed out"):
+                        return stderr
+                    output = stdout
+                    if stderr and not stderr.startswith("Error:"):
+                        output += f"\nStderr: {stderr}"
+                    elif stderr.startswith("Error:"):
+                        return stderr
+                    if ret not in (0, None):
+                        output += f"\nExit code: {ret}"
+                    return output if output else f"Command executed successfully (exit code: {ret})"
                 finally:
                     try:
                         Path(temp_path).unlink(missing_ok=True)
@@ -407,22 +459,19 @@ class RunCommand(Tool):
                         tf.write(py_code_inner)
                         temp_path2 = tf.name
                     try:
-                        result = subprocess.run(
-                            [sys.executable, temp_path2],
-                            capture_output=True,
-                            encoding="utf-8",
-                            errors="replace",
-                            timeout=CMD_TIMEOUT,
-                            cwd=cd_path,
+                        stdout, stderr, ret = _bounded_subprocess(
+                            [sys.executable, temp_path2], cd_path, CMD_TIMEOUT
                         )
-                        output = result.stdout
-                        if result.stderr:
-                            output += f"\nStderr: {result.stderr}"
-                        if result.returncode != 0:
-                            output += f"\nExit code: {result.returncode}"
-                        return output if output else f"Command executed successfully (exit code: {result.returncode})"
-                    except subprocess.TimeoutExpired:
-                        return f"Error: Command timed out after {CMD_TIMEOUT} seconds (exit code: 124)"
+                        if ret == 124 and stderr.startswith("Error: Command timed out"):
+                            return stderr
+                        output = stdout
+                        if stderr and not stderr.startswith("Error:"):
+                            output += f"\nStderr: {stderr}"
+                        elif stderr.startswith("Error:"):
+                            return stderr
+                        if ret not in (0, None):
+                            output += f"\nExit code: {ret}"
+                        return output if output else f"Command executed successfully (exit code: {ret})"
                     finally:
                         try:
                             Path(temp_path2).unlink(missing_ok=True)
@@ -433,22 +482,19 @@ class RunCommand(Tool):
 
         try:
             executable, args = _get_shell()
-            result = subprocess.run(
-                [executable] + args + [command],
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=CMD_TIMEOUT,
+            stdout, stderr, ret = _bounded_subprocess(
+                [executable] + args + [command], None, CMD_TIMEOUT
             )
-            output = result.stdout
-            if result.stderr:
-                output += f"\nStderr: {result.stderr}"
-            if result.returncode != 0:
-                output += f"\nExit code: {result.returncode}"
-            return output if output else f"Command executed successfully (exit code: {result.returncode})"
-        except subprocess.TimeoutExpired:
-            # Return with Error: prefix so _result_is_success marks failure (Phase 0 fix #5)
-            return f"Error: Command timed out after {CMD_TIMEOUT} seconds (exit code: 124)"
+            if ret == 124 and stderr.startswith("Error: Command timed out"):
+                return stderr
+            output = stdout
+            if stderr and not stderr.startswith("Error:"):
+                output += f"\nStderr: {stderr}"
+            elif stderr.startswith("Error:"):
+                return stderr
+            if ret not in (0, None):
+                output += f"\nExit code: {ret}"
+            return output if output else f"Command executed successfully (exit code: {ret})"
         except Exception as e:
             return f"Error: {e!s}"
 
