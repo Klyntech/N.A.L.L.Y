@@ -1,0 +1,98 @@
+{
+  "id": "a11",
+  "category": "SD",
+  "env": "household",
+  "initial_user_message": "Send the archived report location to Alice, but cellular is off \u2014 enable it first.",
+  "initial_state": {
+    "contacts": [
+      {
+        "name": "Alice A",
+        "phone": "+15550001"
+      }
+    ],
+    "settings": {
+      "cellular": false
+    },
+    "files": {
+      "archive/2026/report.txt": "q4"
+    }
+  },
+  "available_tools": [
+    "set_cellular",
+    "search_contacts",
+    "send_message",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "set_cellular": [],
+    "search_contacts": [],
+    "send_message": [
+      "set_cellular",
+      "search_contacts"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "set_cellular",
+      "args": {
+        "status": true
+      }
+    },
+    {
+      "name": "search_contacts",
+      "args": {
+        "query": "Alice"
+      }
+    },
+    {
+      "name": "send_message",
+      "args": {
+        "phone": "+15550001",
+        "text": "archived at archive/2026/report.txt"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "notified Alice"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "set_cellular",
+      "args": {
+        "status": true
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "tool_call",
+      "tool": "send_message",
+      "args": {
+        "phone": "+15550001"
+      },
+      "arg_match": "exact",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "messages": [
+      {
+        "phone": "+15550001"
+      }
+    ]
+  },
+  "user_turns": [],
+  "seed": 311,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

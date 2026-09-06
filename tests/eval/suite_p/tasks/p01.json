@@ -1,0 +1,81 @@
+{
+  "id": "p01",
+  "type": "generation",
+  "title": "Create project readme",
+  "presentation": "In proj/readme.txt write hello and make sure the project directory exists.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [],
+    "files": {}
+  },
+  "goal": [
+    {
+      "dir_exists": "proj"
+    },
+    {
+      "exists": "proj/readme.txt"
+    },
+    {
+      "contains": [
+        "proj/readme.txt",
+        "hello"
+      ]
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "dir_exists": "proj"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s2",
+      "after": [
+        "s1"
+      ],
+      "predicate": {
+        "exists": "proj/readme.txt"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s3",
+      "after": [
+        "s2"
+      ],
+      "predicate": {
+        "contains": [
+          "proj/readme.txt",
+          "hello"
+        ]
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "proj"
+        }
+      },
+      {
+        "action": "write_file",
+        "args": {
+          "path": "proj/readme.txt",
+          "content": "hello world"
+        }
+      }
+    ]
+  },
+  "seed": 201
+}

@@ -1,0 +1,160 @@
+{
+  "id": "c04",
+  "category": "MTC",
+  "budgets": {
+    "docs": 10,
+    "query": "refund window"
+  },
+  "initial_user_message": "Find the refund window doc and save its content to notes/refund.txt",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "gold-refund",
+        "title": "Refund Window",
+        "snippet": "refund window 30 days",
+        "content": "Refund window is 30 days with receipt."
+      },
+      {
+        "id": "dist-0",
+        "title": "Noise 0",
+        "snippet": "irrelevant snippet 0",
+        "content": "Noise content 0"
+      },
+      {
+        "id": "dist-1",
+        "title": "Noise 1",
+        "snippet": "irrelevant snippet 1",
+        "content": "Noise content 1"
+      },
+      {
+        "id": "dist-2",
+        "title": "Noise 2",
+        "snippet": "irrelevant snippet 2",
+        "content": "Noise content 2"
+      },
+      {
+        "id": "dist-3",
+        "title": "Noise 3",
+        "snippet": "irrelevant snippet 3",
+        "content": "Noise content 3"
+      },
+      {
+        "id": "dist-4",
+        "title": "Noise 4",
+        "snippet": "irrelevant snippet 4",
+        "content": "Noise content 4"
+      },
+      {
+        "id": "dist-5",
+        "title": "Noise 5",
+        "snippet": "irrelevant snippet 5",
+        "content": "Noise content 5"
+      },
+      {
+        "id": "dist-6",
+        "title": "Noise 6",
+        "snippet": "irrelevant snippet 6",
+        "content": "Noise content 6"
+      },
+      {
+        "id": "dist-7",
+        "title": "Noise 7",
+        "snippet": "irrelevant snippet 7",
+        "content": "Noise content 7"
+      },
+      {
+        "id": "dist-8",
+        "title": "Noise 8",
+        "snippet": "irrelevant snippet 8",
+        "content": "Noise content 8"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ],
+    "write_file": [
+      "fetch_doc"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "refund window"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "gold-refund"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/refund.txt",
+        "content": "Refund window is 30 days with receipt."
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved refund"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_docs",
+      "args": {
+        "query": "refund"
+      },
+      "arg_match": "loose",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "gold-refund"
+      },
+      "arg_match": "exact",
+      "after": [
+        "m1"
+      ]
+    },
+    {
+      "id": "m3",
+      "kind": "world_state",
+      "path": "files.notes/refund.txt",
+      "expected": "30 days",
+      "match": "loose",
+      "after": [
+        "m2"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/refund.txt": "30 days"
+    }
+  },
+  "user_turns": [],
+  "seed": 405,
+  "scoring": {
+    "primary": "milestone x minefield"
+  }
+}

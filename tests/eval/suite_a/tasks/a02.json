@@ -1,0 +1,79 @@
+{
+  "id": "a02",
+  "category": "SD",
+  "env": "shell",
+  "initial_user_message": "Publish inbox/draft.txt to outbox/final.txt, but outbox is missing \u2014 create it first.",
+  "initial_state": {
+    "dirs": [
+      "inbox"
+    ],
+    "files": {
+      "inbox/draft.txt": "payload"
+    }
+  },
+  "available_tools": [
+    "create_dir",
+    "move_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "create_dir": [],
+    "move_file": [
+      "create_dir"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "args": {
+        "path": "outbox"
+      },
+      "name": "create_dir"
+    },
+    {
+      "args": {
+        "src": "inbox/draft.txt",
+        "dst": "outbox/final.txt"
+      },
+      "name": "move_file"
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "published"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "create_dir",
+      "args": {
+        "path": "outbox"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.outbox/final.txt",
+      "expected": "payload",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "outbox/final.txt": "payload"
+    }
+  },
+  "user_turns": [],
+  "seed": 302,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

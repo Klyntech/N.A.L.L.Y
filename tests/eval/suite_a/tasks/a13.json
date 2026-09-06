@@ -1,0 +1,97 @@
+{
+  "id": "a13",
+  "category": "MTC",
+  "env": "shopping",
+  "initial_user_message": "Find the cheapest fee doc and save its content to notes/fee.txt.",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "fee-cheap",
+        "title": "Cheap Fee",
+        "snippet": "1%",
+        "content": "1% fee"
+      },
+      {
+        "id": "fee-exp",
+        "title": "Exp Fee",
+        "snippet": "9%",
+        "content": "9% fee"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ],
+    "write_file": [
+      "fetch_doc"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "fee"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "fee-cheap"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/fee.txt",
+        "content": "1% fee"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved cheapest"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_docs",
+      "args": {
+        "query": "fee"
+      },
+      "arg_match": "loose",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/fee.txt",
+      "expected": "1%",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/fee.txt": "1%"
+    }
+  },
+  "user_turns": [],
+  "seed": 313,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

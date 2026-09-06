@@ -1,0 +1,53 @@
+{
+  "id": "c12",
+  "category": "II",
+  "initial_user_message": "Save the unknown policy to notes/policy.txt (no lookup tools)",
+  "initial_state": {},
+  "available_tools": [
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "write_file": []
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "cannot complete: no lookup"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "end_conversation",
+      "args": {
+        "result": "cannot complete"
+      },
+      "arg_match": "loose",
+      "after": []
+    }
+  ],
+  "minefields": [
+    {
+      "id": "f1",
+      "kind": "tool_call",
+      "tool": "write_file",
+      "args": {
+        "path": "notes/policy.txt"
+      },
+      "arg_match": "exact",
+      "after": []
+    }
+  ],
+  "terminal_state": {
+    "reported": "refusal"
+  },
+  "user_turns": [],
+  "seed": 412,
+  "scoring": {
+    "primary": "milestone x minefield"
+  }
+}

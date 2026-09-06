@@ -1,0 +1,86 @@
+{
+  "id": "a05",
+  "category": "MTC",
+  "env": "db",
+  "initial_user_message": "Find Alice, then text her 'review ready' at her stored number.",
+  "initial_state": {
+    "contacts": [
+      {
+        "name": "Alice A",
+        "phone": "+15550001"
+      }
+    ],
+    "settings": {
+      "cellular": true
+    }
+  },
+  "available_tools": [
+    "search_contacts",
+    "send_message",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_contacts": [],
+    "send_message": [
+      "search_contacts"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_contacts",
+      "args": {
+        "query": "Alice"
+      }
+    },
+    {
+      "name": "send_message",
+      "args": {
+        "phone": "+15550001",
+        "text": "review ready"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "messaged Alice"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_contacts",
+      "args": {
+        "query": "Alice"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "tool_call",
+      "tool": "send_message",
+      "args": {
+        "phone": "+15550001"
+      },
+      "arg_match": "exact",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "messages": [
+      {
+        "phone": "+15550001"
+      }
+    ]
+  },
+  "user_turns": [],
+  "seed": 305,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

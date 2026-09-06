@@ -1,0 +1,85 @@
+{
+  "id": "p03",
+  "type": "generation",
+  "title": "Draft then publish",
+  "presentation": "Write inbox/draft.txt with 'release v2', then move it to outbox/final.txt.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "outbox"
+    ],
+    "files": {}
+  },
+  "goal": [
+    {
+      "exists": "outbox/final.txt"
+    },
+    {
+      "contains": [
+        "outbox/final.txt",
+        "release v2"
+      ]
+    },
+    {
+      "absent": "inbox/draft.txt"
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "exists": "outbox/final.txt"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s2",
+      "after": [
+        "s1"
+      ],
+      "predicate": {
+        "contains": [
+          "outbox/final.txt",
+          "release v2"
+        ]
+      },
+      "weight": 1
+    },
+    {
+      "id": "s3",
+      "after": [
+        "s1"
+      ],
+      "predicate": {
+        "absent": "inbox/draft.txt"
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "write_file",
+        "args": {
+          "path": "inbox/draft.txt",
+          "content": "release v2"
+        }
+      },
+      {
+        "action": "move_file",
+        "args": {
+          "src": "inbox/draft.txt",
+          "dst": "outbox/final.txt"
+        }
+      }
+    ]
+  },
+  "seed": 203
+}

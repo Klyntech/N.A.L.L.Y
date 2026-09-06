@@ -1,0 +1,42 @@
+{
+  "id": "p11",
+  "type": "verification",
+  "title": "Invalid parent dir",
+  "presentation": "Candidate tries to move to missing dir \u2014 find the first failure.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox"
+    ],
+    "files": {
+      "inbox/x.txt": "hi"
+    }
+  },
+  "goal": [
+    {
+      "exists": "archive/x.txt"
+    }
+  ],
+  "candidate_plan": [
+    {
+      "action": "move_file",
+      "args": {
+        "src": "inbox/x.txt",
+        "dst": "archive/x.txt"
+      }
+    }
+  ],
+  "gold": {
+    "verdict": {
+      "executable": false,
+      "goal_reached": false,
+      "first_failure_index": 0
+    }
+  },
+  "seed": 211
+}

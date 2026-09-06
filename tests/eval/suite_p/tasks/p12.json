@@ -1,0 +1,43 @@
+{
+  "id": "p12",
+  "type": "verification",
+  "title": "Wrong destination",
+  "presentation": "Candidate executes but writes to the wrong file.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "outbox"
+    ],
+    "files": {}
+  },
+  "goal": [
+    {
+      "contains": [
+        "outbox/final.txt",
+        "ready"
+      ]
+    }
+  ],
+  "candidate_plan": [
+    {
+      "action": "write_file",
+      "args": {
+        "path": "outbox/other.txt",
+        "content": "ready"
+      }
+    }
+  ],
+  "gold": {
+    "verdict": {
+      "executable": true,
+      "goal_reached": false,
+      "first_failure_index": null
+    }
+  },
+  "seed": 212
+}

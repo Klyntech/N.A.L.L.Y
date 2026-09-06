@@ -1,0 +1,112 @@
+{
+  "id": "p23",
+  "type": "generation",
+  "title": "Bundle two directories",
+  "presentation": "Provide data/input.csv ('id,value') and config/settings.txt ('mode=prod') \u2014 ensure both parent dirs.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [],
+    "files": {}
+  },
+  "goal": [
+    {
+      "dir_exists": "data"
+    },
+    {
+      "dir_exists": "config"
+    },
+    {
+      "exists": "data/input.csv"
+    },
+    {
+      "exists": "config/settings.txt"
+    },
+    {
+      "contains": [
+        "data/input.csv",
+        "id,value"
+      ]
+    },
+    {
+      "contains": [
+        "config/settings.txt",
+        "mode=prod"
+      ]
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "dir_exists": "data"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s2",
+      "after": [],
+      "predicate": {
+        "dir_exists": "config"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s3",
+      "after": [
+        "s1"
+      ],
+      "predicate": {
+        "exists": "data/input.csv"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s4",
+      "after": [
+        "s2"
+      ],
+      "predicate": {
+        "exists": "config/settings.txt"
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "data"
+        }
+      },
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "config"
+        }
+      },
+      {
+        "action": "write_file",
+        "args": {
+          "path": "data/input.csv",
+          "content": "id,value"
+        }
+      },
+      {
+        "action": "write_file",
+        "args": {
+          "path": "config/settings.txt",
+          "content": "mode=prod"
+        }
+      }
+    ]
+  },
+  "seed": 304,
+  "obfuscation_of": "p04"
+}

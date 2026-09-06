@@ -1,0 +1,49 @@
+{
+  "id": "p25",
+  "type": "verification",
+  "title": "Check plan validity (rephrased)",
+  "presentation": "A two-step script writes to inbox, then relocates file to outbox \u2014 is it executable and does it achieve the target?",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "outbox"
+    ],
+    "files": {}
+  },
+  "goal": [
+    {
+      "exists": "outbox/a.txt"
+    }
+  ],
+  "candidate_plan": [
+    {
+      "action": "write_file",
+      "args": {
+        "path": "inbox/a.txt",
+        "content": "hi"
+      }
+    },
+    {
+      "action": "move_file",
+      "args": {
+        "src": "inbox/a.txt",
+        "dst": "outbox/a.txt"
+      }
+    }
+  ],
+  "gold": {
+    "verdict": {
+      "executable": true,
+      "goal_reached": true,
+      "first_failure_index": null
+    }
+  },
+  "seed": 310,
+  "obfuscation_of": "p10"
+}

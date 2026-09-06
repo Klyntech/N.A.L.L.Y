@@ -1,0 +1,91 @@
+{
+  "id": "a15",
+  "category": "MTC",
+  "env": "shopping",
+  "initial_user_message": "Save the deploy env (prod) to notes/env.txt after looking it up.",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "deploy",
+        "title": "Deploy",
+        "snippet": "prod",
+        "content": "prod"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ],
+    "write_file": [
+      "fetch_doc"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "deploy"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "deploy"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/env.txt",
+        "content": "prod"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved prod"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "deploy"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/env.txt",
+      "expected": "prod",
+      "match": "exact",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/env.txt": "prod"
+    }
+  },
+  "user_turns": [],
+  "seed": 315,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

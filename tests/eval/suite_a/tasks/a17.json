@@ -1,0 +1,81 @@
+{
+  "id": "a17",
+  "category": "C",
+  "env": "noisy",
+  "initial_user_message": "When is this Friday? Save the date to notes/date.txt.",
+  "initial_state": {
+    "today": "2026-09-02"
+  },
+  "available_tools": [
+    "calendar_lookup",
+    "canonicalize",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "calendar_lookup": [],
+    "canonicalize": [
+      "calendar_lookup"
+    ],
+    "write_file": [
+      "canonicalize"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "calendar_lookup",
+      "args": {}
+    },
+    {
+      "name": "canonicalize",
+      "args": {
+        "kind": "date",
+        "value": "this Friday"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/date.txt",
+        "content": "2026-09-04"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved 2026-09-04"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "calendar_lookup",
+      "args": {},
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/date.txt",
+      "expected": "2026-09-04",
+      "match": "exact",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/date.txt": "2026-09-04"
+    }
+  },
+  "user_turns": [],
+  "seed": 317,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

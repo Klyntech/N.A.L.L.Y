@@ -1,0 +1,58 @@
+{
+  "id": "p26",
+  "type": "replan",
+  "title": "Replan after disappearance (rephrased)",
+  "presentation": "After first construction step, the just-created deployment path was externally removed. Devise a replacement route.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "notes"
+    ],
+    "files": {
+      "inbox/bundle.txt": "bundle"
+    }
+  },
+  "goal": [
+    {
+      "exists": "notes/deploy/bundle.txt"
+    }
+  ],
+  "prefix_executed": [
+    {
+      "action": "create_dir",
+      "args": {
+        "path": "notes/deploy"
+      }
+    }
+  ],
+  "unexpected_change": {
+    "dirs_removed": [
+      "notes/deploy"
+    ]
+  },
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "notes/deploy"
+        }
+      },
+      {
+        "action": "move_file",
+        "args": {
+          "src": "inbox/bundle.txt",
+          "dst": "notes/deploy/bundle.txt"
+        }
+      }
+    ]
+  },
+  "seed": 316,
+  "obfuscation_of": "p16"
+}

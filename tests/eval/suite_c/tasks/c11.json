@@ -1,0 +1,93 @@
+{
+  "id": "c11",
+  "category": "MTC",
+  "initial_user_message": "Compare fee docs (cheap 1% vs exp 9%) and save cheapest content to notes/cheap.txt",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "fee-cheap",
+        "title": "Cheap",
+        "snippet": "1% fee",
+        "content": "1% fee"
+      },
+      {
+        "id": "fee-exp",
+        "title": "Exp",
+        "snippet": "9% fee",
+        "content": "9% fee"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "fee"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "fee-cheap"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/cheap.txt",
+        "content": "1% fee"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved cheap"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "fee-cheap"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/cheap.txt",
+      "expected": "1%",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/cheap.txt": "1%"
+    }
+  },
+  "user_turns": [],
+  "seed": 411,
+  "scoring": {
+    "primary": "milestone x minefield"
+  }
+}

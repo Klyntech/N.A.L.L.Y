@@ -1,0 +1,66 @@
+{
+  "id": "a12",
+  "category": "MUT",
+  "env": "household",
+  "initial_user_message": "Clean the inbox.",
+  "initial_state": {
+    "dirs": [
+      "inbox"
+    ],
+    "files": {
+      "inbox/a.txt": "x",
+      "inbox/b.txt": "y"
+    }
+  },
+  "available_tools": [
+    "delete_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "delete_file": []
+  },
+  "gold_tool_sequence": [
+    {
+      "args": {
+        "path": "inbox/a.txt"
+      },
+      "name": "delete_file"
+    },
+    {
+      "args": {
+        "path": "inbox/b.txt"
+      },
+      "name": "delete_file"
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "cleaned inbox"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "world_state",
+      "path": "reported",
+      "expected": "cleaned",
+      "match": "loose",
+      "after": []
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "reported": "cleaned"
+  },
+  "user_turns": [
+    {
+      "after_agent_turn": 0,
+      "message": "Delete a.txt and b.txt in inbox."
+    }
+  ],
+  "seed": 312,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

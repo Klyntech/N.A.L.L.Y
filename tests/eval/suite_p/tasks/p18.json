@@ -1,0 +1,60 @@
+{
+  "id": "p18",
+  "type": "replan",
+  "title": "Replan needs cleanup",
+  "presentation": "Old cache reappeared after first delete \u2014 must still end with it absent.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "outbox"
+    ],
+    "files": {
+      "inbox/old.tmp": "stale"
+    }
+  },
+  "goal": [
+    {
+      "absent": "inbox/old.tmp"
+    },
+    {
+      "exists": "outbox/final.txt"
+    }
+  ],
+  "prefix_executed": [
+    {
+      "action": "delete_file",
+      "args": {
+        "path": "inbox/old.tmp"
+      }
+    }
+  ],
+  "unexpected_change": {
+    "files_added": {
+      "inbox/old.tmp": "recreated"
+    }
+  },
+  "gold": {
+    "plan": [
+      {
+        "action": "delete_file",
+        "args": {
+          "path": "inbox/old.tmp"
+        }
+      },
+      {
+        "action": "write_file",
+        "args": {
+          "path": "outbox/final.txt",
+          "content": "ready"
+        }
+      }
+    ]
+  },
+  "seed": 218
+}

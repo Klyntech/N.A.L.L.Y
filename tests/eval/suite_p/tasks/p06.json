@@ -1,0 +1,91 @@
+{
+  "id": "p06",
+  "type": "generation",
+  "title": "Archive release notes",
+  "presentation": "Create archive/2026/ then move inbox/release.txt into archive/2026/release.txt.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox"
+    ],
+    "files": {
+      "inbox/release.txt": "notes v2"
+    }
+  },
+  "goal": [
+    {
+      "dir_exists": "archive/2026"
+    },
+    {
+      "exists": "archive/2026/release.txt"
+    },
+    {
+      "contains": [
+        "archive/2026/release.txt",
+        "notes v2"
+      ]
+    },
+    {
+      "absent": "inbox/release.txt"
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "dir_exists": "archive/2026"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s2",
+      "after": [
+        "s1"
+      ],
+      "predicate": {
+        "exists": "archive/2026/release.txt"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s3",
+      "after": [
+        "s2"
+      ],
+      "predicate": {
+        "absent": "inbox/release.txt"
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "archive"
+        }
+      },
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "archive/2026"
+        }
+      },
+      {
+        "action": "move_file",
+        "args": {
+          "src": "inbox/release.txt",
+          "dst": "archive/2026/release.txt"
+        }
+      }
+    ]
+  },
+  "seed": 206
+}

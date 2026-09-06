@@ -1,0 +1,87 @@
+{
+  "id": "c06",
+  "category": "MTC",
+  "initial_user_message": "Fetch the deploy guide and save first line to notes/deploy.txt (restricted tools)",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "deploy",
+        "title": "Deploy Guide",
+        "snippet": "deploy prod",
+        "content": "Deploy with prod env"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "deploy"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "deploy"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/deploy.txt",
+        "content": "Deploy with prod env"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "deploy"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/deploy.txt",
+      "expected": "prod",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/deploy.txt": "prod"
+    }
+  },
+  "user_turns": [],
+  "seed": 406,
+  "scoring": {
+    "primary": "milestone x minefield"
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "id": "a08",
+  "category": "MTC",
+  "env": "lookup",
+  "initial_user_message": "Compare two fee docs and report the higher fee.",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "fee-a",
+        "title": "Fee A",
+        "snippet": "5% fee",
+        "content": "Fee is 5%"
+      },
+      {
+        "id": "fee-b",
+        "title": "Fee B",
+        "snippet": "2% fee",
+        "content": "Fee is 2%"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "fee"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "fee-a"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "fee-b"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "higher fee is 5%"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_docs",
+      "args": {
+        "query": "fee"
+      },
+      "arg_match": "loose",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "fee-a"
+      },
+      "arg_match": "exact",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "reported": "5%"
+  },
+  "user_turns": [],
+  "seed": 308,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "id": "p17",
+  "type": "replan",
+  "title": "Replan after file vanished",
+  "presentation": "Draft was moved externally before we could publish \u2014 replan from current state.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "outbox"
+    ],
+    "files": {
+      "inbox/draft.txt": "v2"
+    }
+  },
+  "goal": [
+    {
+      "exists": "outbox/final.txt"
+    },
+    {
+      "contains": [
+        "outbox/final.txt",
+        "v2"
+      ]
+    }
+  ],
+  "prefix_executed": [
+    {
+      "action": "write_file",
+      "args": {
+        "path": "inbox/draft.txt",
+        "content": "v2"
+      }
+    }
+  ],
+  "unexpected_change": {
+    "files_removed": [
+      "inbox/draft.txt"
+    ],
+    "files_added": {
+      "inbox/draft.txt": "v2 backup"
+    }
+  },
+  "gold": {
+    "plan": [
+      {
+        "action": "move_file",
+        "args": {
+          "src": "inbox/draft.txt",
+          "dst": "outbox/final.txt"
+        }
+      }
+    ]
+  },
+  "seed": 217
+}

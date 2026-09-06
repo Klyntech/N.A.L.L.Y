@@ -1,0 +1,56 @@
+{
+  "id": "p19",
+  "type": "reuse",
+  "title": "Reuse prefix of prior deploy",
+  "presentation": "Prior example deployed to notes/deploy/. New goal is just that prefix \u2014 recognize and reuse.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "notes"
+    ],
+    "files": {}
+  },
+  "goal": [
+    {
+      "dir_exists": "notes/deploy"
+    }
+  ],
+  "example_plan": [
+    {
+      "action": "create_dir",
+      "args": {
+        "path": "notes/deploy"
+      }
+    },
+    {
+      "action": "write_file",
+      "args": {
+        "path": "notes/deploy/app.txt",
+        "content": "v1"
+      }
+    },
+    {
+      "action": "write_file",
+      "args": {
+        "path": "notes/deploy/env.txt",
+        "content": "prod"
+      }
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "notes/deploy"
+        }
+      }
+    ]
+  },
+  "seed": 219
+}

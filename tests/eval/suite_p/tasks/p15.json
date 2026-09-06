@@ -1,0 +1,62 @@
+{
+  "id": "p15",
+  "type": "execution",
+  "title": "Predict nested create",
+  "presentation": "From empty, after create a/b/c \u2014 what dirs exist?",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [],
+    "files": {}
+  },
+  "goal": [
+    {
+      "dir_exists": "a/b/c"
+    }
+  ],
+  "start_and_actions": {
+    "actions": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "a"
+        }
+      },
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "a/b"
+        }
+      },
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "a/b/c"
+        }
+      }
+    ]
+  },
+  "gold": {
+    "predicted_state": {
+      "dirs": [
+        "a",
+        "a/b",
+        "a/b/c"
+      ],
+      "files": {}
+    },
+    "expected_predicates": [
+      {
+        "dir_exists": "a/b/c"
+      },
+      {
+        "dir_exists": "a"
+      }
+    ]
+  },
+  "seed": 215
+}

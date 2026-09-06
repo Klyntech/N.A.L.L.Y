@@ -1,0 +1,72 @@
+{
+  "id": "p05",
+  "type": "generation",
+  "title": "Clean old cache before release",
+  "presentation": "Delete inbox/old.tmp if it exists, then ensure outbox/final.txt contains 'ready'.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "outbox"
+    ],
+    "files": {
+      "inbox/old.tmp": "stale",
+      "outbox/final.txt": "stale"
+    }
+  },
+  "goal": [
+    {
+      "absent": "inbox/old.tmp"
+    },
+    {
+      "contains": [
+        "outbox/final.txt",
+        "ready"
+      ]
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "absent": "inbox/old.tmp"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s2",
+      "after": [],
+      "predicate": {
+        "contains": [
+          "outbox/final.txt",
+          "ready"
+        ]
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "delete_file",
+        "args": {
+          "path": "inbox/old.tmp"
+        }
+      },
+      {
+        "action": "write_file",
+        "args": {
+          "path": "outbox/final.txt",
+          "content": "ready"
+        }
+      }
+    ]
+  },
+  "seed": 205
+}

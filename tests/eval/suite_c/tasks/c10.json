@@ -1,0 +1,142 @@
+{
+  "id": "c10",
+  "category": "MTC",
+  "placement": "gold-middle",
+  "initial_user_message": "Find the placed doc and save its answer to notes/answer.txt",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "dist-0",
+        "title": "Noise 0",
+        "snippet": "noise 0",
+        "content": "noise 0"
+      },
+      {
+        "id": "dist-1",
+        "title": "Noise 1",
+        "snippet": "noise 1",
+        "content": "noise 1"
+      },
+      {
+        "id": "dist-2",
+        "title": "Noise 2",
+        "snippet": "noise 2",
+        "content": "noise 2"
+      },
+      {
+        "id": "dist-3",
+        "title": "Noise 3",
+        "snippet": "noise 3",
+        "content": "noise 3"
+      },
+      {
+        "id": "dist-4",
+        "title": "Noise 4",
+        "snippet": "noise 4",
+        "content": "noise 4"
+      },
+      {
+        "id": "gold-placed",
+        "title": "Placed Doc",
+        "snippet": "placed answer alpha",
+        "content": "Answer is alpha"
+      },
+      {
+        "id": "dist-5",
+        "title": "Noise 5",
+        "snippet": "noise 5",
+        "content": "noise 5"
+      },
+      {
+        "id": "dist-6",
+        "title": "Noise 6",
+        "snippet": "noise 6",
+        "content": "noise 6"
+      },
+      {
+        "id": "dist-7",
+        "title": "Noise 7",
+        "snippet": "noise 7",
+        "content": "noise 7"
+      },
+      {
+        "id": "dist-8",
+        "title": "Noise 8",
+        "snippet": "noise 8",
+        "content": "noise 8"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "placed"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "gold-placed"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/answer.txt",
+        "content": "Answer is alpha"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved alpha"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "gold-placed"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/answer.txt",
+      "expected": "alpha",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/answer.txt": "alpha"
+    }
+  },
+  "user_turns": [],
+  "seed": 419,
+  "scoring": {
+    "primary": "milestone x minefield"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "id": "p16",
+  "type": "replan",
+  "title": "Replan after move target missing",
+  "presentation": "Started creating deploy bundle; after step 1 the target dir disappeared. Replan.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "notes"
+    ],
+    "files": {
+      "inbox/bundle.txt": "bundle"
+    }
+  },
+  "goal": [
+    {
+      "exists": "notes/deploy/bundle.txt"
+    }
+  ],
+  "prefix_executed": [
+    {
+      "action": "create_dir",
+      "args": {
+        "path": "notes/deploy"
+      }
+    }
+  ],
+  "unexpected_change": {
+    "dirs_removed": [
+      "notes/deploy"
+    ]
+  },
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "notes/deploy"
+        }
+      },
+      {
+        "action": "move_file",
+        "args": {
+          "src": "inbox/bundle.txt",
+          "dst": "notes/deploy/bundle.txt"
+        }
+      }
+    ]
+  },
+  "seed": 216
+}

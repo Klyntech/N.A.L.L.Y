@@ -1,0 +1,85 @@
+{
+  "id": "a10",
+  "category": "MTC",
+  "env": "household",
+  "initial_user_message": "Archive inbox/report.txt to archive/2026/report.txt (create archive/2026).",
+  "initial_state": {
+    "dirs": [
+      "inbox"
+    ],
+    "files": {
+      "inbox/report.txt": "q4"
+    }
+  },
+  "available_tools": [
+    "create_dir",
+    "move_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "create_dir": [],
+    "move_file": [
+      "create_dir"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "args": {
+        "path": "archive"
+      },
+      "name": "create_dir"
+    },
+    {
+      "args": {
+        "path": "archive/2026"
+      },
+      "name": "create_dir"
+    },
+    {
+      "args": {
+        "src": "inbox/report.txt",
+        "dst": "archive/2026/report.txt"
+      },
+      "name": "move_file"
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "archived"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "create_dir",
+      "args": {
+        "path": "archive/2026"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.archive/2026/report.txt",
+      "expected": "q4",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "archive/2026/report.txt": "q4"
+    }
+  },
+  "user_turns": [],
+  "seed": 310,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

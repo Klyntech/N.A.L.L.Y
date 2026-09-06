@@ -1,0 +1,77 @@
+{
+  "id": "a04",
+  "category": "STC",
+  "env": "db",
+  "initial_user_message": "How many contacts named Alice exist?",
+  "initial_state": {
+    "contacts": [
+      {
+        "name": "Alice A",
+        "phone": "+1"
+      },
+      {
+        "name": "Bob",
+        "phone": "+2"
+      },
+      {
+        "name": "Alice B",
+        "phone": "+3"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_contacts",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_contacts": [],
+    "end_conversation": [
+      "search_contacts"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_contacts",
+      "args": {
+        "query": "Alice"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "2 contacts named Alice"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_contacts",
+      "args": {
+        "query": "Alice"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "reported",
+      "expected": "2",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "reported": "2"
+  },
+  "user_turns": [],
+  "seed": 304,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "id": "a09",
+  "category": "MUT",
+  "env": "lookup",
+  "initial_user_message": "Find the deploy guide.",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "deploy",
+        "title": "Deploy Guide",
+        "snippet": "use prod",
+        "content": "use prod env"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "deploy"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "deploy"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "deploy uses prod"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_docs",
+      "args": {
+        "query": "deploy"
+      },
+      "arg_match": "exact",
+      "after": []
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "reported": "prod"
+  },
+  "user_turns": [
+    {
+      "after_agent_turn": 0,
+      "message": "The guide is titled Deploy Guide."
+    }
+  ],
+  "seed": 309,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

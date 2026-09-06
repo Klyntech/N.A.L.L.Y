@@ -1,0 +1,60 @@
+{
+  "id": "p07",
+  "type": "optimal",
+  "title": "Cheapest publish",
+  "presentation": "Inbox draft should end up as outbox/final.txt. Move costs 5, write costs 1.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "costs": {
+    "create_dir": 1,
+    "write_file": 1,
+    "move_file": 5,
+    "delete_file": 1
+  },
+  "initial_state": {
+    "dirs": [
+      "inbox",
+      "outbox"
+    ],
+    "files": {
+      "inbox/draft.txt": "hello optimal"
+    }
+  },
+  "goal": [
+    {
+      "exists": "outbox/final.txt"
+    },
+    {
+      "contains": [
+        "outbox/final.txt",
+        "hello optimal"
+      ]
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "exists": "outbox/final.txt"
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "write_file",
+        "args": {
+          "path": "outbox/final.txt",
+          "content": "hello optimal"
+        }
+      }
+    ]
+  },
+  "seed": 207
+}

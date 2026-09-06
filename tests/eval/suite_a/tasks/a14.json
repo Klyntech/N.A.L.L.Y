@@ -1,0 +1,73 @@
+{
+  "id": "a14",
+  "category": "MUT",
+  "env": "shopping",
+  "initial_user_message": "I need the fee.",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "fee-cheap",
+        "title": "Cheap Fee",
+        "snippet": "1%",
+        "content": "1% fee"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "fee"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "fee-cheap"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "fee is 1%"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_docs",
+      "args": {
+        "query": "fee"
+      },
+      "arg_match": "exact",
+      "after": []
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "reported": "1%"
+  },
+  "user_turns": [
+    {
+      "after_agent_turn": 0,
+      "message": "The cheapest fee one."
+    }
+  ],
+  "seed": 314,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

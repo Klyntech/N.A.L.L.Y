@@ -1,0 +1,84 @@
+{
+  "id": "a16",
+  "category": "MTC",
+  "env": "noisy",
+  "initial_user_message": "What does the refund window say?",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "refund-window",
+        "title": "Refund Window",
+        "snippet": "30 days",
+        "content": "Window 30 days"
+      },
+      {
+        "id": "noise",
+        "title": "Noise",
+        "snippet": "irrelevant",
+        "content": "nothing"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "refund"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "refund-window"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "window is 30 days"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "refund-window"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "reported",
+      "expected": "30 days",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "reported": "30 days"
+  },
+  "user_turns": [],
+  "seed": 316,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

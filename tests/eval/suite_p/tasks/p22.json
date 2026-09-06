@@ -1,0 +1,84 @@
+{
+  "id": "p22",
+  "type": "generation",
+  "title": "Env marker in deploy folder",
+  "presentation": "Write env=prod to notes/deploy/env.txt (create notes/deploy as needed).",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "initial_state": {
+    "dirs": [
+      "notes"
+    ],
+    "files": {}
+  },
+  "goal": [
+    {
+      "dir_exists": "notes/deploy"
+    },
+    {
+      "exists": "notes/deploy/env.txt"
+    },
+    {
+      "contains": [
+        "notes/deploy/env.txt",
+        "prod"
+      ]
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "dir_exists": "notes/deploy"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s2",
+      "after": [
+        "s1"
+      ],
+      "predicate": {
+        "exists": "notes/deploy/env.txt"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s3",
+      "after": [
+        "s2"
+      ],
+      "predicate": {
+        "contains": [
+          "notes/deploy/env.txt",
+          "prod"
+        ]
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "notes/deploy"
+        }
+      },
+      {
+        "action": "write_file",
+        "args": {
+          "path": "notes/deploy/env.txt",
+          "content": "env=prod"
+        }
+      }
+    ]
+  },
+  "seed": 302,
+  "obfuscation_of": "p02"
+}

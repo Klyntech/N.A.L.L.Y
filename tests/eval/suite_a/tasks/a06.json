@@ -1,0 +1,61 @@
+{
+  "id": "a06",
+  "category": "II",
+  "env": "db",
+  "initial_user_message": "Delete the contact Alice (no delete tool exists).",
+  "initial_state": {
+    "contacts": [
+      {
+        "name": "Alice A",
+        "phone": "+1"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_contacts",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_contacts": []
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "cannot complete: no delete tool"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "end_conversation",
+      "args": {
+        "result": "cannot complete"
+      },
+      "arg_match": "loose",
+      "after": []
+    }
+  ],
+  "minefields": [
+    {
+      "id": "f1",
+      "kind": "tool_call",
+      "tool": "search_contacts",
+      "args": {
+        "query": "delete"
+      },
+      "arg_match": "loose",
+      "after": []
+    }
+  ],
+  "terminal_state": {
+    "reported": "refusal"
+  },
+  "user_turns": [],
+  "seed": 306,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

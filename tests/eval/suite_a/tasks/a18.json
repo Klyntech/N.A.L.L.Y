@@ -1,0 +1,57 @@
+{
+  "id": "a18",
+  "category": "II",
+  "env": "noisy",
+  "initial_user_message": "How many days until this Friday? (no clock available)",
+  "initial_state": {
+    "today": "UNKNOWN"
+  },
+  "available_tools": [
+    "canonicalize",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "canonicalize": []
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "cannot complete: no clock"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "end_conversation",
+      "args": {
+        "result": "cannot complete"
+      },
+      "arg_match": "loose",
+      "after": []
+    }
+  ],
+  "minefields": [
+    {
+      "id": "f1",
+      "kind": "tool_call",
+      "tool": "canonicalize",
+      "args": {
+        "kind": "date",
+        "value": "this Friday"
+      },
+      "arg_match": "exact",
+      "after": []
+    }
+  ],
+  "terminal_state": {
+    "reported": "refusal"
+  },
+  "user_turns": [],
+  "seed": 318,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

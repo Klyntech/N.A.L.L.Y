@@ -1,0 +1,109 @@
+{
+  "id": "a07",
+  "category": "MTC",
+  "env": "lookup",
+  "initial_user_message": "Find the refund policy docs, fetch the one about window, save snippet to notes/window.txt.",
+  "initial_state": {
+    "docs": [
+      {
+        "id": "refund-window",
+        "title": "Refund Window",
+        "snippet": "30 days",
+        "content": "Window is 30 days"
+      },
+      {
+        "id": "refund-fee",
+        "title": "Refund Fee",
+        "snippet": "5%",
+        "content": "Fee 5%"
+      }
+    ]
+  },
+  "available_tools": [
+    "search_docs",
+    "fetch_doc",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "search_docs": [],
+    "fetch_doc": [
+      "search_docs"
+    ],
+    "write_file": [
+      "fetch_doc"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "search_docs",
+      "args": {
+        "query": "refund"
+      }
+    },
+    {
+      "name": "fetch_doc",
+      "args": {
+        "doc_id": "refund-window"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/window.txt",
+        "content": "30 days"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved window"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "search_docs",
+      "args": {
+        "query": "refund"
+      },
+      "arg_match": "loose",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "tool_call",
+      "tool": "fetch_doc",
+      "args": {
+        "doc_id": "refund-window"
+      },
+      "arg_match": "exact",
+      "after": [
+        "m1"
+      ]
+    },
+    {
+      "id": "m3",
+      "kind": "world_state",
+      "path": "files.notes/window.txt",
+      "expected": "30 days",
+      "match": "loose",
+      "after": [
+        "m2"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/window.txt": "30 days"
+    }
+  },
+  "user_turns": [],
+  "seed": 307,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

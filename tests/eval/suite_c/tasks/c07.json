@@ -1,0 +1,73 @@
+{
+  "id": "c07",
+  "category": "C",
+  "initial_user_message": "Canonicalize '1.2k' and save to notes/num.txt",
+  "initial_state": {},
+  "available_tools": [
+    "canonicalize",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "canonicalize": [],
+    "write_file": [
+      "canonicalize"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "canonicalize",
+      "args": {
+        "kind": "number",
+        "value": "1.2k"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "path": "notes/num.txt",
+        "content": "1200"
+      }
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved 1200"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "canonicalize",
+      "args": {
+        "kind": "number",
+        "value": "1.2k"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/num.txt",
+      "expected": "1200",
+      "match": "exact",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/num.txt": "1200"
+    }
+  },
+  "user_turns": [],
+  "seed": 407,
+  "scoring": {
+    "primary": "milestone x minefield"
+  }
+}

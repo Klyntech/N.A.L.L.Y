@@ -1,0 +1,74 @@
+{
+  "id": "a03",
+  "category": "C",
+  "env": "shell",
+  "initial_user_message": "Convert 2.5k records to plain number and save to notes/count.txt.",
+  "initial_state": {},
+  "available_tools": [
+    "canonicalize",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "canonicalize": [],
+    "write_file": [
+      "canonicalize"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "name": "canonicalize",
+      "args": {
+        "kind": "number",
+        "value": "2.5k"
+      }
+    },
+    {
+      "args": {
+        "path": "notes/count.txt",
+        "content": "2500"
+      },
+      "name": "write_file"
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "saved 2500"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "canonicalize",
+      "args": {
+        "kind": "number",
+        "value": "2.5k"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.notes/count.txt",
+      "expected": "2500",
+      "match": "exact",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "notes/count.txt": "2500"
+    }
+  },
+  "user_turns": [],
+  "seed": 303,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

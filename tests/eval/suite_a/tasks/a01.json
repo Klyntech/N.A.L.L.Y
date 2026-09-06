@@ -1,0 +1,75 @@
+{
+  "id": "a01",
+  "category": "MTC",
+  "env": "shell",
+  "initial_user_message": "List-ready check: create logs/ and write logs/ready.txt with ok.",
+  "initial_state": {
+    "dirs": [],
+    "files": {}
+  },
+  "available_tools": [
+    "create_dir",
+    "write_file",
+    "end_conversation"
+  ],
+  "dependency_graph": {
+    "create_dir": [],
+    "write_file": [
+      "create_dir"
+    ]
+  },
+  "gold_tool_sequence": [
+    {
+      "args": {
+        "path": "logs"
+      },
+      "name": "create_dir"
+    },
+    {
+      "args": {
+        "path": "logs/ready.txt",
+        "content": "ok"
+      },
+      "name": "write_file"
+    },
+    {
+      "name": "end_conversation",
+      "args": {
+        "result": "logs ready"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m1",
+      "kind": "tool_call",
+      "tool": "create_dir",
+      "args": {
+        "path": "logs"
+      },
+      "arg_match": "exact",
+      "after": []
+    },
+    {
+      "id": "m2",
+      "kind": "world_state",
+      "path": "files.logs/ready.txt",
+      "expected": "ok",
+      "match": "loose",
+      "after": [
+        "m1"
+      ]
+    }
+  ],
+  "minefields": [],
+  "terminal_state": {
+    "files": {
+      "logs/ready.txt": "ok"
+    }
+  },
+  "user_turns": [],
+  "seed": 301,
+  "scoring": {
+    "primary": "milestone_similarity x I(no minefield)"
+  }
+}

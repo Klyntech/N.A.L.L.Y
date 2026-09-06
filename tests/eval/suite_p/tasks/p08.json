@@ -1,0 +1,71 @@
+{
+  "id": "p08",
+  "type": "optimal",
+  "title": "Minimal release",
+  "presentation": "Need proj/app.txt with 'v3'. Creating the dir costs 2, writing costs 1.",
+  "actions": [
+    "create_dir",
+    "write_file",
+    "move_file",
+    "delete_file"
+  ],
+  "costs": {
+    "create_dir": 2,
+    "write_file": 1,
+    "move_file": 2,
+    "delete_file": 3
+  },
+  "initial_state": {
+    "dirs": [],
+    "files": {}
+  },
+  "goal": [
+    {
+      "exists": "proj/app.txt"
+    },
+    {
+      "contains": [
+        "proj/app.txt",
+        "v3"
+      ]
+    }
+  ],
+  "subgoals": [
+    {
+      "id": "s1",
+      "after": [],
+      "predicate": {
+        "dir_exists": "proj"
+      },
+      "weight": 1
+    },
+    {
+      "id": "s2",
+      "after": [
+        "s1"
+      ],
+      "predicate": {
+        "exists": "proj/app.txt"
+      },
+      "weight": 1
+    }
+  ],
+  "gold": {
+    "plan": [
+      {
+        "action": "create_dir",
+        "args": {
+          "path": "proj"
+        }
+      },
+      {
+        "action": "write_file",
+        "args": {
+          "path": "proj/app.txt",
+          "content": "v3"
+        }
+      }
+    ]
+  },
+  "seed": 208
+}
