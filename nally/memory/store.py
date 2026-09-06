@@ -1006,20 +1006,25 @@ class MemoryRepository:
         """Decay confidence for memories not confirmed in a while.
 
         Uses a single bulk UPDATE instead of N individual updates.
+        Stamp last_confirmed when decaying so repeated runs (e.g. every
+        agent init) apply at most one period step instead of compounding
+        geometrically: the next run sees a fresh timestamp and no-ops
+        until another full decay period elapses.
         """
         with self._connection() as conn:
             rows = conn.execute("SELECT id, last_confirmed FROM memories WHERE deleted = 0").fetchall()
 
             updates = []
+            now = self._now()
             for row in rows:
                 days = days_since(row["last_confirmed"])
                 factor = decay_confidence(days)
                 if factor < 1.0:
-                    updates.append((factor, row["id"]))
+                    updates.append((factor, now, row["id"]))
 
             if updates:
                 conn.executemany(
-                    "UPDATE memories SET confidence = confidence * ? WHERE id = ?",
+                    "UPDATE memories SET confidence = confidence * ?, last_confirmed = ? WHERE id = ?",
                     updates,
                 )
 
