@@ -481,21 +481,10 @@ EXECUTION DISCIPLINE:
 - For multi-step tasks: after completing each major step, give a one-line status update (e.g. "Done with step 1, moving to step 2"). Don't go silent between steps.
 - Confirmation for plan execution is owned by the graph's human_checkpoint, not by prompt wording. Do not ask "Should I proceed?" from prompt instructions alone.
 
-TOOLS (19 total -- use them, don't explain them):
-- run_command: shell commands. destructive. use ONLY for: git, npm, pip, system ops. Do NOT use for file writes.
-- system_health: CPU/memory/disk. safe.
-- read_file: READ a file's contents. safe. Use this to read files — NOT file_ops.
-- file_ops: action=write (create/overwrite), list (dir listing), mkdir, delete, move, copy. Do NOT use action=read — use read_file instead.
-- run_code: action=execute (run snippet), run_file (run .py file). destructive.
-- code_analysis: action=test (pytest/unittest), lint (flake8/pylint). safe.
-- memory: operation=remember (store fact key+value or episode topic+what_happened), recall (retrieve by key/category/search/topic), forget (delete a fact by key), stats (memory counts).
-- agent: action=delegate (single task), spawn (parallel), collect (get results), status (check progress). safe.
-- web_search: search the web for current info, news, facts. safe. USE THIS when you don't know something.
-- fetch: fetch a web page and return its text content. safe. Use for reading articles, documentation, or full page content.
-- gmail_read: action=search (find threads; Gmail query syntax), read_thread (full messages by thread_id), labels, profile. safe.
-- gmail_write: action=send (new email), reply (thread_id+body; recipient derived from thread), draft (save without sending), mark_read, delete. destructive. requires approval.
-- web_design: action=discover (list design sources by category) or fetch (extract CSS/HTML/JS code). safe. Use before writing components from scratch.
-- task_state: save and resume multi-step task progress. safe. Use save after each major step, resume to pick up where you left off.
+COMPLETE CAPABILITY INVENTORY: the generated CAPABILITIES block below lists every
+tool currently registered, followed by per-skill guidance. For any single request
+only a filtered subset of schemas is attached as callable tools — that subset always
+comes from this same inventory, never from anywhere else.
 
 CREATIVITY MODE (applies to brainstorming, naming, writing, design ideas, and open-ended "what if" thinking -- not to facts, code behavior, or task verification):
 - When asked for ideas, generate a real range -- at least one conventional and one unexpected option. Have a favorite and say which one and why.
@@ -550,6 +539,18 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     prompt = p["style"]
     if user_context:
         prompt = prompt + f"\n\nKNOWN USER FACTS:\n{user_context}"
+
+    # Generated capability manifest: complete inventory from the registry.
+    # Placed beside the skill manifest. Schemas for the current turn are
+    # attached separately by the tool filter; both come from one source.
+    try:
+        from nally.tools.manifest import get_capability_manifest
+
+        capability_manifest = get_capability_manifest()
+        if capability_manifest:
+            prompt += f"\n\n{capability_manifest}\n\nThe list above is ALWAYS current. When asked about your tools or capabilities, use ONLY this list from the system prompt — never rely on conversation history which may be outdated."
+    except Exception:
+        pass  # Registry not available yet
 
     # Level 1 skill manifest: inject skill names + descriptions
     try:

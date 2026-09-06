@@ -46,6 +46,19 @@ def get_capability_manifest(registry=None) -> str:
     except Exception as e:
         logger.debug(f"Manifest unavailable, registry unreadable: {e}")
         return ""
+    if not tools:
+        # Lazy safety net (same precedent as registry.execute_result):
+        # the prompt may be built before startup finished loading tools.
+        try:
+            from .registry_builder import load_all_tools
+
+            load_all_tools()
+            tools = registry.tools
+        except Exception as e:
+            logger.debug(f"Manifest lazy load failed: {e}")
+            return ""
+    if not tools:
+        return ""
     try:
         lines = [_MANIFEST_HEADER]
         for name in sorted(tools.keys()):

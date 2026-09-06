@@ -68,3 +68,23 @@ class TestManifestLiveRegistry:
         manifest = get_capability_manifest()
         for name in registry.tools:
             assert f"- {name}:" in manifest
+
+
+class TestManifestPromptWiring:
+    def test_system_prompt_contains_generated_manifest(self):
+        from nally.config import get_system_prompt
+        from nally.tools import load_all_tools
+        from nally.tools.registry import registry
+
+        load_all_tools()
+        prompt = get_system_prompt()
+        assert "CAPABILITIES AVAILABLE TO NALLY" in prompt
+        for name in registry.tools:
+            assert f"- {name}:" in prompt
+
+    def test_no_hand_maintained_tools_block(self):
+        from nally.config import get_system_prompt
+
+        prompt = get_system_prompt()
+        assert "TOOLS (19 total" not in prompt
+        assert "TOOLS (18 total" not in prompt
