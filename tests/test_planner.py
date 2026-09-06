@@ -14,9 +14,12 @@ from nally.agent.planner import (
     _plan_to_state,
     classify_by_patterns,
     critique_node,
+    execute_step_node,
     parse_plan_response,
+    planner_node,
     route_after_classify,
     route_after_critique,
+    route_after_planner,
     route_after_replan,
     validate_plan,
 )
@@ -147,6 +150,48 @@ class TestRouting:
         plan.steps[0].status = StepStatus.COMPLETED
         state = {"plan_status": "executing", "plan": plan, "iteration": 0, "max_iterations": 100}
         assert route_after_replan(state) == "execute_step"
+
+
+class TestPlannerOutcomeSplit:
+    """PLAN_READY goes to critique; PLAN_FAILED goes to ReAct, never critique."""
+
+    def test_plan_failed_routes_to_llm(self):
+        assert route_after_planner({"plan_status": "plan_failed", "plan": None}) == "llm"
+
+    def test_missing_plan_routes_to_llm(self):
+        assert route_after_planner({"plan_status": "executing", "plan": None}) == "llm"
+
+    def test_ready_plan_routes_to_critique(self):
+        plan = Plan(goal="test", steps=[PlanStep(id="s1", goal="step 1")])
+        state = {"plan_status": "executing", "plan": plan}
+        assert route_after_planner(state) == "critique"
+
+    def test_planner_llm_failure_returns_plan_failed(self):
+        state = {
+            "messages": [HumanMessage(content="build a widget")],
+            "thread_id": "test-plan-failed",
+        }
+        with patch("nally.agent.llm.llm") as mock_llm:
+            mock_llm.simple_chat.side_effect = Exception("no network")
+            result = planner_node(dict(state))
+        assert result["plan_status"] == "plan_failed"
+        assert result["plan"] is None
+
+    def test_planner_bad_json_returns_plan_failed(self):
+        state = {
+            "messages": [HumanMessage(content="build a widget")],
+            "thread_id": "test-plan-badjson",
+        }
+        with patch("nally.agent.llm.llm") as mock_llm:
+            mock_llm.simple_chat.return_value = "not json at all"
+            result = planner_node(dict(state))
+        assert result["plan_status"] == "plan_failed"
+        assert result["plan"] is None
+
+    def test_execute_step_without_plan_stops(self):
+        result = execute_step_node({"thread_id": "t", "plan": None})
+        assert result["plan_status"] == "plan_failed"
+        assert result["plan"] is None
 
 
 # ── Critique Node ─────────────────────────────────────────

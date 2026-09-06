@@ -428,7 +428,10 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
 def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Generate or revise a plan for the user's goal.
 
-    Uses timeout-protected LLM call. Falls back to ReAct on failure.
+    Uses timeout-protected LLM call. Outcomes are explicit:
+    PLAN_READY (plan_status=executing) -> critique;
+    PLAN_FAILED (plan_status=plan_failed) -> ReAct fallback via route_after_planner.
+    A failed planner never enters critique/execute with plan=None.
     """
     from langchain_core.messages import HumanMessage
 
@@ -445,7 +448,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
         if check_abort(thread_id):
             clear_abort(thread_id)
-            return {**state, "plan_status": "none", "plan": None}
+            return {**state, "plan_status": "plan_failed", "plan": None}
     except Exception:
         pass
 
@@ -457,7 +460,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
             break
 
     if not user_text:
-        return {**state, "plan_status": "none", "plan": None}
+        return {**state, "plan_status": "plan_failed", "plan": None}
 
     # Build planning prompt
     is_revision = existing_plan and existing_plan.status == PlanStatus.REVISING
@@ -519,8 +522,8 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 pass
 
         if plan is None:
-            logger.warning("Plan generation returned invalid JSON, falling back to ReAct")
-            return {**state, "plan_status": "none", "plan": None}
+            logger.warning("Plan generation returned invalid JSON -> PLAN_FAILED, route to ReAct")
+            return {**state, "plan_status": "plan_failed", "plan": None}
 
         plan = validate_plan(plan)
 
@@ -544,11 +547,11 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     except concurrent.futures.TimeoutError:
-        logger.warning("Planner LLM call timed out (60s), falling back to ReAct")
-        return {**state, "plan_status": "none", "plan": None}
+        logger.warning("Planner LLM call timed out (60s) -> PLAN_FAILED, route to ReAct")
+        return {**state, "plan_status": "plan_failed", "plan": None}
     except Exception as e:
         logger.error(f"Plan generation failed: {e}")
-        return {**state, "plan_status": "none", "plan": None}
+        return {**state, "plan_status": "plan_failed", "plan": None}
 
 
 def critique_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -619,7 +622,12 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     plan = _get_plan(state)
     if not plan or plan.status != PlanStatus.ACTIVE:
-        return state
+        # Defense in depth: execute_step must never run without an active plan.
+        # route_after_planner routes PLAN_FAILED to ReAct, so reaching here
+        # without a plan indicates a wiring error — fail loudly in logs and
+        # stop planning rather than no-op spinning.
+        logger.error("execute_step reached without an active plan; stopping plan execution")
+        return {**state, "plan_status": "plan_failed", "plan": None}
 
     thread_id = state.get("thread_id", "default")
 
@@ -913,6 +921,16 @@ def _fallback_synthesis(plan: Plan, step_results: Dict[str, str]) -> str:
 
 
 # ── Routing Functions ─────────────────────────────────────
+
+
+def route_after_planner(state: Dict[str, Any]) -> str:
+    """Route after planning: ready plans go to critique, failures to ReAct.
+
+    PLAN_FAILED must never enter critique/execute_step with plan=None.
+    """
+    if state.get("plan_status") == "plan_failed" or not state.get("plan"):
+        return "llm"
+    return "critique"
 
 
 def route_after_classify(state: Dict[str, Any]) -> str:

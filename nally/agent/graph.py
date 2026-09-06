@@ -1790,6 +1790,7 @@ def create_agent_graph():
             replan_node,
             route_after_classify,
             route_after_critique,
+            route_after_planner,
             route_after_replan,
             synthesize_node,
         )
@@ -1810,8 +1811,13 @@ def create_agent_graph():
             {"planner": "planner", "llm": "llm"},
         )
 
-        # planner -> critique (review before execution)
-        graph.add_edge("planner", "critique")
+        # planner decides: critique on PLAN_READY, ReAct loop on PLAN_FAILED.
+        # A failed planner never enters critique/execute with plan=None.
+        graph.add_conditional_edges(
+            "planner",
+            route_after_planner,
+            {"critique": "critique", "llm": "llm"},
+        )
 
         # critique routes: revise plan or proceed to human checkpoint
         graph.add_conditional_edges(
