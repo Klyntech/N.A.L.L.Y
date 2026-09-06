@@ -14,6 +14,7 @@ import json
 import re
 import time
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import (
@@ -667,6 +668,24 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
     try:
         result = _execute_step(step, state)
 
+        verified, reason = verify_step_result(step.goal, result)
+        if not verified:
+            step.status = StepStatus.FAILED
+            step.error = f"step-goal verification failed: {reason}"
+            logger.warning(f"Step {step.id} unverified ({reason}); marking FAILED for replan")
+            step_results = dict(state.get("step_results", {}))
+
+            event_bus.publish(
+                "plan_step_completed",
+                {
+                    "step_id": step.id,
+                    "success": False,
+                    "error": step.error,
+                },
+            )
+
+            return {**_plan_to_state(state, plan), "step_results": step_results}
+
         step.status = StepStatus.COMPLETED
         step.result = result
         step_results = dict(state.get("step_results", {}))
@@ -874,6 +893,83 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "plan_status": terminal,
             "messages": [AIMessage(content=fallback)],
         }
+
+
+# ── Deterministic Step-Goal Verification ────────────────────
+
+
+def _extract_path_candidate(goal: str) -> Optional[str]:
+    """Best-effort file path extraction from a step goal. None if absent."""
+    quoted = re.findall(r"""["']([^"'\\n]+?\.\w{1,10})["']""", goal)
+    if quoted:
+        return quoted[0]
+    for token in re.findall(r"\S+", goal):
+        cleaned = token.strip(".,;:!?()[]{}")
+        if re.search(r"\.(py|js|ts|tsx|jsx|json|md|txt|yml|yaml|toml|html|css|sh|sql)$", cleaned):
+            return cleaned
+        if ("/" in cleaned or "\\" in cleaned) and "." in cleaned:
+            return cleaned
+    return None
+
+
+def verify_step_result(goal: str, result: Any) -> tuple:
+    """Deterministically check that a step result entails its goal.
+
+    Returns (verified: bool, reason: str). Contract: ok-by-construction is
+    never sufficient — each goal type needs its own evidence:
+    - file create/write goals: the file must exist.
+    - test goals: the result must contain a recognizable test outcome.
+    - fetch/search/read goals: the result must be substantive data.
+    - unclassifiable goals: substantive, non-error result (shape evidence).
+    Error-prefixed results always fail. UNKNOWN (cannot establish) counts
+    as not-verified: the step is FAILED/REPLAN, never COMPLETED.
+    """
+    text = str(result or "")
+    stripped = text.strip()
+    if not stripped:
+        return False, "empty result"
+    if stripped[:6].lower() == "error:":
+        return False, "error-prefixed result"
+
+    lowered_goal = (goal or "").lower()
+
+    is_file_goal = any(
+        kw in lowered_goal
+        for kw in ("create file", "write file", "create a file", "new file", "save file", "add file")
+    )
+    if is_file_goal:
+        path = _extract_path_candidate(goal or "")
+        if not path:
+            return False, "file goal with no extractable path"
+        try:
+            if Path(path).exists():
+                return True, f"file exists: {path}"
+            return False, f"file missing: {path}"
+        except Exception as e:
+            return False, f"path check failed: {e}"
+
+    is_test_goal = any(
+        kw in lowered_goal for kw in ("test", "pytest", "unittest", "test suite")
+    )
+    if is_test_goal:
+        lowered = stripped.lower()
+        if any(kw in lowered for kw in ("passed", "failed", " ok", "ok\n", "error", "assert", "collected")):
+            return True, "test outcome present in result"
+        return False, "no recognizable test outcome in result"
+
+    is_fetch_goal = any(
+        kw in lowered_goal
+        for kw in ("fetch", "search", "look up", "lookup", "read article", "get info", "find information")
+    )
+    if is_fetch_goal:
+        if len(stripped) >= 50:
+            return True, "substantive fetch result"
+        return False, "fetch result too thin to establish goal"
+
+    # Generic fallback: substantive non-error result counts as shape evidence.
+    if len(stripped) >= 20:
+        return True, "substantive result"
+    return False, "result too thin to establish goal"
 
 
 # ── Execution Strategy ────────────────────────────────────

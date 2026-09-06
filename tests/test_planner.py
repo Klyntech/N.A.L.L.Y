@@ -291,6 +291,78 @@ class TestSynthesizeTerminals:
         assert "blocking condition" in prompt
 
 
+class TestStepGoalVerification:
+    """ok=True alone never completes a step; evidence does."""
+
+    def test_error_result_never_verifies(self):
+        from nally.agent.planner import verify_step_result
+
+        ok, _ = verify_step_result("create file x.py", "Error: write failed")
+        assert ok is False
+
+    def test_empty_result_never_verifies(self):
+        from nally.agent.planner import verify_step_result
+
+        ok, _ = verify_step_result("do the thing", "   ")
+        assert ok is False
+
+    def test_file_goal_requires_existing_file(self, tmp_path):
+        from nally.agent.planner import verify_step_result
+
+        target = tmp_path / "made.py"
+        ok, _ = verify_step_result(f"create file {target}", "wrote it")
+        assert ok is False
+        target.write_text("x = 1\n")
+        ok, reason = verify_step_result(f"create file {target}", "wrote it")
+        assert ok is True
+        assert "exists" in reason
+
+    def test_file_goal_without_path_is_unknown(self):
+        from nally.agent.planner import verify_step_result
+
+        ok, _ = verify_step_result("create file with stuff", "wrote it")
+        assert ok is False
+
+    def test_test_goal_requires_outcome(self):
+        from nally.agent.planner import verify_step_result
+
+        ok, _ = verify_step_result("run tests", "all meaningless prose here")
+        assert ok is False
+        ok, _ = verify_step_result("run pytest", "3 passed in 1.2s")
+        assert ok is True
+
+    def test_fetch_goal_requires_substance(self):
+        from nally.agent.planner import verify_step_result
+
+        ok, _ = verify_step_result("fetch info about cats", "tiny")
+        assert ok is False
+        ok, _ = verify_step_result("fetch info about cats", "x" * 60)
+        assert ok is True
+
+    def test_unverified_step_marks_failed(self):
+        from nally.agent.planner import _get_plan, _plan_to_state
+
+        plan = Plan(goal="g", steps=[PlanStep(id="s1", goal="create file ghost_xyz.py")])
+        state = _plan_to_state({"thread_id": "t"}, plan)
+        with patch("nally.agent.planner._execute_step", return_value="wrote it"):
+            result = execute_step_node(state)
+        out = _get_plan(result)
+        assert out.steps[0].status == StepStatus.FAILED
+        assert "verification failed" in (out.steps[0].error or "")
+        assert result.get("plan_status") != "complete"
+
+    def test_verified_step_completes(self, tmp_path):
+        from nally.agent.planner import _get_plan, _plan_to_state
+
+        target = tmp_path / "real.py"
+        target.write_text("x = 1\n")
+        plan = Plan(goal="g", steps=[PlanStep(id="s1", goal=f"create file {target}")])
+        state = _plan_to_state({"thread_id": "t"}, plan)
+        with patch("nally.agent.planner._execute_step", return_value="wrote it"):
+            result = execute_step_node(state)
+        assert _get_plan(result).steps[0].status == StepStatus.COMPLETED
+
+
 # ── Critique Node ─────────────────────────────────────────
 
 
