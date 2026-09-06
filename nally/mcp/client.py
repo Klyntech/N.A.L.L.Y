@@ -401,6 +401,16 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
     finally:
         pool.shutdown(wait=False)
 
+    # Manifest invariant: MCP registration refreshes the prompt/filter for
+    # every model-visible turn (ADR: manifest == current registry set).
+    if any(r.get("status") == "ok" and r.get("tools", 0) > 0 for r in results):
+        try:
+            from nally.tools.manifest import refresh_manifest
+
+            refresh_manifest()
+        except Exception:
+            pass
+
     return results
 
 

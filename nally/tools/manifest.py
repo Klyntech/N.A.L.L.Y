@@ -72,3 +72,41 @@ def get_capability_manifest(registry=None) -> str:
     except Exception as e:
         logger.debug(f"Manifest build failed: {e}")
         return ""
+
+
+def refresh_manifest() -> None:
+    """Rebuild filter index and cached session prompts after registry changes.
+
+    Called after MCP tools register mid-session so the next model-visible
+    turn sees them. Best-effort — never raises.
+
+    Invariant: manifest == current registry capability set at every
+    model-visible turn (ADR Q1 tightening).
+    """
+    try:
+        from nally import config as cfg
+
+        cfg._SYSTEM_PROMPT_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        from .filter import tool_filter
+        from .registry import registry
+
+        tool_filter.build_index(registry.tools)
+    except Exception as e:
+        logger.debug(f"Manifest refresh: filter rebuild failed: {e}")
+    try:
+        from nally.agent.sessions import session_manager
+
+        for agent in list(session_manager._sessions.values()):
+            try:
+                from nally.config import get_system_prompt
+
+                new_prompt = get_system_prompt(interface=agent._channel or agent._session_id)
+                if agent.messages and agent.messages[0].get("role") == "system":
+                    agent.messages[0]["content"] = new_prompt
+            except Exception as e:
+                logger.debug(f"Manifest refresh: session rebuild failed: {e}")
+    except Exception:
+        pass
