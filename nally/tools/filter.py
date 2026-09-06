@@ -67,10 +67,11 @@ class ToolFilter:
         """Return OpenAI tool schemas relevant to the query.
 
         Strategy: keyword overlap between query and tool index.
-        - Strong match (>=2 tokens): return matched tools + core
-        - Weak/no match: return core tools only (avoids bloating context
-          with 200+ MCP tool schemas when they're not relevant)
-        - Complex/High-Stakes tasks: return core + all matched (broader set)
+        - Empty/no-match: return core tools (small, always-safe fallback).
+        - Strong match (>=2 tokens): ALWAYS_ON(5) + all matched.
+        - Weak match (1 token): ALWAYS_ON + top 10 matched.
+        - Complex/High-Stakes: ALWAYS_ON + all matched (uncapped; strong
+          and weak share this path, unlike SIMPLE which caps weak at 10).
         """
         if not self._ready or not self._tool_keywords:
             return self._all_schemas
@@ -92,19 +93,19 @@ class ToolFilter:
         # Sort by overlap count, take top matches
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        # Complex/High-Stakes tasks get broader tool set (all matched + core)
+        # Complex/High-Stakes tasks get broader tool set (all matched + ALWAYS_ON, uncapped)
         if task_class in ("COMPLEX", "HIGH_STAKES"):
             always_on = ALWAYS_ON
             selected_names = always_on | {name for name, _ in scored}
             return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
 
-        # Weak match (1 token) → return core + top 10 matched (not all)
+        # Weak match (1 token) → ALWAYS_ON + top 10 matched
         if scored[0][1] < 2:
             always_on = ALWAYS_ON
             selected_names = always_on | {name for name, _ in scored[:10]}
             return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
 
-        # Strong match → return matched tools + core
+        # Strong match → ALWAYS_ON + all matched
         always_on = ALWAYS_ON
         selected_names = always_on | {name for name, _ in scored}
 

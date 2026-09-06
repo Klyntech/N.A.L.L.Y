@@ -102,7 +102,8 @@ def _load_all_registered():
     gmail.register()
 
     # --- Memory (1 tool: remember/recall/forget/stats operations) ---
-    from ..memory import MemoryToolsV2, memory_store as mem_store
+    from ..memory import MemoryToolsV2
+    from ..memory import memory_store as mem_store
 
     mem_tools = MemoryToolsV2(mem_store)
 
@@ -318,7 +319,7 @@ def _load_all_registered():
     # --- Load user plugins ---
     registry.load_plugins()
 
-    # --- Connect MCP servers (runs every call, retries if previous timed out) ---
+    # --- Connect MCP servers (once per process; guarded by _loaded at 333-337) ---
     from ..mcp.client import connect_mcp_servers
 
     mcp_status = connect_mcp_servers(registry)
