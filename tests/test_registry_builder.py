@@ -51,21 +51,18 @@ def test_load_all_tools_registers_builtins_once():
         "web_search",
         "fetch",
         "think",
-        "mcp_status",
-        "remember",
-        "recall",
-        "forget",
-        "memory_stats",
+        "memory",
+        "gmail_read",
+        "gmail_write",
     }
     missing = required - set(registry.tools.keys())
     assert not missing, f"missing tools: {missing}"
 
-    # Memory tools registered once (no duplicates)
+    # Memory registered once as a single coherent tool (no duplicates)
     names = list(registry.tools.keys())
-    assert names.count("remember") == 1
-    assert names.count("recall") == 1
-    assert names.count("forget") == 1
-    assert names.count("memory_stats") == 1
+    assert names.count("memory") == 1
+    for retired in ("remember", "recall", "forget", "memory_stats", "mcp_status"):
+        assert retired not in names
 
     count2, mcp2 = load_all_tools()
     assert count2 == count1

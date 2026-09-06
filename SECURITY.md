@@ -25,12 +25,12 @@ Nally uses a declarative permission gate (`nally/config/permissions.json`) to co
 
 Permissions are declared in `nally/config/permissions.json` and enforced at execution.
 
-- **Allow by default** (`"run_command": { "*": "allow", ... }`): most shell commands run WITHOUT approval. Also allowed: `read_file`, `system_health`, `code_analysis`, `run_code`, `web_search`, `think`, `mcp_status`, memory tools (`remember`, `recall`, `forget`, `memory_stats`), `agent`, `generate_image`, the Gmail tools, and `mcp_*`
+- **Allow by default** (`"run_command": { "*": "allow", ... }`): most shell commands run WITHOUT approval. Also allowed: `read_file`, `system_health`, `code_analysis`, `run_code`, `web_search`, `think`, `memory`, `agent`, `generate_image`, the Gmail tools (`gmail_read`, `gmail_write`), and `mcp_*`
 - **Ask for approval** (ask): `git push` / `git push *`, `file_ops` delete, `engineering_build`
 - **Denied** (deny) — a hardcoded deny-list that cannot be overridden:
   `rm -rf /`, `rm -rf ~`, `rm -rf *`, `sudo rm *`, `git push --force` / `git push -f *`, `git reset --hard`, `git clean -fd`, `chmod 777`, `shutdown`, `reboot`, `format *`, `dd if=`, `kill -9`, `killall`
 
-Note on Gmail: `permissions.json` sets `gmail_send`, `gmail_reply`, and `gmail_delete` to `allow`, so the permission gate lets them execute immediately. The `nally` system prompt (in `nally/config.py`) tells the model these tools "require approval" — a prompt/gate inconsistency. The permission gate is authoritative for enforcement; treating Gmail actions as requiring approval relies on the model, not the gate.
+Note on Gmail: `permissions.json` sets `gmail_write` to `allow`, so the permission gate lets sends/replies/deletes execute immediately. The `nally` system prompt (in `nally/config.py`) tells the model these tools "require approval" — a prompt/gate inconsistency. The permission gate is authoritative for enforcement; treating Gmail actions as requiring approval relies on the model, not the gate.
 
 ### Skill Override Rules
 

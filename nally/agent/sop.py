@@ -106,7 +106,7 @@ class SOPEngine:
             steps=[
                 SOPStep(name="fetch_calendar", description="Get today's calendar events", tool="web_search"),
                 SOPStep(name="fetch_news", description="Get top news headlines", tool="web_search"),
-                SOPStep(name="fetch_tasks", description="Get pending tasks from memory", tool="recall"),
+                SOPStep(name="fetch_tasks", description="Get pending tasks from memory", tool="memory"),
                 SOPStep(name="summarize", description="Combine into briefing", tool=""),
             ],
             input_schema={"date": "string (YYYY-MM-DD)"},

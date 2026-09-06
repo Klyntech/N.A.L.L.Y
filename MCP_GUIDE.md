@@ -155,9 +155,9 @@ Status values:
 | `error` | Connection failed |
 
 These statuses come from the `/api/mcp/services` list built by
-`connect_mcp_servers`. Note that the **`mcp_status` tool** (in the agent) uses a
-different vocabulary: `Connected`, `Ready`, `Token stored (tools not loaded)`,
-`Token set (not connected)`, `Disconnected`, `Unknown`.
+`connect_mcp_servers`. (The former **`mcp_status` model tool** was removed
+from the registry; MCP connection state remains available via this API
+and the `mcp_status` SSE event.)
 
 ## OAuth Internals
 

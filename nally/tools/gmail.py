@@ -191,29 +191,55 @@ async def _gmail_delete(path: str) -> dict:
             return {"error": f"Gmail API returned non-JSON (HTTP {r.status_code}): {r.text[:200]}"}
 
 
-class GmailSearch(Tool):
+class GmailRead(Tool):
+    """Read-only Gmail capability: search, read_thread, labels, profile."""
+
     def __init__(self):
         super().__init__(
-            name="gmail_search",
-            description="Search Gmail threads. Returns thread IDs, snippets, subjects, senders. Use Gmail query syntax: from:user@example.com, subject:keyword, is:unread, newer_than:7d, has:attachment, in:inbox, etc.",
+            name="gmail_read",
+            description=(
+                "Read Gmail. action=search (find threads by query), read_thread "
+                "(full messages in a thread), labels (list folders/tags), profile "
+                "(account address and counts)."
+            ),
             parameters={
+                "action": {
+                    "type": "string",
+                    "description": "Read operation: search, read_thread, labels, profile",
+                    "required": True,
+                },
                 "query": {
                     "type": "string",
                     "description": "Gmail search query (e.g. 'is:unread', 'from:boss@work.com', 'subject:invoice newer_than:30d')",
-                    "required": False,
                 },
                 "num_results": {
                     "type": "integer",
                     "description": "Max threads to return (default 10, max 50)",
                     "default": 10,
                 },
+                "thread_id": {
+                    "type": "string",
+                    "description": "Gmail thread ID (required for read_thread)",
+                },
             },
         )
 
-    def execute(self, query="", num_results=10) -> str:
-        return _run_async(self._run(query, num_results))
+    def execute(self, action="search", query="", num_results=10, thread_id="", **kwargs) -> str:
+        return _run_async(self._run(action, query, num_results, thread_id))
 
-    async def _run(self, query, num_results):
+    async def _run(self, action, query, num_results, thread_id):
+        action = (action or "search").strip().lower()
+        if action == "search":
+            return await self._search(query, num_results)
+        if action == "read_thread":
+            return await self._read_thread(thread_id)
+        if action == "labels":
+            return await self._labels()
+        if action == "profile":
+            return await self._profile()
+        return f"Error: unknown gmail_read action '{action}' (search|read_thread|labels|profile)"
+
+    async def _search(self, query, num_results):
         params = {"q": query, "maxResults": min(num_results, 50)}
         data = await _gmail_get("/users/me/threads", params)
         if "error" in data:
@@ -264,25 +290,7 @@ class GmailSearch(Tool):
             lines.append(f"\nMore results available (next page token: {data['nextPageToken'][:20]}...)")
         return "\n".join(lines)
 
-
-class GmailReadThread(Tool):
-    def __init__(self):
-        super().__init__(
-            name="gmail_read_thread",
-            description="Read full messages in a Gmail thread. Returns subject, sender, recipients, date, and body text.",
-            parameters={
-                "thread_id": {
-                    "type": "string",
-                    "description": "The Gmail thread ID from gmail_search results",
-                    "required": True,
-                },
-            },
-        )
-
-    def execute(self, thread_id="") -> str:
-        return _run_async(self._run(thread_id))
-
-    async def _run(self, thread_id):
+    async def _read_thread(self, thread_id):
         if not thread_id:
             return "Error: thread_id is required"
         data = await _gmail_get(f"/users/me/threads/{thread_id}", {"format": "full"})
@@ -301,7 +309,8 @@ class GmailReadThread(Tool):
             lines.append(f"\n{body}\n")
         return "\n".join(lines)
 
-    def _extract_body(self, payload):
+    @staticmethod
+    def _extract_body(payload):
         parts = payload.get("parts", [])
         if parts:
             for part in parts:
@@ -312,13 +321,15 @@ class GmailReadThread(Tool):
                     if data:
                         return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
             for part in parts:
-                body = self._extract_body(part)
+                body = GmailRead._extract_body(part)
                 if body:
                     return body
         else:
             mime = payload.get("mimeType", "")
             data = payload.get("body", {}).get("data", "")
             if data:
+                import base64
+
                 decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
                 if mime == "text/plain":
                     return decoded
@@ -330,19 +341,7 @@ class GmailReadThread(Tool):
                     return text[:2000] + "..." if len(text) > 2000 else text
         return "(no text body)"
 
-
-class GmailLabels(Tool):
-    def __init__(self):
-        super().__init__(
-            name="gmail_labels",
-            description="List all Gmail labels (folders/tags) with their IDs and names.",
-            parameters={},
-        )
-
-    def execute(self, **kwargs) -> str:
-        return _run_async(self._run())
-
-    async def _run(self):
+    async def _labels(self):
         data = await _gmail_get("/users/me/labels")
         if "error" in data:
             return f"Gmail error: {_gmail_error_msg(data)}"
@@ -352,19 +351,7 @@ class GmailLabels(Tool):
             lines.append(f"  {l['name']} ({l['id']})")
         return "\n".join(lines)
 
-
-class GmailProfile(Tool):
-    def __init__(self):
-        super().__init__(
-            name="gmail_profile",
-            description="Get Gmail account profile (email address, message/thread counts).",
-            parameters={},
-        )
-
-    def execute(self, **kwargs) -> str:
-        return _run_async(self._run())
-
-    async def _run(self):
+    async def _profile(self):
         data = await _gmail_get("/users/me/profile")
         if "error" in data:
             return f"Gmail error: {_gmail_error_msg(data)}"
@@ -393,72 +380,109 @@ def _build_mime_message(to: str, subject: str, body: str, from_addr: str = None,
     return {"raw": raw}
 
 
-class GmailSend(Tool):
+class GmailWrite(Tool):
+    """Write Gmail capability: send, reply, draft, mark_read, delete.
+
+    Threading safety is runtime-owned: reply derives recipient/subject/
+    In-Reply-To from the thread itself (never model-overridable), and send
+    never attaches threading headers. Draft (/drafts) and send
+    (/messages/send) endpoints are never interchanged.
+    """
+
     def __init__(self):
         super().__init__(
-            name="gmail_send",
-            description="Compose and send a new email via Gmail. Returns the sent message ID on success.",
+            name="gmail_write",
+            description=(
+                "Write Gmail. action=send (new email), reply (reply in thread; "
+                "recipient/subject derived from thread), draft (save without sending), "
+                "mark_read (mark thread read/unread), delete (trash, or permanent=true)."
+            ),
             permission="destructive",
             parameters={
+                "action": {
+                    "type": "string",
+                    "description": "Write operation: send, reply, draft, mark_read, delete",
+                    "required": True,
+                },
                 "to": {
                     "type": "string",
-                    "description": "Recipient email address(es), comma-separated for multiple",
-                    "required": True,
+                    "description": "Recipient email address(es) for send/draft (comma-separated)",
                 },
                 "subject": {
                     "type": "string",
-                    "description": "Email subject line",
-                    "required": True,
+                    "description": "Email subject line for send/draft",
                 },
                 "body": {
                     "type": "string",
-                    "description": "Email body text (plain text)",
-                    "required": True,
+                    "description": "Email body text (required for send/reply/draft)",
                 },
                 "cc": {
                     "type": "string",
-                    "description": "CC recipient(s), comma-separated",
+                    "description": "CC recipient(s) for send, comma-separated",
+                },
+                "thread_id": {
+                    "type": "string",
+                    "description": "Gmail thread ID (required for reply/mark_read/delete)",
+                },
+                "unread": {
+                    "type": "boolean",
+                    "description": "True to mark as unread, False to mark as read (mark_read only)",
+                },
+                "permanent": {
+                    "type": "boolean",
+                    "description": "True to permanently delete, False to trash (delete only)",
                 },
             },
         )
 
-    def execute(self, to: str, subject: str, body: str, cc: str = None) -> str:
-        return _run_async(self._run(to, subject, body, cc))
+    def execute(
+        self,
+        action="send",
+        to="",
+        subject="",
+        body="",
+        cc=None,
+        thread_id="",
+        unread=False,
+        permanent=False,
+        **kwargs,
+    ) -> str:
+        return _run_async(
+            self._run(action, to, subject, body, cc, thread_id, unread, permanent)
+        )
 
-    async def _run(self, to, subject, body, cc):
+    async def _run(self, action, to, subject, body, cc, thread_id, unread, permanent):
+        action = (action or "send").strip().lower()
+        if action == "send":
+            return await self._send(to, subject, body, cc)
+        if action == "reply":
+            return await self._reply(thread_id, body)
+        if action == "draft":
+            return await self._draft(body, to, subject)
+        if action == "mark_read":
+            return await self._mark_read(thread_id, unread)
+        if action == "delete":
+            return await self._delete(thread_id, permanent)
+        return f"Error: unknown gmail_write action '{action}' (send|reply|draft|mark_read|delete)"
+
+    async def _send(self, to, subject, body, cc):
+        if not to:
+            return "Error: to is required for send"
+        if not subject:
+            return "Error: subject is required for send"
+        if not body:
+            return "Error: body is required for send"
         mime = _build_mime_message(to=to, subject=subject, body=body, cc=cc)
         data = await _gmail_post("/users/me/messages/send", mime)
         if "error" in data:
             return f"Gmail error: {_gmail_error_msg(data)}"
         return f"Sent. Message ID: {data.get('id', '?')}"
 
-
-class GmailReply(Tool):
-    def __init__(self):
-        super().__init__(
-            name="gmail_reply",
-            description="Reply to a Gmail thread. Adds your reply to the existing conversation.",
-            permission="destructive",
-            parameters={
-                "thread_id": {
-                    "type": "string",
-                    "description": "The Gmail thread ID to reply to",
-                    "required": True,
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Reply body text (plain text)",
-                    "required": True,
-                },
-            },
-        )
-
-    def execute(self, thread_id: str, body: str) -> str:
-        return _run_async(self._run(thread_id, body))
-
-    async def _run(self, thread_id, body):
+    async def _reply(self, thread_id, body):
         if not thread_id:
-            return "Error: thread_id is required"
+            return "Error: thread_id is required for reply"
+        if not body:
+            return "Error: body is required for reply"
 
         # Fetch the thread to get the last message's headers for threading
         data = await _gmail_get(f"/users/me/threads/{thread_id}", {"format": "metadata", "metadataHeaders": "from,subject,message-id,to"})
@@ -491,33 +515,9 @@ class GmailReply(Tool):
             return f"Gmail error: {_gmail_error_msg(result)}"
         return f"Replied to thread {thread_id}. Message ID: {result.get('id', '?')}"
 
-
-class GmailDraft(Tool):
-    def __init__(self):
-        super().__init__(
-            name="gmail_draft",
-            description="Save a draft email without sending. Returns the draft ID.",
-            parameters={
-                "to": {
-                    "type": "string",
-                    "description": "Recipient email address(es), comma-separated",
-                },
-                "subject": {
-                    "type": "string",
-                    "description": "Email subject line",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Email body text (plain text)",
-                    "required": True,
-                },
-            },
-        )
-
-    def execute(self, body: str, to: str = "", subject: str = "") -> str:
-        return _run_async(self._run(body, to, subject))
-
-    async def _run(self, body, to, subject):
+    async def _draft(self, body, to, subject):
+        if not body:
+            return "Error: body is required for draft"
         mime = _build_mime_message(to=to or "", subject=subject or "(no subject)", body=body)
         data = await _gmail_post("/users/me/drafts", {"message": mime})
         if "error" in data:
@@ -525,31 +525,9 @@ class GmailDraft(Tool):
         draft_id = data.get("id", "?")
         return f"Draft saved. ID: {draft_id}"
 
-
-class GmailMarkRead(Tool):
-    def __init__(self):
-        super().__init__(
-            name="gmail_mark_read",
-            description="Mark a Gmail thread as read or unread.",
-            parameters={
-                "thread_id": {
-                    "type": "string",
-                    "description": "The Gmail thread ID",
-                    "required": True,
-                },
-                "unread": {
-                    "type": "boolean",
-                    "description": "True to mark as unread, False to mark as read (default: False = mark as read)",
-                },
-            },
-        )
-
-    def execute(self, thread_id: str, unread: bool = False) -> str:
-        return _run_async(self._run(thread_id, unread))
-
-    async def _run(self, thread_id, unread):
+    async def _mark_read(self, thread_id, unread):
         if not thread_id:
-            return "Error: thread_id is required"
+            return "Error: thread_id is required for mark_read"
 
         # Gmail uses label manipulation: UNREAD label = unread, remove UNREAD = read
         body = {"removeLabelIds": ["UNREAD"]} if not unread else {"addLabelIds": ["UNREAD"]}
@@ -559,32 +537,9 @@ class GmailMarkRead(Tool):
         status = "unread" if unread else "read"
         return f"Thread {thread_id} marked as {status}"
 
-
-class GmailDelete(Tool):
-    def __init__(self):
-        super().__init__(
-            name="gmail_delete",
-            description="Delete a Gmail thread (moves to trash). Use permanent=true to permanently delete.",
-            permission="destructive",
-            parameters={
-                "thread_id": {
-                    "type": "string",
-                    "description": "The Gmail thread ID to delete",
-                    "required": True,
-                },
-                "permanent": {
-                    "type": "boolean",
-                    "description": "True to permanently delete, False to trash (default: False = trash)",
-                },
-            },
-        )
-
-    def execute(self, thread_id: str, permanent: bool = False) -> str:
-        return _run_async(self._run(thread_id, permanent))
-
-    async def _run(self, thread_id, permanent):
+    async def _delete(self, thread_id, permanent):
         if not thread_id:
-            return "Error: thread_id is required"
+            return "Error: thread_id is required for delete"
 
         if permanent:
             data = await _gmail_delete(f"/users/me/threads/{thread_id}")
@@ -599,13 +554,6 @@ class GmailDelete(Tool):
 
 
 def register():
-    registry.register(GmailSearch())
-    registry.register(GmailReadThread())
-    registry.register(GmailLabels())
-    registry.register(GmailProfile())
-    registry.register(GmailSend())
-    registry.register(GmailReply())
-    registry.register(GmailDraft())
-    registry.register(GmailMarkRead())
-    registry.register(GmailDelete())
-    logger.info("Gmail direct tools registered (9 tools)")
+    registry.register(GmailRead())
+    registry.register(GmailWrite())
+    logger.info("Gmail direct tools registered (2 tools)")

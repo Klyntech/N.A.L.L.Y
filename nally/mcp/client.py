@@ -287,16 +287,16 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
         # Gmail and similar: direct REST tools, not an MCP server — UI placeholder only.
         # They have no `command`/`url`/`args`; skip MCP connection and report as direct.
         if not server_config.get("command") and not server_config.get("url") and not server_config.get("args"):
-            # Count direct tools if already registered (gmail direct = 9)
+            # Count direct tools if already registered (gmail direct = 2)
             direct_count = 0
             try:
                 prefix = f"mcp_{name}_"
-                # For gmail, direct tools are `gmail_*`, not `mcp_gmail_*` — count them as 9 if present
+                # For gmail, direct tools are `gmail_*`, not `mcp_gmail_*` — count them as 2 if present
                 if name == "gmail":
                     direct_count = len([t for t in reg.tools if t.startswith("gmail_")])
                     if direct_count == 0:
-                        # Direct tools not yet loaded — they will be, so report 9
-                        direct_count = 9
+                        # Direct tools not yet loaded — they will be, so report 2
+                        direct_count = 2
                 else:
                     direct_count = len([t for t in reg.tools if t.startswith(prefix)])
             except Exception:

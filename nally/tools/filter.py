@@ -13,26 +13,22 @@ from .registry import Tool
 CORE_TOOLS = {
     "run_command",
     "system_health",
-    "mcp_status",
     "read_file",
     "file_ops",
     "run_code",
     "code_analysis",
     "web_search",
     "generate_image",
-    "memory_stats",
+    "memory",
     "think",
-    # Gmail direct tools
-    "gmail_search",
-    "gmail_read_thread",
-    "gmail_labels",
-    "gmail_profile",
+    # Gmail capability (read side always visible; write stays keyword-gated)
+    "gmail_read",
     # Subagent
     "agent",
 }
 
 # Tools always included in filtered results regardless of query
-ALWAYS_ON = {"system_health", "web_search", "mcp_status", "run_command", "read_file", "file_ops"}
+ALWAYS_ON = {"system_health", "web_search", "run_command", "read_file", "file_ops"}
 
 
 def _tokenize(text: str) -> Set[str]:

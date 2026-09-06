@@ -67,11 +67,11 @@ _ACTION_CLAIMS = [
     # Command execution
     (r"(?:I |we )?(?:ran|executed)\s+(?:the\s+)?(?:command|script|tests?|test suite|suite)", "run_command", "execute"),
     # Email
-    (r"(?:I |we )?(?:sent|emailed|mailed)\s+(?:the\s+)?(?:email|message)", "gmail_send", "send"),
+    (r"(?:I |we )?(?:sent|emailed|mailed|replied|drafted|deleted|trashed)\s+(?:the\s+)?(?:email|message|thread|draft)", "gmail_write", "send"),
     # Web search
     (r"(?:I |we )?(?:searched|looked up)\s+(?:the\s+)?(?:info|results|answer)", "web_search", "search"),
     # Memory
-    (r"(?:I |we )?(?:saved|stored)\s+(?:that|this|it|the)", "remember", "store"),
+    (r"(?:I |we )?(?:saved|stored|remembered|recalled|forgot)\s+(?:that|this|it|the)", "memory", "store"),
     # Image generation
     (r"(?:I |we )?(?:generated|created|made)\s+(?:an?\s+)?(?:image|picture|photo|illustration)", "generate_image", "image_gen"),
 ]

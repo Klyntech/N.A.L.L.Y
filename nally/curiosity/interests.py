@@ -49,7 +49,7 @@ _TOOL_INTEREST_MAP = {
     "read_file": "coding",
     "file_ops": "coding",
     "image_gen": "image_generation",
-    "gmail_send": "email_communication",
+    "gmail_write": "email_communication",
     "gmail_read": "email_communication",
     "engineering_build": "software_engineering",
 }

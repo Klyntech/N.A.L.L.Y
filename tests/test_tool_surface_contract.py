@@ -43,29 +43,18 @@ EXPECTED_SURFACE = sorted(
         "generate_image",
         "analyze_image",
         "edit_image",
-        # email (9)
-        "gmail_search",
-        "gmail_read_thread",
-        "gmail_labels",
-        "gmail_profile",
-        "gmail_send",
-        "gmail_reply",
-        "gmail_draft",
-        "gmail_mark_read",
-        "gmail_delete",
-        # memory (4)
-        "remember",
-        "recall",
-        "forget",
-        "memory_stats",
+        # email (2)
+        "gmail_read",
+        "gmail_write",
+        # memory (1)
+        "memory",
         # delegation (2)
         "agent",
         "engineering_build",
         # reasoning (1)
         "think",
-        # observability (2)
+        # observability (1)
         "system_health",
-        "mcp_status",
     ]
 )
 
@@ -80,7 +69,6 @@ DEFAULT_ASK = sorted(
         "task_state",
         "analyze_image",
         "edit_image",
-        "gmail_mark_read",
     ]
 )
 
