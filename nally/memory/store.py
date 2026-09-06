@@ -1217,10 +1217,16 @@ class MemoryRepository:
             return "\n".join(lines)
 
     def reset_stale_facts(self, min_confidence: float = 0.35, target: float = 0.5):
-        """Boost decayed profile facts back to visible threshold."""
+        """Boost decayed profile facts back to visible threshold.
+
+        Scoped to category='profile' only: identity facts must stay visible
+        even when stale. All other categories are governed by the decay
+        policy alone — a blanket boost here would erase decay's judgment
+        repo-wide on every init.
+        """
         with self._connection() as conn:
             conn.execute(
-                "UPDATE memories SET confidence = ? WHERE confidence < ? AND deleted = 0",
+                "UPDATE memories SET confidence = ? WHERE confidence < ? AND deleted = 0 AND category = 'profile'",
                 (target, min_confidence),
             )
 
