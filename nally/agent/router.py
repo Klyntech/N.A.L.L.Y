@@ -4,8 +4,8 @@ Minimal allowlist of cheap, true, no-LLM-needed handlers (time/date/day/greet).
 Everything else goes to the LLM for one brain, one voice.
 
 Heavy / historical handlers (PC control, volume, brightness, files, weather,
-eval, jokes, etc.) were intentionally removed. They belong behind Bridge /
-permission gates, not regex.
+eval, jokes, etc.) were intentionally removed. They belong behind permission
+gates, not regex.
 """
 
 from datetime import datetime

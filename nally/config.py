@@ -573,22 +573,6 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     except Exception:
         pass
 
-    # Render architecture — enforce the split (local execution only;
-    # remote bridge routing was removed from the model-facing tool plane)
-    try:
-        import os as _os
-        is_render = bool(_os.getenv("RENDER")) or "onrender.com" in _os.getenv("NALLY_BASE_URL", "")
-        if is_render:
-            prompt += (
-                "\n\nRENDER FREE TIER RULES (NON-NEGOTIABLE):"
-                "\n- You are running on Render free tier (~512MB RAM). Heavy work will OOM and kill the server."
-                "\n- NEVER run: pip install, npm install, cargo build, docker build, apt-get, or any install/compile commands via run_command."
-                "\n- Safe on Render: chat, planning, web_search, gmail, read_file (small files), memory, API calls."
-                "\n- If a task needs heavy work, tell the user to run it locally."
-            )
-    except Exception:
-        pass
-
     # Interface context — which channel Nally is reached through
     if interface:
         try:
