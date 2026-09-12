@@ -4,7 +4,7 @@ import importlib
 import logging
 import re
 import threading
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from ..config import ALLOWED_PLUGINS, MAX_TOOL_OUTPUT, PLUGINS_DIR
 from ..core.errors import ToolError
@@ -17,11 +17,12 @@ logger = logging.getLogger("nally.registry")
 class Tool:
     """Base class for all Nally tools"""
 
-    def __init__(self, name: str, description: str, parameters: dict = None, permission: str = "safe"):
+    def __init__(self, name: str, description: str, parameters: dict = None, permission: str = "safe", capabilities: Optional[Set[str]] = None):
         self.name = name
         self.description = description
         self.parameters = parameters or {}
         self.permission = permission  # "safe", "destructive", "read_only"
+        self.capabilities: Set[str] = capabilities or set()
 
     def execute(self, **kwargs):
         """Override in subclasses. Return ``str`` (legacy) or ``ToolResult``."""

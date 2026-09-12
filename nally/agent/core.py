@@ -502,11 +502,10 @@ class NallyAgent:
                 logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
                 self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
             try:
-                from ..tools.filter import tool_filter
-                if not tool_filter._ready:
-                    tool_filter.build_index(registry.tools)
-                tools = tool_filter.select(user_input, task_class=_task_class)
-            except ImportError:
+                from ..tools.capability_router import capability_router as _cap
+                _decision = _cap.resolve(user_input, task_class=_task_class)
+                tools = _decision.schemas
+            except Exception:
                 tools = [t.to_openai_schema() for t in registry.tools.values()]
 
         # Auto-search for time-sensitive queries — inject fresh web data

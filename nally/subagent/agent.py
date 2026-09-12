@@ -5,20 +5,20 @@ import uuid
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
-from ..tools.registry import registry
 from ..utils.logger import logger
 from ..core.tracing import tracer
 
 
 def _get_filtered_tools(query: str) -> List[Dict]:
-    """Get tool schemas filtered for the given query."""
+    """Get tool schemas filtered for the given query via CapabilityRouter."""
     try:
-        from ..tools.filter import tool_filter
+        from ..tools.capability_router import capability_router
 
-        if not tool_filter._ready:
-            tool_filter.build_index(registry.tools)
-        return tool_filter.select(query)
-    except ImportError:
+        decision = capability_router.resolve(query)
+        return decision.schemas
+    except Exception:
+        from ..tools.registry import registry
+
         return [t.to_openai_schema() for t in registry.tools.values()]
 
 
