@@ -127,3 +127,38 @@ class ComputerClient:
 
     def force_sync(self, computer_id: str) -> httpx.Response:
         return self._request("POST", f"/computer/{computer_id}/sync", timeout=self.timeout_ttfb)
+
+    # ── Execution (009 §1, Slice 2) ──
+
+    def exec(
+        self,
+        req: Dict[str, Any],
+        idempotency_key: Optional[str] = None,
+    ) -> httpx.Response:
+        return self._request(
+            "POST",
+            "/exec",
+            timeout=self.timeout_ttfb,
+            idempotency_key=idempotency_key or self.new_idempotency_key(),
+            json_body=req,
+        )
+
+    def get_run(
+        self,
+        run_id: str,
+        cursor: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> httpx.Response:
+        params: Dict[str, Any] = {}
+        if cursor is not None:
+            params["cursor"] = cursor
+        if limit is not None:
+            params["limit"] = limit
+        url = f"/exec/{run_id}"
+        if params:
+            query = "&".join(f"{k}={v}" for k, v in params.items())
+            url = f"{url}?{query}"
+        return self._request("GET", url, timeout=self.timeout_ttfb)
+
+    def cancel_run(self, run_id: str) -> httpx.Response:
+        return self._request("DELETE", f"/exec/{run_id}", timeout=self.timeout_ttfb)
