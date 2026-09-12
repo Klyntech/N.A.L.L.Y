@@ -1,7 +1,8 @@
-"""NALLY Computer Adapter — Slice 2 (models + transport + preflight + exec).
+"""NALLY Computer Adapter — Slice 3 (models + transport + preflight + exec + reconnect).
 
-Slice 2 answers: which computer, is it ready, what can it do, exec orchestration.
-No reconnect/lifecycle (Slice 3), no tool redirection (Slice 4).
+Slice 3 answers: which computer, is it ready, what can it do, exec orchestration,
+reconnect loop, lifecycle (start/stop/destroy), sync.
+No tool redirection (Slice 4).
 
 Chain: ToolRegistry → ComputerAdapter → ComputerClient.
 """
@@ -21,6 +22,16 @@ from .models import (
 )
 from .orchestrator import ExecRequest, RunResult, exec_orchestrator
 from .preflight import CachedPreflight, run_preflight
+from .reconnect import (
+    LifecycleResult,
+    ReconnectResult,
+    destroy_computer,
+    detect_uptime_reset,
+    force_sync,
+    reconnect,
+    start_computer,
+    stop_computer,
+)
 
 __all__ = [
     "CachedPreflight",
@@ -31,12 +42,20 @@ __all__ = [
     "ComputerError",
     "ExecRequest",
     "Health",
+    "LifecycleResult",
     "MachineProfile",
     "Persistence",
     "PreflightResult",
+    "ReconnectResult",
     "Resources",
     "RunResult",
     "SyncState",
+    "destroy_computer",
+    "detect_uptime_reset",
     "exec_orchestrator",
+    "force_sync",
+    "reconnect",
     "run_preflight",
+    "start_computer",
+    "stop_computer",
 ]

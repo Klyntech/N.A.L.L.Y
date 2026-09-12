@@ -1,8 +1,9 @@
-"""NALLY Computer Adapter — Slice 2 agent-facing boundary.
+"""NALLY Computer Adapter — Slice 3 agent-facing boundary.
 
-Owns: which computer, is it ready, what can it do, exec orchestration.
-Does NOT own: routing, planning, ReAct, tool execution, reconnect loop,
-file redirection. Those are Slice 3/4.
+Owns: which computer, is it ready, what can it do, exec orchestration,
+reconnect loop, lifecycle (start/stop/destroy), sync.
+Does NOT own: routing, planning, ReAct, tool execution, file redirection.
+Those are Slice 4.
 
 Chain (009): ToolRegistry → ComputerAdapter → NallPuterClient.
 ToolRegistry never becomes the client; transport never leaks into tools.
@@ -17,6 +18,16 @@ from .client import ComputerClient
 from .models import ComputerError, Health, MachineProfile, PreflightResult
 from .orchestrator import ExecRequest, RunResult, exec_orchestrator
 from .preflight import CachedPreflight, run_preflight
+from .reconnect import (
+    LifecycleResult,
+    ReconnectResult,
+    destroy_computer,
+    detect_uptime_reset,
+    force_sync,
+    reconnect,
+    start_computer,
+    stop_computer,
+)
 
 
 @dataclass
@@ -146,13 +157,73 @@ class ComputerAdapter:
             details=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {},
         )
 
-    # ── Explicitly NOT in Slice 2 (Slice 3/4 markers, fail loud if called) ──
+    # ── Slice 3: reconnect + lifecycle ──
 
-    def file_read(self, *args: Any, **kwargs: Any) -> ComputerError:  # Slice 4
+    def check_uptime_reset(self) -> bool:
+        """True if uptime dropped — signals instance replacement."""
+        if not self._cache.machine or not self._cache.health:
+            return False
+        return detect_uptime_reset(self._cache.last_uptime_sec, self._cache.health.uptime_sec)
+
+    def reconnect(self) -> ReconnectResult:
+        """Reconnect loop (009 §4). Detects instance replacement, polls until healthy."""
+        if not self._cache.machine:
+            return ReconnectResult(
+                success=False,
+                computer_id="",
+                message="no preflight — call preflight() first",
+            )
+        computer_id = self._cache.machine.computer_id
+        cached_uptime = self._cache.last_uptime_sec
+
+        def _on_reconnect(machine: MachineProfile, health: Health) -> None:
+            self._cache.machine = machine
+            self._cache.health = health
+            self._cache.last_uptime_sec = health.uptime_sec
+
+        result = reconnect(
+            self.client,
+            computer_id,
+            cached_uptime=cached_uptime,
+            on_reconnect=_on_reconnect,
+        )
+        return result
+
+    def start(self) -> LifecycleResult:
+        """Start a stopped computer."""
+        if not self._cache.machine:
+            return LifecycleResult(success=False, computer_id="", message="no preflight")
+        return start_computer(self.client, self._cache.machine.computer_id)
+
+    def stop(self) -> LifecycleResult:
+        """Stop a running computer."""
+        if not self._cache.machine:
+            return LifecycleResult(success=False, computer_id="", message="no preflight")
+        return stop_computer(self.client, self._cache.machine.computer_id)
+
+    def destroy(self, idempotency_key: Optional[str] = None) -> LifecycleResult:
+        """Destroy a computer (retires computer_id)."""
+        if not self._cache.machine:
+            return LifecycleResult(success=False, computer_id="", message="no preflight")
+        result = destroy_computer(
+            self.client,
+            self._cache.machine.computer_id,
+            idempotency_key=idempotency_key,
+        )
+        if result.success:
+            self._cache = CachedPreflight()
+        return result
+
+    def sync(self) -> Dict[str, Any] | ComputerError:
+        """Force sync workspace."""
+        if not self._cache.machine:
+            return ComputerError(code="no_preflight", message="call preflight() first")
+        return force_sync(self.client, self._cache.machine.computer_id)
+
+    # ── Slice 4: file ops (stub until wired) ──
+
+    def file_read(self, *args: Any, **kwargs: Any) -> ComputerError:
         return ComputerError(code="not_implemented", message="file_read is Slice 4 — not yet wired")
 
-    def file_write(self, *args: Any, **kwargs: Any) -> ComputerError:  # Slice 4
+    def file_write(self, *args: Any, **kwargs: Any) -> ComputerError:
         return ComputerError(code="not_implemented", message="file_write is Slice 4 — not yet wired")
-
-    def reconnect(self, *args: Any, **kwargs: Any) -> ComputerError:  # Slice 3
-        return ComputerError(code="not_implemented", message="reconnect is Slice 3 — not yet wired")
