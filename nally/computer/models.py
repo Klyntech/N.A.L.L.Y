@@ -212,3 +212,4 @@ class ComputerError:
     policy_result: Optional[Dict[str, Any]] = None
     computer_id: str = ""
     run_id: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
