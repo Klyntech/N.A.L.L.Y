@@ -537,6 +537,9 @@ class AgentState(TypedDict):
     route_decision: Optional[Dict[str, Any]]
     wall_time_budget: int
     task_progress: Dict[str, str]
+    requires_approval: Optional[bool]
+    controller_tier: str
+    controller_max_steps: int
 
 
 def _convert_to_openai(messages: List[BaseMessage]) -> List[dict]:
@@ -726,30 +729,36 @@ def _call_llm_with_retry(llm_client, openai_messages, tools, cache_key, emit, mo
 def _detect_partial_completion(state: AgentState) -> str:
     """Detect partial completion scenarios that should prevent honest success claims.
 
-    Returns a reason string if partial completion detected, empty string otherwise.
-    Only checks per-turn state (resets between turns), NOT message history.
-    Only blocks if failures dominate (>50%) or ALL tools failed.
+    Single source of truth lives in verification.layer._partial_reason;
+    this wrapper preserves the graph call-site while delegating so the
+    gate cannot drift between two implementations.
     """
-    # Check for failed tools in task_progress
-    task_progress = state.get("task_progress", {})
+    try:
+        from .verification.layer import _partial_reason as _layer_partial
+        return _layer_partial(
+            state.get("tool_failures", []),
+            state.get("task_progress", {}),
+            state.get("start_time", 0) or 0.0,
+            state.get("wall_time_budget", 0) or 0,
+            state.get("tool_calls_total", 0) or 0,
+        )
+    except Exception:
+        pass
+    # Fallback (mirrors layer logic) — only if layer import fails
+    import time as _time
+    task_progress = state.get("task_progress", {}) or {}
     failed_tools = [tool for tool, status in task_progress.items() if status == "failed"]
     succeeded_tools = [tool for tool, status in task_progress.items() if status == "success"]
     total_tracked = len(failed_tools) + len(succeeded_tools)
-
     if failed_tools:
-        # Only block if failures dominate or nothing succeeded
         if total_tracked == 0 or len(failed_tools) >= total_tracked or len(failed_tools) / total_tracked > 0.5:
             return f"tool failures: {', '.join(failed_tools)}"
-        # Otherwise, partial success — don't block
-
-    # Check if wall-clock budget is >80% consumed
     start_time = state.get("start_time", 0)
     wall_budget = state.get("wall_time_budget", 300)
     if start_time and wall_budget:
-        elapsed = time.time() - start_time
+        elapsed = _time.time() - start_time
         if elapsed > wall_budget * 0.8:
             return f"wall-clock budget {int(elapsed)}s/{wall_budget}s (>80% consumed)"
-
     return ""
 
 
@@ -891,87 +900,46 @@ def llm_call(state: AgentState) -> AgentState:
         else [],
     )
 
-    # Post-response verification — check claims against receipts
+    # ── Verification Layer (V2 façade) ──
+    # Single deterministic authority covering claim verifier + completion gate +
+    # guardrails. No LLM in hot path; self-correction is triggered here but
+    # isolated to one call.
     if ai_message.content and not ai_message.tool_calls:
         try:
             from ..tools.receipts import receipt_store
             from ..tools.registry import registry
-            from .verifier import claim_verifier
+            from .verification.layer import verification_layer
 
             recent = receipt_store.get_recent(limit=20)
             registered_tools = set(registry.tools.keys())
-            if recent:
-                vresult = claim_verifier.verify(ai_message.content, recent, registered_tools)
-                if not vresult.is_honest:
-                    logger.warning(
-                        f"Claim verification: {vresult.unsupported_count} unsupported, "
-                        f"{vresult.contradicted_count} contradicted"
-                    )
-                    # Feed verification failure back to LLM for self-correction
-                    correction_prompt = (
-                        "VERIFICATION FAILED — your last response contained unsupported claims:\n"
-                    )
-                    for f in vresult.findings:
-                        if f.verdict.value in ("unsupported", "contradicted"):
-                            correction_prompt += f"- [{f.verdict.value}] {f.claim}: {f.evidence}\n"
-                    correction_prompt += (
-                        "\nRewrite your response. Remove or correct any claims not backed by receipts. "
-                        "If you did not call a tool, do not claim you did. "
-                        "If a tool failed, say it failed. Do not invent numbers or limits."
-                    )
-                    try:
-                        from .llm import call_llm
-                        corrected = call_llm(
-                            messages=[
-                                {"role": "system", "content": "You are Nally. Fix your previous response based on the verification feedback. Output ONLY the corrected response, no preamble."},
-                                {"role": "user", "content": correction_prompt},
-                            ],
-                            temperature=0.1,
-                        )
-                        if corrected and not corrected.startswith("Error"):
-                            ai_message.content = corrected
-                            logger.info("LLM self-corrected after verification failure")
-                    except Exception as correction_err:
-                        logger.warning(f"Self-correction call failed: {correction_err}")
-                    if emit:
-                        try:
-                            emit("verification", vresult.to_dict())
-                        except Exception:
-                            pass
-            # ── Completion gate ──
-            # Only force "not complete" if tool failures are significant
-            # (all or most calls failed). Partial failures on a mostly-successful
-            # turn should not block the response.
             failures = state.get("tool_failures", [])
-            partial = _detect_partial_completion(state)
-            total_calls = state.get("tool_calls_total", 0)
-            failure_count = len(failures)
-            _should_block = False
-            if partial:
-                _should_block = True
-            elif failure_count > 0 and total_calls > 0:
-                # Block only if ALL calls failed or failures dominate (>50%)
-                _should_block = failure_count >= total_calls or (failure_count / total_calls) > 0.5
-            elif failure_count > 0 and total_calls == 0:
-                # No total count tracked — block on any failure (legacy safety)
-                _should_block = True
-            if _should_block:
+            # Single façade call — replaces previous 3 separate sites
+            v = verification_layer.verify_turn(
+                ai_message.content,
+                receipts=recent,
+                registered_tools=registered_tools,
+                tool_failures=failures,
+                task_progress=state.get("task_progress", {}),
+                start_time=state.get("start_time", 0) or 0.0,
+                wall_budget=state.get("wall_time_budget", 0) or 0,
+                tool_calls_total=state.get("tool_calls_total", 0) or 0,
+            )
+
+            if emit:
+                try:
+                    emit("verification", v.to_dict())
+                except Exception:
+                    pass
+
+            if v.should_block:
+                # Completion gate dominates — do not attempt rewrite
                 if failures:
-                    _summary = "\n".join(
-                        f"- {f.get('tool')}: {f.get('error', '')[:160]}" for f in failures[-6:]
-                    )
-                    _reason = (
-                        "The following tool call(s) failed this turn "
-                        "and were not resolved:\n"
-                        + _summary
-                    )
+                    _summary = "\n".join(f"- {f.get('tool')}: {f.get('error', '')[:160]}" for f in failures[-6:])
+                    _reason = "The following tool call(s) failed this turn and were not resolved:\n" + _summary
                 else:
-                    _reason = f"Partial completion detected: {partial}"
-                ai_message.content = (
-                    "[TASK NOT COMPLETE] " + _reason
-                    + "\n\nI have not finished. Tell me how you'd like to proceed."
-                )
-                logger.warning(f"Completion gate: forcing incomplete status ({len(failures)} failures, partial: {partial or 'none'})")
+                    _reason = f"Partial completion detected: {v.partial_reason or 'tool failures'}"
+                ai_message.content = "[TASK NOT COMPLETE] " + _reason + "\n\nI have not finished. Tell me how you'd like to proceed."
+                logger.warning(f"Verification gate: forcing incomplete ({len(failures)} failures, partial: {v.partial_reason or 'none'}, gate block={v.should_block})")
                 return {
                     "messages": [ai_message],
                     "iteration": iteration + 1,
@@ -979,34 +947,46 @@ def llm_call(state: AgentState) -> AgentState:
                     "last_error": None,
                     "tool_failures": [],
                 }
-        except Exception as e:
-            logger.warning(f"Claim verification failed: {e}")
 
-    # ── Output Guardrails ──
-    if ai_message.content and not ai_message.tool_calls:
-        try:
-            from .guardrails import guardrail_engine
-            output_results = guardrail_engine.check_output(
-                ai_message.content,
-                context={
-                    "receipts": [r for r in (receipt_store.get_recent(limit=20) if 'receipt_store' in dir() else [])],
-                    "failed_tools": [f.get("tool") for f in state.get("tool_failures", [])],
-                },
-            )
-            if guardrail_engine.should_block(output_results):
-                for r in output_results:
-                    if r.verdict.value == "block":
-                        ai_message.content = f"[Blocked by guardrail] {r.message}"
-                        break
-            else:
-                # Apply any modifications
-                ai_message.content = guardrail_engine.get_modified_content(output_results, ai_message.content)
-                # Log warnings
-                for r in output_results:
-                    if r.verdict.value == "warn":
-                        logger.warning(f"Output guardrail warning: {r.message}")
+            # Self-correction for unsupported/contradicted claims (when not blocked)
+            if v.should_correct and v.correction_prompt:
+                logger.warning(f"Claim verification: {v.unsupported} unsupported, {v.contradicted} contradicted — attempting self-correction")
+                try:
+                    from .llm import call_llm
+                    corrected = call_llm(
+                        messages=[
+                            {"role": "system", "content": "You are Nally. Fix your previous response based on the verification feedback. Output ONLY the corrected response, no preamble."},
+                            {"role": "user", "content": v.correction_prompt},
+                        ],
+                        temperature=0.1,
+                    )
+                    if corrected and not corrected.startswith("Error"):
+                        ai_message.content = corrected
+                        logger.info("LLM self-corrected after verification failure")
+                except Exception as correction_err:
+                    logger.warning(f"Self-correction call failed: {correction_err}")
+
+            # Guardrail block (distinct from completion gate) — highest priority
+            if v.guardrail_blocked and v.guardrail_warnings:
+                ai_message.content = f"[Blocked by guardrail] {v.guardrail_warnings[0]}"
+            elif v.guardrail_warnings:
+                # Warn path — log but allow response through; also apply any
+                # modified content the guardrail engine would have produced.
+                # Re-run get_modified_content for fidelity (layer doesn't mutate).
+                try:
+                    from .guardrails import guardrail_engine as _ge
+                    _g_results = _ge.check_output(
+                        ai_message.content,
+                        context={"receipts": recent or [], "failed_tools": [f.get("tool") for f in failures]},
+                    )
+                    ai_message.content = _ge.get_modified_content(_g_results, ai_message.content)
+                except Exception:
+                    pass
+                for w in v.guardrail_warnings:
+                    logger.warning(f"Output guardrail warning: {w}")
+
         except Exception as e:
-            logger.debug(f"Output guardrails skipped: {e}")
+            logger.warning(f"Verification layer failed: {e}")
 
     if emit and assistant_msg.tool_calls:
         for tc in assistant_msg.tool_calls:
