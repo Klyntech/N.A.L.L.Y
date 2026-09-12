@@ -1190,19 +1190,52 @@ class MemoryRepository:
                 )
                 return f"Pattern learned: {pattern}"
 
-    def recall_semantic(self, search: Optional[str] = None, min_confidence: float = 0.5) -> List[Dict]:
-        """Recall semantic patterns."""
+    def recall_semantic(self, search: Optional[str] = None, min_confidence: float = 0.3) -> List[Dict]:
+        """Recall semantic patterns (authoritative V2 memory source).
+
+        Token-OR matching: split search into keywords and match any token
+        so short queries still hit multi-word patterns. Falls back to full
+        LIKE when no token matches. Ordered by confidence DESC.
+        """
+        import re as _re
+
         with self._connection() as conn:
             if search:
-                rows = conn.execute(
-                    "SELECT * FROM semantic WHERE pattern LIKE ? AND confidence >= ? ORDER BY confidence DESC",
-                    (f"%{search}%", min_confidence),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM semantic WHERE confidence >= ? ORDER BY confidence DESC",
-                    (min_confidence,),
-                ).fetchall()
+                tokens = [t for t in _re.split(r"[^a-z0-9_]+", (search or "").lower()) if len(t) >= 3][:6]
+                rows: list = []
+                seen: set = set()
+                if tokens:
+                    for tok in tokens:
+                        try:
+                            hits = conn.execute(
+                                "SELECT * FROM semantic WHERE pattern LIKE ? AND confidence >= ? ORDER BY confidence DESC LIMIT 20",
+                                (f"%{tok}%", min_confidence),
+                            ).fetchall()
+                        except Exception:
+                            hits = []
+                        for h in hits:
+                            d = dict(h)
+                            key = d.get("pattern", "")
+                            if key not in seen:
+                                seen.add(key)
+                                rows.append(d)
+                if not rows:
+                    # Fallback: full-phrase LIKE
+                    rows = conn.execute(
+                        "SELECT * FROM semantic WHERE pattern LIKE ? AND confidence >= ? ORDER BY confidence DESC LIMIT 20",
+                        (f"%{search}%", min_confidence),
+                    ).fetchall()
+                    rows = [dict(r) for r in rows]
+                # Confidence sort (token loop may interleave)
+                try:
+                    rows.sort(key=lambda d: float(d.get("confidence", 0)), reverse=True)
+                except Exception:
+                    pass
+                return rows[:20]
+            rows = conn.execute(
+                "SELECT * FROM semantic WHERE confidence >= ? ORDER BY confidence DESC LIMIT 20",
+                (min_confidence,),
+            ).fetchall()
             return [dict(row) for row in rows]
 
     # ── Working Memory (in-process, not persisted) ────────────

@@ -39,6 +39,7 @@ class Strategy(str, Enum):
     PLAN = "plan"  # Plan → execute → verify (temporary, exits on sufficient verification)
     DELEGATE = "delegate"  # Reserved: delegation is currently an LLM-invoked tool capability (subagent/), not a router branch
     ENGINEERING = "engineering"  # Conversational alias of PLAN; full loop is CLI --engineer bypass (main.py)
+    LIGHT_PLAN = "light_plan"  # Light plan (3-5 steps), synonym for PLAN tier=light; graph treats as planning
 
 
 @dataclass
@@ -64,7 +65,7 @@ class RouteDecision:
 
     @property
     def needs_plan(self) -> bool:
-        return self.strategy in (Strategy.PLAN, Strategy.ENGINEERING)
+        return self.strategy in (Strategy.PLAN, Strategy.ENGINEERING, Strategy.LIGHT_PLAN)
 
 
 # ── TaskClass → default strategy ─────────────────────────────────────────────
@@ -235,4 +236,11 @@ def strategy_to_plan_status(decision: RouteDecision) -> str:
     """Map router decision to graph plan_status used by route_after_classify."""
     if decision.needs_plan:
         return "planning"
+    # Also treat Controller tier as planning signal when route hasn't been upgraded
+    try:
+        tier = (decision.to_dict().get("tier") or "") if hasattr(decision, "to_dict") else ""
+        if tier in ("light", "full"):
+            return "planning"
+    except Exception:
+        pass
     return "none"

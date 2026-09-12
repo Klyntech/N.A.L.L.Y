@@ -14,42 +14,9 @@ from ..memory import memory_store
 from ..utils.logger import logger
 from .router import matcher
 
-
-def _strip_emojis(text: str) -> str:
-    """Remove emojis and special unicode symbols from text"""
-    emoji_pattern = re.compile(
-        "["
-        "\U0001f600-\U0001f64f"
-        "\U0001f300-\U0001f5ff"
-        "\U0001f680-\U0001f6ff"
-        "\U0001f1e0-\U0001f1ff"
-        "\U00002702-\U000027b0"
-        "\U000024c2-\U0001f251"
-        "\U0001f926-\U0001f937"
-        "\U00010000-\U0010ffff"
-        "\u200d"
-        "\ufe0f"
-        "\u2640-\u2642"
-        "\u2600-\u2b55"
-        "\u23cf"
-        "\u23e9"
-        "\u231a"
-        "\u3030"
-        "\u2934"
-        "\u2935"
-        "]+",
-        flags=re.UNICODE,
-    )
-    return emoji_pattern.sub("", text).strip()
-
-
-def _capitalize_sentences(text: str) -> str:
-    """Capitalize the first letter of every sentence."""
-    return re.sub(
-        r"(^|[.!?]\s+)([a-z])",
-        lambda m: m.group(1) + m.group(2).upper(),
-        text,
-    )
+# Post-processing helpers — canonical definitions live in response_composer.py.
+# Imported here to avoid duplication; fallback path uses these too.
+from .response_composer import _strip_emojis, _capitalize_sentences
 
 
 _TIME_SENSITIVE_PATTERNS = [
@@ -234,7 +201,12 @@ class NallyAgent:
                     return "__EXIT__"
 
                 elapsed = (time.time() - start) * 1000
-                result = _capitalize_sentences(_strip_emojis(result))
+                try:
+                    from .response_composer import response_composer as _composer
+                    _ch = (self._channel or self._session_id or "")
+                    result = _composer.compose(result, channel=_ch)
+                except Exception:
+                    result = _capitalize_sentences(_strip_emojis(result))
                 logger.nally_response(result)
                 logger.debug(f"Response time: {elapsed:.0f}ms (local)")
                 try:

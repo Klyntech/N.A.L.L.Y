@@ -637,6 +637,13 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         def run_agent():
             try:
                 response = session_manager.process(brain_session, message, emit=stream_event, route_key=route_key)
+                # Output Router (V2) — Web TEXT branch (voice gated; router is auditable no-op for text).
+                try:
+                    from ..output.router import route_output as _route_web
+                    _rw = _route_web(response or "", channel=f"web:{route_key}", wants_voice=False)
+                    response = _rw.text
+                except Exception:
+                    pass
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
             except NallyError as e:
                 loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})

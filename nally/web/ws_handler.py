@@ -383,6 +383,13 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
         """Run agent in thread pool."""
         try:
             response = session_manager.process(session_id, text, emit=stream_event, route_key=rk)
+            # Output Router (V2) — WS TEXT branch (web voice disabled; explicit gate inside router).
+            try:
+                from ..output.router import route_output as _route_ws
+                _rw = _route_ws(response or "", channel=f"web:{rk}", wants_voice=False)
+                response = _rw.text
+            except Exception:
+                pass
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
         except NallyError as e:
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})

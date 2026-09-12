@@ -190,6 +190,35 @@ class SemanticMemoryEngine:
             if len(t) > 2 and t not in _STOPWORDS
         }
 
+    def hydrate_from_store(self, store=None, limit: int = 200) -> int:
+        """Best-effort hydration from persistent MemoryRepository.
+
+        Pulls recent memories so the weighted recall has data on a cold start
+        without requiring a separate background sync. Never raises — returns
+        the number of entries loaded.
+        """
+        if self._memories:
+            return 0
+        try:
+            if store is None:
+                from ..memory import memory_store as _store
+                store = _store
+            # Try to fetch via recall with empty query (store returns recent high-confidence)
+            raw = store.recall(limit=limit, min_confidence=0.0) or {}
+            if isinstance(raw, dict):
+                count = 0
+                for k, v in list(raw.items())[:limit]:
+                    # v may be string or dict-like; normalize to string value
+                    val = v if isinstance(v, str) else str(v)
+                    self.add(key=str(k), value=val, category="general", confidence=0.5)
+                    count += 1
+                if count:
+                    logger.debug(f"Semantic memory hydrated: {count} entries from store")
+                return count
+        except Exception as e:
+            logger.debug(f"Semantic hydrate skipped: {e}")
+        return 0
+
     def get_stats(self) -> Dict[str, Any]:
         """Get memory statistics."""
         categories = {}

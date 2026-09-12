@@ -429,8 +429,8 @@ def _is_vision_available() -> bool:
         vision_hints = ("vision", "gpt-4", "claude", "gemini", "llava", "minicpm", "qwen2-vl", "internvl", "pixtral")
         _VISION_AVAILABLE = any(h in m for h in vision_hints)
         if not _VISION_AVAILABLE:
-            # Probe by checking if model name suggests hy3/nemotron (text-only free tier)
-            text_only = ("hy3", "nemotron", "ling-3", "laguna", "north-mini")
+            # Probe by checking if model name suggests a text-only free-tier chat model
+            text_only = ("mimo", "nemotron", "ling-3", "deepseek", "pickle", "north-mini")
             if any(t in m for t in text_only):
                 _VISION_AVAILABLE = False
             else:

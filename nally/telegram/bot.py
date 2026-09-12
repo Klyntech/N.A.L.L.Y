@@ -786,7 +786,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.debug(f"Bot outbound media parse failed: {e}")
         out_files = []
 
-    final_html = md_to_telegram_html(text_response)
+    # Output Router (V2) — single TEXT/VOICE branch; Telegram keeps text+html.
+    try:
+        from ..output.router import route_output as _route_output
+        _routed = _route_output(
+            text_response if isinstance(text_response, str) else str(text_response),
+            channel=f"telegram:{chat.id if chat else ''}",
+            wants_voice=False,
+        )
+        final_html = _routed.html or md_to_telegram_html(text_response)
+    except Exception:
+        final_html = md_to_telegram_html(text_response)
 
     # Final edit of the placeholder message with the complete response
     if sent_msg:
@@ -1050,7 +1060,19 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.debug(f"Bot media outbound parse failed: {e}")
         out_files = []
 
-    final_html = md_to_telegram_html(text_response)
+    # Output Router (V2) — single TEXT branch through the canonical path.
+    try:
+        from ..output.router import route_output as _route_output
+        _routed = _route_output(
+            text_response if isinstance(text_response, str) else str(text_response),
+            channel=f"telegram:{chat.id if chat else ''}",
+            wants_voice=False,
+        )
+        final_html = _routed.html or md_to_telegram_html(text_response)
+        chunks = _routed.chunks or _split_message(final_html)
+    except Exception:
+        final_html = md_to_telegram_html(text_response)
+        chunks = _split_message(final_html)
     if sent_msg:
         _edit_ok = False
         try:
@@ -1071,7 +1093,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.error(f"Bot send attachments (media) failed: {e}")
             return
 
-    chunks = _split_message(final_html)
     for chunk in chunks:
         try:
             await _send_with_retry(message.reply_text, chunk, parse_mode="HTML")
@@ -1088,18 +1109,29 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _send_voice_response(message, text: str):
-    """Send a voice response (LLM summary -> planner -> streaming TTS -> OGG)."""
+    """Send a voice response (LLM summary -> planner -> streaming TTS -> OGG).
+
+    V2: OutputRouter decides TEXT vs BOTH and provides the TTS text;
+    SpeechPlanner direction (segments → prosody → TTS) stays inside render_to_wav.
+    """
     try:
+        from ..output.router import route_output as _route_voice
         from ..voice.formatter import VoiceFormatter, VoiceMode
         from ..voice.speech_output import render_to_wav
         from .voice import wav_to_ogg
 
+        try:
+            _rv = _route_voice(text, channel="telegram:voice", wants_voice=True)
+            _router_voice_text = _rv.voice_text or text
+        except Exception:
+            _router_voice_text = text
+
         # Generate voice summary via lightweight LLM
-        voice_summary = await _generate_voice_summary(text)
+        voice_summary = await _generate_voice_summary(_router_voice_text)
 
         # Format for speech (strip code, tables, etc.) — visual cleanup
         formatter = VoiceFormatter()
-        speak_text = formatter.format(text, mode=VoiceMode.SMART, summary=voice_summary)
+        speak_text = formatter.format(_router_voice_text, mode=VoiceMode.SMART, summary=voice_summary)
 
         if not speak_text:
             await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")

@@ -26,6 +26,7 @@ from langgraph.graph.message import add_messages
 from ..config import (
     ACTIVE_MODEL,
     APPROVAL_TIMEOUT,
+    BUDGET_WARN_THRESHOLD,
     CONTEXT_MAX_TOKENS,
     DATA_DIR,
     DATABASE_URL,
@@ -529,13 +530,16 @@ class AgentState(TypedDict):
     step_results: Dict[str, str]
     current_step_index: int
     model_override: Optional[str]
-    start_time: float
+    start_time: float  # monotonic seconds (compat shim; deadline is authoritative)
     tool_failures: List[Dict[str, Any]]
     intent_class: str
     intent_confidence: float
     strategy: str  # TaskRouter decision: direct|react|plan|delegate|engineering
     route_decision: Optional[Dict[str, Any]]
-    wall_time_budget: int
+    wall_time_budget: int  # compat shim; sizes deadline only, never completion
+    deadline: float  # authoritative monotonic deadline = start_time + wall_time_budget
+    budget_warn_fired: bool  # one-shot 80% warning latch
+    budget_warn_threshold: float
     task_progress: Dict[str, str]
     requires_approval: Optional[bool]
     controller_tier: str
@@ -744,8 +748,8 @@ def _detect_partial_completion(state: AgentState) -> str:
         )
     except Exception:
         pass
-    # Fallback (mirrors layer logic) — only if layer import fails
-    import time as _time
+    # Fallback (mirrors layer logic) — only if layer import fails.
+    # NOTE: wall-clock NEVER decides completion; only failure dominance does.
     task_progress = state.get("task_progress", {}) or {}
     failed_tools = [tool for tool, status in task_progress.items() if status == "failed"]
     succeeded_tools = [tool for tool, status in task_progress.items() if status == "success"]
@@ -753,12 +757,6 @@ def _detect_partial_completion(state: AgentState) -> str:
     if failed_tools:
         if total_tracked == 0 or len(failed_tools) >= total_tracked or len(failed_tools) / total_tracked > 0.5:
             return f"tool failures: {', '.join(failed_tools)}"
-    start_time = state.get("start_time", 0)
-    wall_budget = state.get("wall_time_budget", 300)
-    if start_time and wall_budget:
-        elapsed = _time.time() - start_time
-        if elapsed > wall_budget * 0.8:
-            return f"wall-clock budget {int(elapsed)}s/{wall_budget}s (>80% consumed)"
     return ""
 
 
@@ -828,7 +826,52 @@ def llm_call(state: AgentState) -> AgentState:
             except Exception:
                 pass
 
+    # ── ExecutionBudget one-shot warning (internal, agent-visible only) ──
+    # Fires ONCE when elapsed crosses warn_threshold * limit. Emits an
+    # internal "budget_warning" trace event (NOT a user-facing system_notice)
+    # and nudges THIS LLM turn via a system message. Never blocks completion.
+    _budget_nudge = ""
+    _budget_warn_update: Dict[str, Any] = {}
+    try:
+        from .budget import ExecutionBudget
+
+        _budget = ExecutionBudget.from_state(
+            state,
+            wall_time_limit=int(state.get("wall_time_budget", 0) or MAX_AGENT_WALL_TIME),
+            warn_threshold=float(state.get("budget_warn_threshold", 0) or BUDGET_WARN_THRESHOLD),
+            max_iterations=int(state.get("max_iterations", 0) or 10),
+            max_tool_calls=MAX_TOOL_CALLS,
+            max_failures=MAX_TOOL_FAILURES_PER_TURN,
+        )
+        if _budget.warn_due():
+            from .budget import budget_warning_message
+
+            _remaining = _budget.remaining_time()
+            _budget_nudge = budget_warning_message(_remaining)
+            _budget_warn_update = {"budget_warn_fired": True}
+            logger.info(
+                "Budget warning: %ds/%ds elapsed — nudging agent (%ds remaining)",
+                int(_budget.elapsed()),
+                int(_budget.wall_time_limit),
+                int(_remaining),
+            )
+            if emit:
+                try:
+                    emit("budget_warning", {
+                        "elapsed": int(_budget.elapsed()),
+                        "remaining": int(_remaining),
+                        "limit": int(_budget.wall_time_limit),
+                        "tool_calls": tool_calls_total,
+                        "iteration": iteration,
+                    })
+                except Exception:
+                    pass
+    except Exception as _bw_err:
+        logger.debug(f"Budget warning check skipped: {_bw_err}")
+
     openai_messages = _convert_to_openai(messages)
+    if _budget_nudge:
+        openai_messages.append({"role": "system", "content": _budget_nudge})
 
     # Inject recent tool execution receipts (trust grounding)
     try:
@@ -861,6 +904,7 @@ def llm_call(state: AgentState) -> AgentState:
             "iteration": iteration + 1,
             "error_count": new_error_count,
             "last_error": e.message[:200],
+            **_budget_warn_update,
         }
 
     assistant_msg = response.choices[0].message
@@ -946,6 +990,7 @@ def llm_call(state: AgentState) -> AgentState:
                     "error_count": 0,
                     "last_error": None,
                     "tool_failures": [],
+                    **_budget_warn_update,
                 }
 
             # Self-correction for unsupported/contradicted claims (when not blocked)
@@ -1008,6 +1053,7 @@ def llm_call(state: AgentState) -> AgentState:
         "iteration": iteration + 1,
         "error_count": 0,
         "last_error": None,
+        **_budget_warn_update,
     }
 
 
@@ -1637,10 +1683,32 @@ def should_continue(state: AgentState) -> str:
         _record_exit("aborted")
         return "end"
 
-    # Wall-clock budget
-    start_time = state.get("start_time", 0)
+    # Wall-clock budget — deadline is authoritative (monotonic).
+    # start_time/wall_time_budget are compat shims; prefer state["deadline"].
+    # Legacy wall-clock start_times (time.time(), ~1.7e9) are normalized.
     wall_budget = state.get("wall_time_budget", MAX_AGENT_WALL_TIME)
-    if start_time and (time.time() - start_time) > wall_budget:
+    deadline = state.get("deadline", 0) or 0.0
+    if deadline:
+        try:
+            _dl = float(deadline)
+        except (TypeError, ValueError):
+            _dl = 0.0
+        if _dl >= 1_000_000_000.0:
+            # Legacy wall-clock deadline — compare on the wall clock.
+            _exhausted = bool(_dl and (time.time() >= _dl))
+        elif _dl:
+            _exhausted = bool(time.monotonic() >= _dl)
+        else:
+            _exhausted = False
+    else:
+        _st = state.get("start_time", 0) or 0.0
+        try:
+            from .budget import normalize_start_to_monotonic
+            _norm = normalize_start_to_monotonic(_st) if _st else 0.0
+        except Exception:
+            _norm = float(_st or 0.0)
+        _exhausted = bool(_norm and wall_budget and (time.monotonic() - _norm) > float(wall_budget))
+    if _exhausted:
         logger.warning(f"Agent exceeded {wall_budget}s wall-clock budget")
         emit = _get_emit()
         if emit:
@@ -1955,6 +2023,10 @@ def run_agent(
             _supplied_decision_dict = None
             _supplied_strategy = ""
 
+    # ExecutionBudget: deadline is authoritative (monotonic). start_time /
+    # wall_time_budget are kept as compat shims sized from TaskClass.
+    _wall_budget = WALL_TIME_OVERRIDES.get(intent_class, MAX_AGENT_WALL_TIME) if intent_class else MAX_AGENT_WALL_TIME
+    _started_at = time.monotonic()
     initial_state = {
         "messages": lc_messages,
         "tools": tools,
@@ -1970,13 +2042,16 @@ def run_agent(
         "step_results": {},
         "current_step_index": 0,
         "model_override": model,
-        "start_time": time.time(),
+        "start_time": _started_at,
         "tool_failures": [],
         "intent_class": intent_class,
         "intent_confidence": intent_confidence,
         "strategy": _supplied_strategy,  # consumed by classify_node; empty = back-compat re-route once
         "route_decision": _supplied_decision_dict,
-        "wall_time_budget": WALL_TIME_OVERRIDES.get(intent_class, MAX_AGENT_WALL_TIME) if intent_class else MAX_AGENT_WALL_TIME,
+        "wall_time_budget": _wall_budget,
+        "deadline": _started_at + float(_wall_budget),
+        "budget_warn_fired": False,
+        "budget_warn_threshold": float(BUDGET_WARN_THRESHOLD or 0.8),
         "task_progress": {},
     }
 

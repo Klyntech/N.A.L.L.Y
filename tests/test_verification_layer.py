@@ -11,6 +11,7 @@ import pytest
 from nally.agent.verification.layer import (
     VerificationLayer,
     VerificationTurnResult,
+    _budget_warning,
     _partial_reason,
     verification_layer,
 )
@@ -291,18 +292,59 @@ def test_partial_reason_on_failures():
     assert "run_command" in reason
 
 
-def test_partial_reason_on_wall_clock():
-    """_partial_reason returns reason when wall-clock budget exceeded."""
+def test_partial_reason_ignores_wall_clock():
+    """Wall-clock budget NEVER decides completion — only failures block.
+
+    Regression test for the 80%-gate bug: even with the budget fully
+    consumed, _partial_reason returns '' when tools succeeded.
+    """
     import time
     reason = _partial_reason(
         tool_failures=[],
-        task_progress={},
-        start_time=time.time() - 350,
+        task_progress={"run_command": "success"},
+        start_time=time.monotonic() - 350,
         wall_budget=300,
         tool_calls_total=1,
     )
-    assert reason != ""
-    assert "wall-clock" in reason
+    assert reason == ""
+
+
+def test_budget_warning_fires_informationally():
+    """_budget_warning fires past 80% but never blocks completion."""
+    import time
+    msg, remaining = _budget_warning(
+        start_time=time.monotonic() - 270,
+        wall_budget=300,
+        warn_threshold=0.8,
+    )
+    assert msg != ""
+    assert remaining >= 0
+
+    msg_fresh, _ = _budget_warning(
+        start_time=time.monotonic(),
+        wall_budget=300,
+        warn_threshold=0.8,
+    )
+    assert msg_fresh == ""
+
+
+def test_verify_turn_wall_clock_does_not_block():
+    """verify_turn with exhausted budget: warning set, should_block False."""
+    import time
+    vl = VerificationLayer()
+    v = vl.verify_turn(
+        "Done, here are the results.",
+        receipts=[],
+        registered_tools=set(),
+        tool_failures=[],
+        task_progress={"run_command": "success"},
+        start_time=time.monotonic() - 350,
+        wall_budget=300,
+        tool_calls_total=1,
+    )
+    assert v.should_block is False
+    assert v.partial_reason == ""
+    assert v.budget_warning != ""
 
 
 # ── Integration: core.py consumption pattern ────────────────

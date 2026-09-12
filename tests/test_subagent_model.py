@@ -6,8 +6,8 @@ from nally.subagent.pool import SubAgentPool
 
 
 def test_subagent_stores_model():
-    agent = SubAgent(goal="test", model="deepseek-v4-flash-free")
-    assert agent.model == "deepseek-v4-flash-free"
+    agent = SubAgent(goal="test", model="mimo-v2.5-free")
+    assert agent.model == "mimo-v2.5-free"
 
 
 def test_subagent_default_model_is_none():
@@ -51,7 +51,7 @@ def test_subagent_models_config_not_empty():
 def test_subagent_models_are_strings():
     for m in SUBAGENT_MODELS:
         assert isinstance(m, str)
-        assert "-free" in m
+        assert "-free" in m or m == "big-pickle"  # big-pickle is a stealth free model
 
 
 def test_no_gpt_in_subagent_models():
@@ -60,12 +60,12 @@ def test_no_gpt_in_subagent_models():
 
 
 def test_model_in_agent_get_status():
-    agent = SubAgent(goal="test", model="laguna-s-2.1-free")
+    agent = SubAgent(goal="test", model="ling-3.0-flash-fin-free")
     status = agent.get_status()
     assert status["id"] == agent.id
 
 
 def test_model_in_agent_to_dict():
-    agent = SubAgent(goal="test", model="hy3-free")
+    agent = SubAgent(goal="test", model="big-pickle")
     d = agent.to_dict()
     assert d["goal"] == "test"

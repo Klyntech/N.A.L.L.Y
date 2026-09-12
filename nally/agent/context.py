@@ -281,7 +281,54 @@ class ContextManager:
         return "\n".join(summary_parts)
 
     def inject_memories(self, query: str, messages: List[Dict]) -> List[Dict]:
-        """Search memories and inject relevant ones into context"""
+        """Search memories and inject relevant ones into context.
+
+        V2 (locked): store.recall_semantic() is authoritative for semantic
+        patterns. The weighted SemanticMemoryEngine remains a complementary
+        scorer, but semantic-table patterns are always merged in so the
+        reflector's output is never bypassed by the hot path.
+        """
+        # ── V2 authoritative: semantic patterns (never bypassed) ──
+        semantic_lines: List[str] = []
+        try:
+            from ..memory import memory_store as _sem_store
+            sem_hits = _sem_store.recall_semantic(search=query, min_confidence=0.3)
+            for h in (sem_hits or [])[:5]:
+                pat = (h.get("pattern") or "").strip()
+                if pat:
+                    semantic_lines.append(f"- [pattern] {pat}")
+        except Exception as e:
+            logger.debug(f"Authoritative semantic recall skipped: {e}")
+
+        # ── Complementary: weighted SemanticMemoryEngine (hydrates on cold start) ──
+        try:
+            from .semantic_memory import semantic_memory as _sem
+            from ..memory import memory_store as _store
+            if not getattr(_sem, "_memories", None):
+                try:
+                    _sem.hydrate_from_store(store=_store, limit=200)
+                except Exception:
+                    pass
+            if getattr(_sem, "_memories", None):
+                recalled = _sem.recall(query, limit=MAX_MEMORIES, min_confidence=0.3)
+                if recalled or semantic_lines:
+                    lines = [f"- {m.key}: {m.value}" for m in (recalled or [])[:MAX_MEMORIES]]
+                    # Authoritative patterns first so they survive truncation
+                    lines = semantic_lines + [ln for ln in lines if ln not in semantic_lines]
+                    lines = lines[:MAX_MEMORIES]
+                    memory_text = "\n".join(lines)
+                    inject_index = 1
+                    for i, msg in enumerate(messages):
+                        if msg.get("role") == "user":
+                            inject_index = i
+                            break
+                    messages.insert(inject_index, {"role": "system", "content": f"[Relevant memories]\n{memory_text}"})
+                    self._stats["memories_injected"] += 1
+                    logger.debug(f"Injected {len(lines)} memories via semantic engine + authoritative patterns")
+                    return messages
+        except Exception as e:
+            logger.debug(f"Semantic memory path skipped: {e}")
+
         try:
             from ..memory import memory_store
 
@@ -319,13 +366,16 @@ class ContextManager:
         except Exception:
             pass
 
-        if not memories or not isinstance(memories, dict) or len(memories) == 0:
+        if (not memories or not isinstance(memories, dict) or len(memories) == 0) and not semantic_lines:
             return messages
 
-        # Format memories
-        memory_lines = []
-        for k, v in list(memories.items())[:MAX_MEMORIES]:
-            memory_lines.append(f"- {k}: {v}")
+        # Format memories — authoritative semantic patterns first
+        memory_lines = list(semantic_lines)
+        for k, v in list((memories or {}).items())[:MAX_MEMORIES]:
+            line = f"- {k}: {v}"
+            if line not in memory_lines:
+                memory_lines.append(line)
+        memory_lines = memory_lines[:MAX_MEMORIES]
 
         memory_text = "\n".join(memory_lines)
 

@@ -199,6 +199,10 @@ _SIMPLE_SIGNALS = [
 def classify_by_patterns(text: str) -> str:
     """Fast regex classification. Returns 'plan' or 'simple'.
 
+    DEPRECATED (V2): retained only for backward-compat tests. The
+    authoritative path is NallyController + TaskRouter; this helper must
+    not override routing decisions (see classify_node).
+
     Cost guard: short queries (<50 words) without action keywords are always
     classified as 'simple' to avoid wasting LLM calls on trivial multi-clause
     queries like "weather and time in Lagos".
@@ -306,11 +310,59 @@ def parse_plan_response(response: str, fallback_goal: str) -> Optional[Plan]:
 # ── Validation ────────────────────────────────────────────
 
 
-def validate_plan(plan: Plan) -> Plan:
-    """Validate plan structure and enforce limits."""
+def verify_plan_completeness(plan: Plan) -> tuple[bool, str]:
+    """Decision-complete check before execution gate.
+
+    A decision-complete plan (Codex invariant) must be executable without
+    further user questions. We check deterministically (no LLM):
+      - goal non-empty and not vague (<10 chars or only stopwords)
+      - at least 1 step, each step goal substantive (≥15 chars, has verb)
+      - no duplicate step goals
+      - steps vaguely imply dependencies are ordered (heuristic: no empty goals)
+    Returns (is_complete, reason_if_not).
+
+    This is a pre-execution gate complementary to critique_node's LLM
+    sufficiency check. If incomplete, planner revises before human_checkpoint.
+    """
+    if not plan or not plan.goal or len(plan.goal.strip()) < 10:
+        return False, "goal too vague or empty"
+    if not plan.steps:
+        return False, "plan has no steps"
+    goals = [s.goal.strip() for s in plan.steps if s.goal]
+    if len(goals) != len(plan.steps):
+        return False, "one or more steps have empty goals"
+    for g in goals:
+        if len(g) < 15:
+            return False, f"step too vague: {g!r}"
+        # simple verb heuristic — at least one action-like token
+        if not re.search(r"\b(create|build|write|read|run|install|configure|test|verify|deploy|fetch|search|analyze|implement|update|delete|move|copy)\b", g.lower()):
+            # allow genericResearch-ish steps that contain a noun phrase + intent
+            if len(g.split()) < 3:
+                return False, f"step lacks actionable intent: {g!r}"
+    if len(goals) != len(set(goals)):
+        return False, "duplicate step goals — plan not decomposed"
+    # Light check for obvious ordering gap: final step should not be purely investigatory if goal is creation
+    lowered_goal = plan.goal.lower()
+    is_creation_goal = any(kw in lowered_goal for kw in ("build", "create", "implement", "deploy", "develop", "scaffold", "generate"))
+    if is_creation_goal:
+        last = goals[-1].lower()
+        if any(kw in last for kw in ("research", "analyze", "explore", "investigate")) and "test" not in last:
+            return False, "final step is investigation for a creation goal — missing build/verify step"
+    return True, ""
+
+def validate_plan(plan: Plan, max_steps: int = 0) -> Plan:
+    """Validate plan structure and enforce limits.
+
+    If max_steps is supplied (from Controller tier cap), it overrides
+    PLAN_MAX_STEPS for this turn — light plans are capped lower.
+    """
+    cap = int(max_steps) if max_steps and max_steps > 0 else PLAN_MAX_STEPS
+    if len(plan.steps) > cap:
+        plan.steps = plan.steps[:cap]
+        logger.warning(f"Plan truncated to {cap} steps (tier cap)")
+    # Also enforce global hard cap
     if len(plan.steps) > PLAN_MAX_STEPS:
         plan.steps = plan.steps[:PLAN_MAX_STEPS]
-        logger.warning(f"Plan truncated to {PLAN_MAX_STEPS} steps")
     return plan
 
 
@@ -341,7 +393,8 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Authoritative path: core already decided. Consume it verbatim.
+    # Authoritative path: core already decided via NallyController. Consume it verbatim,
+    # preserving tier/gate/max_steps for downstream nodes.
     supplied = state.get("route_decision")
     if isinstance(supplied, dict) and supplied.get("strategy"):
         try:
@@ -357,14 +410,26 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
             method=str(supplied.get("method") or "core"),
             pipeline=supplied.get("pipeline"),
         )
+        # Preserve controller tier/gate if present on the payload
+        tier = str(supplied.get("tier") or "none").lower()
+        requires_approval = bool(supplied.get("requires_approval", False))
+        max_steps = int(supplied.get("max_steps") or 0)
+        # Controller already respects PLAN_ENABLED; just compute plan_status off strategy+tier
         plan_status = strategy_to_plan_status(decision)
-        logger.debug(f"classify_node: consuming authoritative strategy={decision.strategy.value} (no re-route)")
-        return {
+        if tier in ("light", "full") and decision.needs_plan:
+            plan_status = "planning"
+        logger.debug(f"classify_node: consuming authoritative strategy={decision.strategy.value} tier={tier} gate={requires_approval} (no re-route)")
+        # Thread tier/gate/max_steps through state for planner_node/human_checkpoint
+        out = {
             **state,
             "plan_status": plan_status,
             "strategy": decision.strategy.value,
-            "route_decision": decision.to_dict(),
+            "route_decision": supplied,  # keep original controller payload intact
+            "controller_tier": tier,
+            "requires_approval": requires_approval,
+            "controller_max_steps": max_steps,
         }
+        return out
 
     user_text = ""
     messages = state.get("messages", [])
@@ -419,11 +484,18 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
     else:
         logger.debug(f"TaskRouter → {decision.strategy.value} for: {user_text[:80]}")
 
+    # V2 hard invariant: never leave requires_approval as None. Derive the
+    # gate deterministically for the legacy (no-controller-payload) path:
+    # HIGH_STAKES planning always requires approval; otherwise auto-proceed.
+    _legacy_gate = bool(plan_status == "planning" and (decision.task_class or "").upper() == "HIGH_STAKES")
     return {
         **state,
         "plan_status": plan_status,
         "strategy": decision.strategy.value,
         "route_decision": decision.to_dict(),
+        "controller_tier": "full" if _legacy_gate else ("light" if plan_status == "planning" else "none"),
+        "requires_approval": _legacy_gate,
+        "controller_max_steps": 10 if _legacy_gate else (5 if plan_status == "planning" else 0),
     }
 
 
@@ -528,7 +600,22 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning("Plan generation returned invalid JSON -> PLAN_FAILED, route to ReAct")
             return {**state, "plan_status": "plan_failed", "plan": None}
 
-        plan = validate_plan(plan)
+        # Tier cap from Controller (light=5, full=10) — state holds controller_max_steps
+        _tier_cap = int(state.get("controller_max_steps") or 0)
+        plan = validate_plan(plan, max_steps=_tier_cap)
+
+        # Decision-complete gate — revise before critiquing/executing if plan is not executable as-is
+        _complete, _reason = verify_plan_completeness(plan)
+        if not _complete:
+            if (plan.revision_count if not is_revision else existing_plan.revision_count) >= PLAN_MAX_REVISIONS:
+                logger.warning(f"Plan decision-complete gate: {_reason} but revision cap reached, approving as-is")
+            else:
+                plan.status = PlanStatus.REVISING
+                plan.critique = f"Decision-complete gate: {_reason} — revise the plan to be executable without further questions."
+                if is_revision:
+                    plan.revision_count = existing_plan.revision_count + 1
+                logger.info(f"Plan decision-complete gate triggered: {_reason} → revising")
+                return {**_plan_to_state(state, plan), "plan_status": "critique_revising"}
 
         if is_revision:
             plan.revision_count = existing_plan.revision_count + 1
@@ -699,6 +786,21 @@ def execute_step_node(state: Dict[str, Any]) -> Dict[str, Any]:
             },
         )
 
+        # V2 locked default: persist during genuinely long plans so an
+        # interrupted run does not lose everything. Best-effort; never
+        # breaks step execution.
+        try:
+            from ..memory import memory_store as _plan_mem
+            _msgs = state.get("messages", [])
+            _plan_mem.save_messages(
+                [{"role": "user", "content": f"[plan-step {step.id}] {step.goal}"},
+                 {"role": "assistant", "content": str(result)[:2000]}],
+                str(state.get("session_id", state.get("thread_id", "default"))),
+                route_key=state.get("route_key"),
+            )
+        except Exception:
+            pass
+
         return {**_plan_to_state(state, plan), "step_results": step_results}
 
     except Exception as e:
@@ -858,6 +960,13 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
         plan.summary = response
         plan.status = PlanStatus(terminal)
+
+        # Response Composer post-processing for plan synthesis
+        try:
+            from .response_composer import response_composer as _composer
+            response = _composer.compose(response, intent_class=state.get("intent_class", ""), verified=True)
+        except Exception:
+            pass
 
         event_bus.publish(
             "plan_complete",

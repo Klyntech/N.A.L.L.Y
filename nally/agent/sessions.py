@@ -93,11 +93,27 @@ class AgentSessionManager:
             q.append(message)
             return len(q)
 
-    def process(self, session_id: str, message: str, emit: Optional[Callable] = None, route_key: Optional[str] = None) -> str:
+    def process(self, session_id: str, message=None, emit: Optional[Callable] = None, route_key: Optional[str] = None, channel: Optional[str] = None) -> str:
         """Process a message for a specific session (thread-safe, per-route).
+
+        V2: accepts a typed Input, dict, or plain str (backward compat).
+        Normalizes via agent.input.normalize_input so channel/voice intent
+        travels with the turn instead of living in per-caller branches.
 
         Sets busy flag while processing, then drains queued messages.
         """
+        try:
+            from .input import normalize_input as _normalize
+            _inp = _normalize(message, channel=channel or "", route_key=route_key or "", session_id=session_id)
+            message = _inp.text
+            if route_key is None and _inp.route_key and _inp.route_key != session_id:
+                route_key = _inp.route_key
+        except Exception:
+            if not isinstance(message, str):
+                try:
+                    message = str(message)
+                except Exception:
+                    message = ""
         key = self._effective_key(session_id, route_key)
         lock = self._get_lock(session_id, route_key)
         with lock:

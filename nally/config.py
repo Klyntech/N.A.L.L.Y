@@ -87,15 +87,15 @@ GROQ_MODELS = {
 }
 
 # NVIDIA NIM — OpenAI-compatible, free tier (40 RPM)
-# Benchmarked 2026-08-26: minimax-m3 fastest (0.77s TTFT, 95% coding),
-# nemotron-3-super best balance (2.44s TTFT, 81% LiveCodeBench).
+# Verified live 2026-09-12: minimaxai/minimax-m3 reached EOL 2026-09-09 (410 Gone)
+# and was replaced by nemotron-3.5-lightning-30b-a3b as the fast model.
 NIM_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NIM_MODELS = {
-    "fast": "minimaxai/minimax-m3",                     # 0.77s TTFT, 95% coding, 1M context
-    "balanced": "nvidia/nemotron-3-super-120b-a12b",    # 2.44s TTFT, 81% LiveCodeBench, agentic
-    "powerful": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # 2.48s TTFT, reasoning mode
-    "frontier": "nvidia/nemotron-3-super-120b-a12b",    # same as balanced — best available
+    "fast": "nvidia/nemotron-3.5-lightning-30b-a3b",           # ~6.7s live probe, fast chat
+    "balanced": "nvidia/nemotron-3-super-120b-a12b",          # ~3.5s live probe, best agentic balance
+    "powerful": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # ~2.8s live probe, reasoning mode
+    "frontier": "nvidia/nemotron-3-super-120b-a12b",          # same as balanced — best available
 }
 
 # OpenCode — supports comma-separated multiple keys for rotation on rate limits
@@ -104,21 +104,21 @@ OPENCODE_KEYS = [k.strip() for k in OPENCODE_API_KEY_RAW.split(",") if k.strip()
 OPENCODE_API_KEY = OPENCODE_KEYS[0] if OPENCODE_KEYS else ""  # backward compat
 OPENCODE_BASE_URL = "https://opencode.ai/zen/v1"
 OPENCODE_MODELS = {
-    "fast": "muse-spark-1.2-contributor-free",
-    "balanced": "muse-spark-1.2-contributor-free",
-    "powerful": "muse-spark-1.2-contributor-free",
-    "frontier": "muse-spark-1.2-contributor-free",
+    "fast": "muse-spark-1.3-contributor-free",
+    "balanced": "muse-spark-1.3-contributor-free",
+    "powerful": "muse-spark-1.3-contributor-free",
+    "frontier": "muse-spark-1.3-contributor-free",
 }
 
 # Free models available for SubAgents (mirrors OPENCODE_FREE_MODELS + extras)
 SUBAGENT_MODELS = [
+    "muse-spark-1.3-contributor-free",
     "muse-spark-1.2-contributor-free",
+    "ling-3.0-flash-fin-free",
+    "big-pickle",
     "mimo-v2.5-free",
     "nemotron-3.5-lightning-free",
-    "big-pickle",
     "nemotron-3-ultra-free",
-    "hy3-free",
-    "laguna-s-2.1-free",
 ]
 
 if PROVIDER == "groq":
@@ -163,6 +163,9 @@ RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "50"))
 DUPLICATE_TOOL_THRESHOLD = int(os.getenv("NALLY_DUPLICATE_TOOL_THRESHOLD", "3"))
 
 # Per-class wall time overrides (seconds). Falls back to MAX_AGENT_WALL_TIME.
+# NOTE: these size the execution BUDGET only. They must never decide
+# COMPLETION — see nally/agent/budget.py (deadline) + verification layer
+# (failure-dominance only). Semantic class != execution cost.
 WALL_TIME_OVERRIDES = {
     "COMPLEX": 600,
     "CREATIVE": 300,
@@ -171,6 +174,11 @@ WALL_TIME_OVERRIDES = {
     "SIMPLE": 120,
     "AMBIGUOUS": 300,
 }
+
+# Fraction of the wall-clock budget at which ExecutionBudget fires a ONE-SHOT
+# internal warning (agent-visible LLM nudge, never a user-facing interruption
+# and never a completion block). 1.0 = warn only at exhaustion.
+BUDGET_WARN_THRESHOLD = float(os.getenv("NALLY_BUDGET_WARN_THRESHOLD", "0.8"))
 
 # Daily token budget (resets at midnight UTC). 0 = unlimited.
 # Gates plan-and-execute and other token-heavy features.
@@ -195,12 +203,14 @@ APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
 # ── Planning ─────────────────────────────────────────────
 # PLAN_ENABLED is an operational kill-switch only.
 # Ordinary tasks do not require a user-facing "plan mode" toggle.
-# TaskRouter (agent/task_router.py) selects PLAN automatically from
-# harness classification + structural signals when PLAN_ENABLED is true.
+# NallyController (agent/controller.py) selects DIRECT/LIGHT/FULL
+# automatically from harness classification + structural signals.
 
 _plan_env = os.getenv("NALLY_PLAN_ENABLED", "true").lower() == "true"
 PLAN_ENABLED = _plan_env
 PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
+NALLY_PLAN_LIGHT_MAX_STEPS = int(os.getenv("NALLY_PLAN_LIGHT_MAX_STEPS", "5"))
+NALLY_PLAN_REQUIRE_APPROVAL = os.getenv("NALLY_PLAN_REQUIRE_APPROVAL", "high_stakes_only").strip().lower()  # high_stakes_only|all|none
 PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
 PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "300"))
 PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "15"))
@@ -694,6 +704,11 @@ NALLY_VOICE_CALLS_ENABLED = os.getenv("NALLY_VOICE_CALLS_ENABLED", "false").lowe
 TELEGRAM_USER_AUTO_APPROVE = os.getenv("TELEGRAM_USER_AUTO_APPROVE", "true").lower() == "true"
 
 PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY", "")
+
+# ── NallPuter (Computer Adapter — Phase 9) ────────────────
+NALLPUTER_URL = os.getenv("NALLPUTER_URL", "").strip().rstrip("/")
+NALLPUTER_TOKEN = os.getenv("NALLPUTER_TOKEN", "").strip()
+NALLPUTER_STARTUP_GRACE_MS = int(os.getenv("NALLPUTER_STARTUP_GRACE_MS", "30000"))
 
 
 def resolve_telegram_mode() -> str:

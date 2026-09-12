@@ -135,7 +135,7 @@ Server status (no auth). Returns provider, active model, tool count, uptime, and
 {
   "status": "online",
   "provider": "opencode",
-  "model": "hy3-free",
+  "model": "muse-spark-1.3-contributor-free",
   "tools": 25,
   "uptime": 12345.67,
   "framework": "fastapi",

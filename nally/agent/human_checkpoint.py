@@ -176,15 +176,42 @@ def human_checkpoint_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     Stores the plan in SQLite and emits a confirmation_required event.
     The tool_executor will poll for resolution (same pattern as approval gate).
+
+    Honors NallyController's execution gate: when requires_approval is False
+    (LIGHT plans or non-high-stakes FULL under high_stakes_only mode) the
+    node auto-proceeds without polling. This preserves the Codex invariant
+    while eliminating the toggle for ordinary work.
     """
     from ..core.abort import check_abort
 
     intent_class = state.get("intent_class", "")
     thread_id = state.get("thread_id", "default")
 
-    # Only checkpoint for complex/high-stakes tasks
-    if intent_class not in ("COMPLEX", "HIGH_STAKES", "CREATIVE"):
-        return state
+    # ── Controller gate (authoritative, V2 hard invariant) ──
+    # requires_approval and controller_tier are threaded from graph classify_node
+    # via ControllerDecision. Contract (locked 2026-09-12):
+    #   True  → checkpoint (approval required)
+    #   False → execute (auto-proceed)
+    #   None  → ELIMINATED as a runtime state; only tolerated here as a
+    #            deprecated fallback that normalizes to an explicit bool and
+    #            logs, so execution paths stay auditable.
+    requires_approval = state.get("requires_approval")
+    controller_tier = state.get("controller_tier", "none")
+    if requires_approval is None:
+        # Deprecated fallback — normalize immediately, never propagate None.
+        _legacy_checkpoint = intent_class in ("COMPLEX", "HIGH_STAKES", "CREATIVE")
+        logger.warning(
+            "human_checkpoint: requires_approval=None (deprecated) — "
+            "normalizing to %s for intent=%s; callers must thread ControllerDecision",
+            _legacy_checkpoint, intent_class,
+        )
+        requires_approval = bool(_legacy_checkpoint)
+        state = {**state, "requires_approval": requires_approval}
+    if requires_approval is False:
+        # Light plans and non-high-stakes full plans auto-proceed
+        logger.debug(f"Human checkpoint skipped: tier={controller_tier} gate=False (intent={intent_class})")
+        return {**state, "plan_status": "executing"}
+    # requires_approval is True — proceed to checkpoint regardless of intent_class
 
     # Check if user already approved via existing approval gate
     # (skip checkpoint if approval was already granted)

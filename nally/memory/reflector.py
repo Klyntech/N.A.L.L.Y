@@ -234,19 +234,26 @@ class Reflector:
             results["episode"] = episode
             memory_store.add_episode(**episode)
 
-        # 3. Extract patterns
+        # 3. Extract patterns (Fable relevance gate before write)
         patterns = self._extract_patterns(llm, convo_text)
         if patterns:
-            results["patterns"] = patterns
-            for pattern in patterns:
-                if pattern:
+            kept = [p for p in patterns if p and self._is_worth_retaining(p, "", "reference")]
+            results["patterns"] = kept
+            for pattern in kept:
+                try:
                     memory_store.add_semantic(pattern)
+                except Exception:
+                    pass
 
-        # 4. Extract user facts (projects, people, goals, etc.)
+        # 4. Extract user facts (Fable relevance gate before write)
         facts = self._extract_facts(llm, convo_text)
         if facts:
-            results["facts"] = facts
-            for fact in facts:
+            kept_facts = [
+                f for f in facts
+                if self._is_worth_retaining(f.get("key", ""), f.get("value", ""), f.get("category", "auto_fact"))
+            ]
+            results["facts"] = kept_facts
+            for fact in kept_facts:
                 try:
                     existing = memory_store.recall(key=fact["key"])
                     if not existing:
@@ -333,6 +340,34 @@ class Reflector:
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Pattern extraction failed: {e}")
             return None
+
+    def _is_worth_retaining(self, key: str, value: str, category: str = "") -> bool:
+        """Fable-style relevance gate: will retaining this improve a future interaction?
+
+        Deterministic, no LLM. Rejects:
+        - trivially short / generic content (greetings, ok, thanks)
+        - credentials/secrets shapes (defense in depth; prompts already forbid them)
+        - duplicates handled by callers (this is a content gate only)
+        """
+        import re as _re
+        text = f"{key or ''} {value or ''}".strip()
+        if len(text) < 12:
+            return False
+        low = text.lower()
+        if low in ("hello", "hi", "hey", "thanks", "thank you", "ok", "okay", "yes", "no", "lol"):
+            return False
+        # Secret-shaped values are never worth retaining as facts
+        if _re.search(r"(sk-|gsk_|xox[bap]-|ghp_|AIza|-----BEGIN|api[_-]?key\s*[:=]\s*\S{8,})", text, _re.IGNORECASE):
+            return False
+        if _re.search(r"(password|passwd|secret)\s*[:=]\s*\S+", low):
+            return False
+        # Typed-memory allowlist (Fable discipline: user/feedback/project/reference)
+        if category and category not in (
+            "user", "feedback", "project", "reference",
+            "person", "tool", "goal", "preference", "personal", "auto_fact", "profile",
+        ):
+            return False
+        return True
 
     def _extract_topics(self, llm, convo_text: str) -> List[str]:
         """Extract conversation topics (simple heuristic + LLM fallback)."""

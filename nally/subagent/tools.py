@@ -56,6 +56,24 @@ class Agent(Tool):
         self, action: str, goal: str = "", context: str = "", tasks=None, task_ids=None, model: str = None, **kwargs
     ) -> str:
         try:
+            # V2 Phase 7: controller-owned routing hint. Spawn stays available
+            # via this tool (backward compat), but the hint is logged so
+            # parallel work migrates toward Controller.should_delegate.
+            try:
+                from ..agent.controller import get_controller as _get_ctrl
+                _ctrl = _get_ctrl()
+                _hint_text = goal or " ".join(
+                    (t.get("goal", "") if isinstance(t, dict) else str(t)) for t in (tasks or [])
+                )
+                if action in ("delegate", "spawn") and _hint_text:
+                    _deleg = _ctrl.should_delegate(f"{_hint_text} {context or ''}")
+                    if not _deleg:
+                        import logging as _logging
+                        _logging.getLogger("nally.subagent").debug(
+                            "Subagent %s without controller parallel hint (single-agent default); proceeding", action
+                        )
+            except Exception:
+                pass
             if action == "delegate":
                 if not goal:
                     return "Error: goal is required for delegate"
