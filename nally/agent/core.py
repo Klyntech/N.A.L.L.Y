@@ -9,6 +9,7 @@ from typing import Callable, List, Optional
 from ..config import CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS
 from ..config import MAX_ITERATIONS_PER_TURN, SESSION_ID, get_system_prompt
 from ..core.errors import LLMError, NallyError
+from ..core.tracing import tracer
 from ..memory import memory_store
 from ..utils.logger import logger
 from .router import matcher
@@ -284,8 +285,9 @@ class NallyAgent:
 
         self.messages.append({"role": "user", "content": ts_prefix + user_input})
 
-        # ── Harness v2: Intent Classification ──
+        # ── Nally Controller: Intent Classification → Planning Judge → Route + Gate ──
         _classification = None
+        _controller_decision = None
         _scratchpad = None
         try:
             from ..config import HARNESS_ENABLED, HARNESS_LOG_CLASSIFICATIONS, HARNESS_SCRATCHPAD_ENABLED
@@ -293,7 +295,6 @@ class NallyAgent:
                 from .harness import classify_intent, get_pipeline_config
                 from .llm import llm as _harness_llm
                 def _harness_llm_call(messages, temperature=0.0, **kwargs):
-                    # messages is OpenAI-style list; extract last user + first system
                     try:
                         user_msg = messages[-1].get("content", "") if messages else user_input
                         sys_prompt = None
@@ -314,33 +315,69 @@ class NallyAgent:
                     )
                 self._last_classification = _classification
 
-                # TaskRouter: automatic strategy (no user plan toggle)
+                # Controller: automatic strategy + tier + gate (replaces direct TaskRouter call)
                 try:
-                    from .task_router import route_from_classification
-
-                    _route = route_from_classification(_classification, user_text=user_input)
+                    from .controller import get_controller
+                    _controller = get_controller()
+                    _ctrl_span = tracer.start_span(
+                        "controller_decide",
+                        {"text": user_input[:200], "classification": _classification.task_class.value if _classification else "none"},
+                    )
+                    try:
+                        _controller_decision = _controller.decide(user_input, classification=_classification)
+                    finally:
+                        if _ctrl_span is not None:
+                            try:
+                                tracer.end_span(
+                                    _ctrl_span.span_id,
+                                    output={
+                                        "tier": _controller_decision.tier if _controller_decision else "none",
+                                        "strategy": _controller_decision.route.strategy.value if _controller_decision and _controller_decision.route else "none",
+                                        "gate": _controller_decision.requires_approval if _controller_decision else False,
+                                        "max_steps": _controller_decision.max_steps if _controller_decision else 0,
+                                    },
+                                )
+                            except Exception:
+                                pass
+                    _route = _controller_decision.route
                     self._last_route = _route
-                    logger.info(f"TaskRouter strategy={_route.strategy.value} (class={_route.task_class or '-'} conf={_route.confidence:.2f})")
+                    self._last_controller = _controller_decision
+                    logger.info(
+                        f"Controller tier={_controller_decision.tier} strategy={_route.strategy.value} "
+                        f"gate={_controller_decision.requires_approval} max_steps={_controller_decision.max_steps} "
+                        f"(class={_route.task_class or '-'} conf={_route.confidence:.2f})"
+                    )
                 except Exception as _tr_err:
-                    logger.debug(f"TaskRouter skipped: {_tr_err}")
-                    self._last_route = None
+                    logger.debug(f"Controller skipped: {_tr_err}")
+                    # Fallback to legacy TaskRouter path
+                    try:
+                        from .task_router import route_from_classification
+                        _route = route_from_classification(_classification, user_text=user_input)
+                        self._last_route = _route
+                        logger.info(f"TaskRouter fallback strategy={_route.strategy.value} (class={_route.task_class or '-'} conf={_route.confidence:.2f})")
+                    except Exception as _tr2:
+                        logger.debug(f"TaskRouter fallback skipped: {_tr2}")
+                        self._last_route = None
 
-                # Create scratchpad per pipeline config
+                # Create scratchpad per pipeline config (controller may upgrade tier)
                 if HARNESS_ENABLED and _classification:
                     from .harness import get_pipeline_config
                     pipeline_cfg = get_pipeline_config(_classification.task_class)
-                    if (
+                    should_scratch = (
                         HARNESS_SCRATCHPAD_ENABLED
                         and pipeline_cfg.scratchpad
-                        and _classification.task_class.value
-                        in ("COMPLEX", "CREATIVE", "HIGH_STAKES")
-                    ):
+                        and _classification.task_class.value in ("COMPLEX", "CREATIVE", "HIGH_STAKES")
+                    )
+                    # Controller tier LIGHT/FULL also warrants scratchpad for traceability
+                    if _controller_decision and _controller_decision.tier != "none":
+                        should_scratch = should_scratch or (_controller_decision.tier in ("light", "full") and _classification.task_class.value in ("COMPLEX", "HIGH_STAKES", "CREATIVE"))
+                    if should_scratch:
                         from .scratchpad import Scratchpad, scratchpad_store
                         _scratchpad = Scratchpad(objective=user_input)
                         scratchpad_store.save(_scratchpad)
                         logger.info(f"Scratchpad created: {_scratchpad.id}")
         except Exception as e:
-            logger.warning(f"Harness classification failed: {e}")
+            logger.warning(f"Controller classification failed: {e}")
 
         # Skill activation (Level 2): check if a skill matches this request
         try:
@@ -439,30 +476,38 @@ class NallyAgent:
             except Exception as e:
                 logger.warning(f"Design skill injection failed: {e}")
 
-        # Smart context management — single pass
-        self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
-        self.messages = context_manager.compact(self.messages)
-
-        # Memory and history injections
-        self.messages = context_manager.inject_memories(user_input, self.messages)
-        self.messages = context_manager.inject_conversation_history(self.messages)
-
-        # Final safety check: prune once more if injections pushed us over
-        estimated = context_manager.estimate_tokens(self.messages)
-        if estimated > MAX_CONTEXT_TOKENS:
-            logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
-            self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
-
-        # Build tool set — pass task class for broader selection on complex tasks
+        # Typed Context Builder (V2) — single authoritative path with legacy fallback.
+        _task_class = _classification.task_class.value if _classification else ""
         try:
-            from ..tools.filter import tool_filter
-
-            if not tool_filter._ready:
-                tool_filter.build_index(registry.tools)
-            _task_class = _classification.task_class.value if _classification else ""
-            tools = tool_filter.select(user_input, task_class=_task_class)
-        except ImportError:
-            tools = [t.to_openai_schema() for t in registry.tools.values()]
+            from .context_builder import context_builder as _builder
+            _built = _builder.build(
+                self.messages,
+                user_input,
+                session_id=self._session_id,
+                route_key=self._route_key,
+                interface=self._channel or self._session_id,
+                intent_class=_task_class,
+                max_tokens=MAX_CONTEXT_TOKENS,
+            )
+            self.messages = _built.messages
+            tools = _built.tool_schemas or [t.to_openai_schema() for t in registry.tools.values()]
+        except Exception as e:
+            logger.debug(f"ContextBuilder fallback to legacy path: {e}")
+            self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
+            self.messages = context_manager.compact(self.messages)
+            self.messages = context_manager.inject_memories(user_input, self.messages)
+            self.messages = context_manager.inject_conversation_history(self.messages)
+            estimated = context_manager.estimate_tokens(self.messages)
+            if estimated > MAX_CONTEXT_TOKENS:
+                logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
+                self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
+            try:
+                from ..tools.filter import tool_filter
+                if not tool_filter._ready:
+                    tool_filter.build_index(registry.tools)
+                tools = tool_filter.select(user_input, task_class=_task_class)
+            except ImportError:
+                tools = [t.to_openai_schema() for t in registry.tools.values()]
 
         # Auto-search for time-sensitive queries — inject fresh web data
         # so the LLM sees real results regardless of whether it calls web_search
@@ -528,6 +573,19 @@ class NallyAgent:
                 except Exception as e:
                     logger.debug(f"Task state auto-injection skipped: {e}")
 
+            # Build controller payload for graph (includes tier/gate/max_steps)
+            _ctrl_payload = None
+            try:
+                _ctrl = getattr(self, "_last_controller", None)
+                if _ctrl is not None and hasattr(_ctrl, "to_dict"):
+                    _ctrl_payload = _ctrl.to_dict()
+                else:
+                    _r = getattr(self, "_last_route", None)
+                    if _r is not None:
+                        _ctrl_payload = _r.to_dict() if hasattr(_r, "to_dict") else _r
+            except Exception:
+                _ctrl_payload = getattr(self, "_last_route", None)
+
             final_response = run_agent(
                 messages=self.messages,
                 tools=tools,
@@ -536,7 +594,7 @@ class NallyAgent:
                 thread_id=self._thread_id,
                 intent_class=_intent_class,
                 intent_confidence=_intent_confidence,
-                route_decision=getattr(self, "_last_route", None),
+                route_decision=_ctrl_payload,
             )
 
             # ── Harness v2: Critique Pipeline (Phase 2) ──
@@ -590,7 +648,46 @@ class NallyAgent:
             except Exception as e:
                 logger.warning(f"Critique pipeline failed: {e}")
 
-            final_response = _capitalize_sentences(_strip_emojis(final_response))
+            # Single Verification facade (V2) — deterministic honesty gate on the
+            # final turn before shaping. Graph already verifies intermediate
+            # turns; this covers critique-revised text + DIRECT paths.
+            _verified_ok = True
+            _is_partial = False
+            try:
+                from ..tools.receipts import receipt_store as _rs
+                from ..tools.registry import registry as _reg
+                from .verification.layer import verification_layer as _vl
+                _v = _vl.verify_turn(
+                    final_response or "",
+                    receipts=_rs.get_recent(limit=20),
+                    registered_tools=set(_reg.tools.keys()),
+                )
+                if emit:
+                    try:
+                        emit("verification", _v.to_dict())
+                    except Exception:
+                        pass
+                _verified_ok = bool(_v.is_honest) and not bool(_v.guardrail_blocked)
+                _is_partial = bool(_v.should_block)
+                if _v.guardrail_blocked and _v.guardrail_warnings:
+                    final_response = f"[Blocked by guardrail] {_v.guardrail_warnings[0]}"
+                elif _v.should_block and _v.partial_reason:
+                    final_response = f"[TASK NOT COMPLETE] {_v.partial_reason}\n\n{final_response}"
+                    _is_partial = True
+            except Exception as e:
+                logger.debug(f"Final verification skipped: {e}")
+
+            # Response Composer (V2) — post-verification shaping before output routing.
+            # Channel-specific strictness (locked): Telegram-only emoji/cap normalization.
+            try:
+                from .response_composer import response_composer as _composer
+                _ch = (self._channel or self._session_id or "")
+                final_response = _composer.compose(
+                    final_response, intent_class=_intent_class,
+                    verified=_verified_ok, is_partial=_is_partial, channel=_ch,
+                )
+            except Exception:
+                final_response = _capitalize_sentences(_strip_emojis(final_response))
             self.messages.append({"role": "assistant", "content": final_response})
 
             # Clear skill overrides after task completion
