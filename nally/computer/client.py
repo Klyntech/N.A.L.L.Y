@@ -162,3 +162,63 @@ class ComputerClient:
 
     def cancel_run(self, run_id: str) -> httpx.Response:
         return self._request("DELETE", f"/exec/{run_id}", timeout=self.timeout_ttfb)
+
+    # ── Workspace file operations (009 §1, Slice 4) ──
+
+    def file_read(
+        self,
+        computer_id: str,
+        path: str,
+        *,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+        encoding: str = "utf8",
+    ) -> httpx.Response:
+        body: Dict[str, Any] = {
+            "computer_id": computer_id,
+            "path": path,
+            "encoding": encoding,
+        }
+        if offset is not None:
+            body["offset"] = offset
+        if limit is not None:
+            body["limit"] = limit
+        return self._request("POST", "/files/read", timeout=self.timeout_ttfb, json_body=body)
+
+    def file_write(
+        self,
+        computer_id: str,
+        path: str,
+        content: str,
+        *,
+        encoding: str = "utf8",
+        mode: Optional[str] = None,
+    ) -> httpx.Response:
+        body: Dict[str, Any] = {
+            "computer_id": computer_id,
+            "path": path,
+            "content": content,
+            "encoding": encoding,
+        }
+        if mode is not None:
+            body["mode"] = mode
+        return self._request("POST", "/files/write", timeout=self.timeout_ttfb, json_body=body)
+
+    def file_list(
+        self,
+        computer_id: str,
+        path: str,
+        *,
+        recursive: bool = False,
+        limit: int = 100,
+        cursor: Optional[str] = None,
+    ) -> httpx.Response:
+        body: Dict[str, Any] = {
+            "computer_id": computer_id,
+            "path": path,
+            "recursive": recursive,
+            "limit": limit,
+        }
+        if cursor is not None:
+            body["cursor"] = cursor
+        return self._request("POST", "/files/list", timeout=self.timeout_ttfb, json_body=body)

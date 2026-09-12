@@ -1,9 +1,9 @@
-"""NALLY Computer Adapter — Slice 3 agent-facing boundary.
+"""NALLY Computer Adapter — Slice 4 agent-facing boundary.
 
 Owns: which computer, is it ready, what can it do, exec orchestration,
-reconnect loop, lifecycle (start/stop/destroy), sync.
-Does NOT own: routing, planning, ReAct, tool execution, file redirection.
-Those are Slice 4.
+reconnect loop, lifecycle (start/stop/destroy), sync, workspace file ops.
+Does NOT own: routing, planning, ReAct, tool execution.
+ToolRegistry → ComputerAdapter → ComputerClient.
 
 Chain (009): ToolRegistry → ComputerAdapter → NallPuterClient.
 ToolRegistry never becomes the client; transport never leaks into tools.
@@ -220,10 +220,82 @@ class ComputerAdapter:
             return ComputerError(code="no_preflight", message="call preflight() first")
         return force_sync(self.client, self._cache.machine.computer_id)
 
-    # ── Slice 4: file ops (stub until wired) ──
+    # ── Slice 4: workspace file operations ──
 
-    def file_read(self, *args: Any, **kwargs: Any) -> ComputerError:
-        return ComputerError(code="not_implemented", message="file_read is Slice 4 — not yet wired")
+    def file_read(
+        self,
+        path: str,
+        *,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+        encoding: str = "utf8",
+    ) -> Dict[str, Any] | ComputerError:
+        """Read file from workspace. Returns FileReadResponse dict or error."""
+        if not self._cache.machine:
+            return ComputerError(code="no_preflight", message="call preflight() first")
+        resp = self.client.file_read(
+            self._cache.machine.computer_id,
+            path,
+            offset=offset,
+            limit=limit,
+            encoding=encoding,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return ComputerError(
+            code="file_read_failed",
+            message=f"POST /files/read returned {resp.status_code}",
+            details=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {},
+        )
 
-    def file_write(self, *args: Any, **kwargs: Any) -> ComputerError:
-        return ComputerError(code="not_implemented", message="file_write is Slice 4 — not yet wired")
+    def file_write(
+        self,
+        path: str,
+        content: str,
+        *,
+        encoding: str = "utf8",
+        mode: Optional[str] = None,
+    ) -> Dict[str, Any] | ComputerError:
+        """Write file to workspace. Returns {path, bytes_written, sync_state} or error."""
+        if not self._cache.machine:
+            return ComputerError(code="no_preflight", message="call preflight() first")
+        resp = self.client.file_write(
+            self._cache.machine.computer_id,
+            path,
+            content,
+            encoding=encoding,
+            mode=mode,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return ComputerError(
+            code="file_write_failed",
+            message=f"POST /files/write returned {resp.status_code}",
+            details=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {},
+        )
+
+    def file_list(
+        self,
+        path: str,
+        *,
+        recursive: bool = False,
+        limit: int = 100,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any] | ComputerError:
+        """List directory entries. Returns FileListResponse dict or error."""
+        if not self._cache.machine:
+            return ComputerError(code="no_preflight", message="call preflight() first")
+        resp = self.client.file_list(
+            self._cache.machine.computer_id,
+            path,
+            recursive=recursive,
+            limit=limit,
+            cursor=cursor,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return ComputerError(
+            code="file_list_failed",
+            message=f"POST /files/list returned {resp.status_code}",
+            details=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {},
+        )

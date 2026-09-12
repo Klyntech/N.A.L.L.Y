@@ -1,8 +1,7 @@
-"""NALLY Computer Adapter — Slice 3 (models + transport + preflight + exec + reconnect).
+"""NALLY Computer Adapter — Slice 4 (models + transport + preflight + exec + reconnect + file ops).
 
-Slice 3 answers: which computer, is it ready, what can it do, exec orchestration,
-reconnect loop, lifecycle (start/stop/destroy), sync.
-No tool redirection (Slice 4).
+Slice 4 answers: which computer, is it ready, what can it do, exec orchestration,
+reconnect loop, lifecycle (start/stop/destroy), sync, workspace file ops.
 
 Chain: ToolRegistry → ComputerAdapter → ComputerClient.
 """

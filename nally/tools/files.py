@@ -7,6 +7,7 @@ from .registry import Tool
 
 MAX_WRITE_SIZE = 500_000  # 500KB max write
 
+
 # ── Path safety ───────────────────────────────────────────
 # Only these roots are writable. Uses BASE_DIR (consistent) instead of
 # Path.cwd() (which varies by how the process was launched).
@@ -174,6 +175,22 @@ class ReadFile(Tool):
         file_path = file_path or path
         if not file_path:
             return "Error: no file path provided"
+
+        # ── Slice 4: route through ComputerAdapter if available ──
+        from .adapter_holder import get_adapter
+
+        adapter = get_adapter()
+        if adapter is not None:
+            from ..computer.models import ComputerError
+
+            result = adapter.file_read(file_path)
+            if isinstance(result, ComputerError):
+                return f"Error: {result.code} — {result.message}"
+            if isinstance(result, dict):
+                content = result.get("content", "")
+                return content[:5000] + "..." if len(content) > 5000 else content
+            return str(result)
+
         try:
             path = Path(file_path)
 
@@ -230,7 +247,9 @@ class FileOps(Tool):
             },
         )
 
-    def execute(self, action: str = "", file_path: str = "", content: str = "", path: str = "", destination: str = "", **kwargs) -> str:
+    def execute(
+        self, action: str = "", file_path: str = "", content: str = "", path: str = "", destination: str = "", **kwargs
+    ) -> str:
         if not action:
             return 'Error: action is required. Send: {"action": "write", "file_path": "path", "content": "text"}'
         # Accept `path` as an alias for `file_path` (model sometimes sends `path`)
@@ -239,6 +258,39 @@ class FileOps(Tool):
         file_path = _resolve_project_path(file_path)
         if destination:
             destination = _resolve_project_path(destination)
+
+        # ── Slice 4: route through ComputerAdapter if available ──
+        from .adapter_holder import get_adapter
+
+        adapter = get_adapter()
+        if adapter is not None and action in ("write", "list"):
+            from ..computer.models import ComputerError
+
+            if action == "write":
+                if not file_path:
+                    return "Error: file_path is required for write"
+                result = adapter.file_write(file_path, content or "")
+                if isinstance(result, ComputerError):
+                    return f"Error: {result.code} — {result.message}"
+                if isinstance(result, dict):
+                    return f"Wrote {result.get('bytes_written', len(content or ''))} chars to {file_path}"
+                return str(result)
+            elif action == "list":
+                result = adapter.file_list(file_path or "/")
+                if isinstance(result, ComputerError):
+                    return f"Error: {result.code} — {result.message}"
+                if isinstance(result, dict):
+                    entries = result.get("entries", [])
+                    if not entries:
+                        return "Empty directory"
+                    lines = []
+                    for e in entries:
+                        prefix = "[dir] " if e.get("type") == "dir" else "      "
+                        size = e.get("size", 0) or 0
+                        lines.append(f"{prefix}{e.get('name', '?')} ({size // 1024}KB)")
+                    return "\n".join(lines)
+                return str(result)
+
         try:
             if action == "write":
                 if not file_path:
@@ -294,6 +346,7 @@ class FileOps(Tool):
                     return f"Error: path not found: {file_path}"
                 if path.is_dir():
                     import shutil
+
                     shutil.rmtree(path)
                     return f"Deleted directory: {file_path}"
                 else:
@@ -318,6 +371,7 @@ class FileOps(Tool):
                 if dst.exists():
                     return f"Error: destination already exists: {destination}"
                 import shutil
+
                 shutil.move(str(src), str(dst))
                 return f"Moved {file_path} -> {destination}"
 
@@ -339,6 +393,7 @@ class FileOps(Tool):
                 if dst.exists():
                     return f"Error: destination already exists: {destination}"
                 import shutil
+
                 if src.is_dir():
                     shutil.copytree(str(src), str(dst))
                 else:

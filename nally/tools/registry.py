@@ -61,6 +61,16 @@ class ToolRegistry:
         # plugin load) and iterated at runtime (get_all_tools, filter, mcp).
         self._lock = threading.Lock()
 
+    def set_computer_adapter(self, adapter):
+        """Wire a ComputerAdapter for tool routing (Slice 4).
+
+        When set, RunCommand/ReadFile/FileOps route through the adapter
+        instead of local execution. Pass None to clear.
+        """
+        from .adapter_holder import set_adapter
+
+        set_adapter(adapter)
+
     def register(self, tool: Tool):
         """Register a tool (warn if overwriting, validate permission)"""
         if tool.permission not in VALID_PERMISSIONS:

@@ -51,7 +51,7 @@ def _bounded_subprocess(cmd: list[str], cwd: str | None, timeout: int) -> tuple[
             except Exception:
                 return ""
             try:
-                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                with open(path, encoding="utf-8", errors="replace") as f:
                     data = f.read(cap + 1)
                 if len(data) > cap:
                     return data[:cap] + f"\n... [truncated, {size} bytes on disk, showing {cap} chars]"
@@ -111,7 +111,7 @@ def _normalize_powershell(command: str) -> str:
                 cur.append(ch)
                 _i += 1
                 continue
-            if not _in_single and not _in_double and command[_i:_i+4] == " && ":
+            if not _in_single and not _in_double and command[_i : _i + 4] == " && ":
                 parts.append("".join(cur).strip())
                 cur = []
                 _i += 4
@@ -130,26 +130,26 @@ def _normalize_powershell(command: str) -> str:
     # Fix Select-String -Recurse (invalid) -> Get-ChildItem -Recurse | Select-String
     if "Select-String" in command and "-Recurse" in command:
         # Remove all standalone -Recurse flags (they belong to Get-ChildItem, not Select-String)
-        command_without_recurse = re.sub(r'\s+-Recurse\b', '', command)
+        command_without_recurse = re.sub(r"\s+-Recurse\b", "", command)
         # If Get-ChildItem not already present, inject it
         if "Get-ChildItem" not in command_without_recurse:
             # Handle `Select-String -Path <path>` -> `Get-ChildItem -Path <path> -Recurse -File | Select-String`
-            m = re.search(r'Select-String\s+-Path\s+([^\s;|]+)', command_without_recurse)
+            m = re.search(r"Select-String\s+-Path\s+([^\s;|]+)", command_without_recurse)
             if m:
                 path_arg = m.group(1).strip()
                 # Handle comma-separated patterns like *.py,*.json -> use -Include
                 if "," in path_arg:
                     # e.g., *.py,*.json,*.db -> Get-ChildItem -Path . -Recurse -File -Include *.py,*.json | Select-String
                     command = re.sub(
-                        r'Select-String\s+-Path\s+[^\s;|]+',
-                        f'Get-ChildItem -Path . -Recurse -File -Include {path_arg} | Select-String',
+                        r"Select-String\s+-Path\s+[^\s;|]+",
+                        f"Get-ChildItem -Path . -Recurse -File -Include {path_arg} | Select-String",
                         command_without_recurse,
                         count=1,
                     )
                 else:
                     command = re.sub(
-                        r'Select-String\s+-Path\s+[^\s;|]+',
-                        f'Get-ChildItem -Path {path_arg} -Recurse -File | Select-String',
+                        r"Select-String\s+-Path\s+[^\s;|]+",
+                        f"Get-ChildItem -Path {path_arg} -Recurse -File | Select-String",
                         command_without_recurse,
                         count=1,
                     )
@@ -186,7 +186,7 @@ def _is_python_c_command(command: str) -> tuple[bool, str]:
     if m:
         q = m.group(1)
         # Find matching closing q that is not escaped and not inside opposite quotes
-        rest = stripped[m.end():]
+        rest = stripped[m.end() :]
         code_chars = []
         _esc = False
         _in_other = False
@@ -211,7 +211,7 @@ def _is_python_c_command(command: str) -> tuple[bool, str]:
                 continue
             if ch == q and not _in_other and not _esc:
                 # Closing quote — must be at end (allow trailing spaces/braces)
-                suffix = rest[idx+1:].strip()
+                suffix = rest[idx + 1 :].strip()
                 # If suffix is only closing braces from PowerShell shim, ignore
                 if suffix == "" or suffix.strip().rstrip("}").strip() == "":
                     code = "".join(code_chars)
@@ -227,8 +227,8 @@ def _is_python_c_command(command: str) -> tuple[bool, str]:
         if code:
             return True, code
     # Fallback: python -c without outer quotes
-    m2 = re.match(r'^(?:python|python3|py)\s+-c\s+(.+)$', stripped, re.DOTALL)
-    if m2 and ('import' in m2.group(1) or 'print' in m2.group(1)):
+    m2 = re.match(r"^(?:python|python3|py)\s+-c\s+(.+)$", stripped, re.DOTALL)
+    if m2 and ("import" in m2.group(1) or "print" in m2.group(1)):
         return True, m2.group(1).strip().strip('"').strip("'").replace('\\"', '"').replace("\\'", "'")
     return False, ""
 
@@ -328,10 +328,33 @@ class RunCommand(Tool):
         session_id = session_id or kwargs.get("session_id", "")
         text = text or kwargs.get("input", "")
 
+        # ── Slice 4: route through ComputerAdapter if available ──
+        from .adapter_holder import get_adapter
+
+        adapter = get_adapter()
+        if adapter is not None and action == "exec" and command:
+            from ..computer.models import ComputerError
+            from ..computer.orchestrator import RunResult
+
+            result = adapter.exec(command, cwd=kwargs.get("cwd"))
+            if isinstance(result, ComputerError):
+                return f"Error: {result.code} — {result.message}"
+            if isinstance(result, RunResult):
+                parts = []
+                if result.stdout:
+                    parts.append(result.stdout)
+                if result.stderr:
+                    parts.append(f"STDERR:\n{result.stderr}")
+                if result.exit_code is not None and result.exit_code != 0:
+                    parts.append(f"Exit code: {result.exit_code}")
+                return "\n".join(parts) if parts else "(no output)"
+            return str(result)
+
         # ── Managed session operations (persistent shell, same backend as background start) ──
         if action in ("session_list", "session_output", "session_stdin", "session_kill", "session_inspect"):
             try:
                 from nally.core.managed_shell.manager import get_manager
+
                 mgr = get_manager()
                 if action == "session_list":
                     sessions = mgr.list_sessions()
@@ -392,6 +415,7 @@ class RunCommand(Tool):
             # Also treat very long timeout hint as background request
             try:
                 from nally.core.managed_shell.manager import get_manager
+
                 mgr = get_manager()
                 # Extract cwd from command prefix like `cd "path" && ...` if present
                 _cwd = kwargs.get("cwd") or kwargs.get("workdir")
@@ -399,9 +423,9 @@ class RunCommand(Tool):
                 return (
                     f"Started background shell session {session.session_id} [running] pid={session.pid}\n"
                     f"Command: {command}\n"
-                    f"Use run_command(action=\"session_output\", session_id=\"{session.session_id}\") to poll, "
-                    f"run_command(action=\"session_stdin\", session_id=\"{session.session_id}\", text=\"...\") to send input, "
-                    f"run_command(action=\"session_inspect\", session_id=\"{session.session_id}\") for tail."
+                    f'Use run_command(action="session_output", session_id="{session.session_id}") to poll, '
+                    f'run_command(action="session_stdin", session_id="{session.session_id}", text="...") to send input, '
+                    f'run_command(action="session_inspect", session_id="{session.session_id}") for tail.'
                 )
             except Exception as e:
                 return f"Error: failed to start managed session: {e}"
@@ -421,13 +445,11 @@ class RunCommand(Tool):
         if is_py_c and py_code:
             try:
                 # Write to temp file to avoid any shell quoting
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tf:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tf:
                     tf.write(py_code)
                     temp_path = tf.name
                 try:
-                    stdout, stderr, ret = _bounded_subprocess(
-                        [sys.executable, temp_path], str(Path.cwd()), CMD_TIMEOUT
-                    )
+                    stdout, stderr, ret = _bounded_subprocess([sys.executable, temp_path], str(Path.cwd()), CMD_TIMEOUT)
                     if ret == 124 and stderr.startswith("Error: Command timed out"):
                         return stderr
                     output = stdout
@@ -455,13 +477,11 @@ class RunCommand(Tool):
                 cd_path = m_cd.group(1)
                 py_code_inner = m_py.group(1).replace('\\"', '"').replace('`"', '"').replace("''", "'")
                 try:
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tf:
+                    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tf:
                         tf.write(py_code_inner)
                         temp_path2 = tf.name
                     try:
-                        stdout, stderr, ret = _bounded_subprocess(
-                            [sys.executable, temp_path2], cd_path, CMD_TIMEOUT
-                        )
+                        stdout, stderr, ret = _bounded_subprocess([sys.executable, temp_path2], cd_path, CMD_TIMEOUT)
                         if ret == 124 and stderr.startswith("Error: Command timed out"):
                             return stderr
                         output = stdout
@@ -482,9 +502,7 @@ class RunCommand(Tool):
 
         try:
             executable, args = _get_shell()
-            stdout, stderr, ret = _bounded_subprocess(
-                [executable] + args + [command], None, CMD_TIMEOUT
-            )
+            stdout, stderr, ret = _bounded_subprocess([executable] + args + [command], None, CMD_TIMEOUT)
             if ret == 124 and stderr.startswith("Error: Command timed out"):
                 return stderr
             output = stdout
