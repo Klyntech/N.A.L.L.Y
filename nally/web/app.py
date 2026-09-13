@@ -7,10 +7,10 @@ import os
 import sys
 import time
 import uuid
-from threading import Lock
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
+from threading import Lock
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
@@ -270,7 +270,8 @@ async def lifespan(app: FastAPI):
             display.phase("Config", "[green]valid[/]")
         # Memory backend hint — never logs secrets (host only, no creds)
         try:
-            from nally.config import memory_backend, DATABASE_URL as _DB_URL
+            from nally.config import DATABASE_URL as _DB_URL
+            from nally.config import memory_backend
             mb = memory_backend()
             if mb == "postgres":
                 hint = "postgres"
@@ -298,6 +299,28 @@ async def lifespan(app: FastAPI):
             display.mcp_summary(mcp_status)
         except Exception as e:
             display.phase("Tools", f"[red]failed: {e}[/]", ok=False)
+
+        # Wire ComputerAdapter for NallPuter routing if configured
+        try:
+            from ..config import NALLPUTER_URL, NALLPUTER_TOKEN
+            from ..computer import ComputerAdapter, ComputerClient
+            from ..tools.adapter_holder import set_adapter
+
+            if NALLPUTER_URL:
+                _client = ComputerClient(base_url=NALLPUTER_URL, token=NALLPUTER_TOKEN)
+                _adapter = ComputerAdapter(_client)
+                _pf = _adapter.preflight()
+                from ..computer.models import ComputerError
+                if not isinstance(_pf, ComputerError) and _pf.ready:
+                    set_adapter(_adapter)
+                    display.phase("NallPuter", f"[green]connected ({_adapter.describe().get('computer_id', '?')})[/]")
+                else:
+                    _pf_msg = getattr(_pf, 'message', str(_pf))
+                    display.phase("NallPuter", f"[yellow]preflight failed: {_pf_msg}[/]", ok=False)
+            else:
+                display.phase("NallPuter", "[dim]NALLPUTER_URL not set, skipping[/]")
+        except Exception as e:
+            display.phase("NallPuter", f"[red]failed: {e}[/]", ok=False)
 
     threading.Thread(target=_bg_load_tools, daemon=True).start()
     display.phase("Tools", "[yellow]loading in background...[/]")
@@ -996,8 +1019,8 @@ async def tg_approve(
 
 
 def check_abort(session_id: Optional[str] = None) -> bool:
-    from ..core.abort import check_abort as _check
     from ..agent.identity import resolve_session
+    from ..core.abort import check_abort as _check
     if session_id is None:
         session_id = resolve_session("web").route_key
     return _check(session_id)
@@ -1005,8 +1028,8 @@ def check_abort(session_id: Optional[str] = None) -> bool:
 
 @app.post("/api/abort")
 async def abort_session(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
-    from ..core.abort import set_abort
     from ..agent.identity import resolve_session
+    from ..core.abort import set_abort
 
     # Per-route abort — only stops operations for this channel
     route = resolve_session("web").route_key
@@ -1016,8 +1039,8 @@ async def abort_session(session_id: Optional[str] = None, _auth=Depends(verify_a
 
 @app.post("/api/abort/clear")
 async def abort_clear(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
-    from ..core.abort import clear_abort
     from ..agent.identity import resolve_session
+    from ..core.abort import clear_abort
 
     route = resolve_session("web").route_key
     clear_abort(route)
