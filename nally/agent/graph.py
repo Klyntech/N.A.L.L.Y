@@ -544,6 +544,8 @@ class AgentState(TypedDict):
     requires_approval: Optional[bool]
     controller_tier: str
     controller_max_steps: int
+    max_tool_calls: int
+    max_failures: int
 
 
 def _convert_to_openai(messages: List[BaseMessage]) -> List[dict]:
@@ -788,7 +790,8 @@ def llm_call(state: AgentState) -> AgentState:
         )
         return {"messages": [fallback], "iteration": iteration + 1, "error_count": 0}
 
-    if tool_calls_total >= MAX_TOOL_CALLS:
+    _max_tool_calls = int(state.get("max_tool_calls", 0) or MAX_TOOL_CALLS)
+    if tool_calls_total >= _max_tool_calls:
         logger.warning(f"Circuit breaker: {tool_calls_total} total tool calls, stopping agent")
         # Make one final LLM call to summarize findings — no tools, no recursion
         try:
@@ -812,7 +815,7 @@ def llm_call(state: AgentState) -> AgentState:
             logger.warning(f"Circuit breaker summary call failed: {e}")
             summary = "I've reached the maximum number of tool calls. Please try again or rephrase your request."
         fallback = AIMessage(
-            content=f"Execution halted: reached the maximum of {MAX_TOOL_CALLS} tool calls. "
+            content=f"Execution halted: reached the maximum of {_max_tool_calls} tool calls. "
             f"Here is the partial data I gathered before stopping:\n\n{summary}"
         )
         return {"messages": [fallback], "iteration": iteration + 1}
@@ -840,8 +843,8 @@ def llm_call(state: AgentState) -> AgentState:
             wall_time_limit=int(state.get("wall_time_budget", 0) or MAX_AGENT_WALL_TIME),
             warn_threshold=float(state.get("budget_warn_threshold", 0) or BUDGET_WARN_THRESHOLD),
             max_iterations=int(state.get("max_iterations", 0) or 10),
-            max_tool_calls=MAX_TOOL_CALLS,
-            max_failures=MAX_TOOL_FAILURES_PER_TURN,
+            max_tool_calls=int(state.get("max_tool_calls", 0) or MAX_TOOL_CALLS),
+            max_failures=int(state.get("max_failures", 0) or MAX_TOOL_FAILURES_PER_TURN),
         )
         if _budget.warn_due():
             from .budget import budget_warning_message
@@ -1732,17 +1735,34 @@ def should_continue(state: AgentState) -> str:
 
     # Too many failed tool calls this turn — halt and ask the user how to proceed
     # instead of looping on a failing action and burning the wall-clock budget.
-    if len(state.get("tool_failures", [])) >= MAX_TOOL_FAILURES_PER_TURN:
-        logger.warning(f"Agent exceeded {MAX_TOOL_FAILURES_PER_TURN} tool failures this turn")
+    _max_failures = int(state.get("max_failures", 0) or MAX_TOOL_FAILURES_PER_TURN)
+    if len(state.get("tool_failures", [])) >= _max_failures:
+        logger.warning(f"Agent exceeded {_max_failures} tool failures this turn")
         emit = _get_emit()
         if emit:
             try:
                 emit("system_notice", {
-                    "text": f"Execution halted: {MAX_TOOL_FAILURES_PER_TURN}+ tool calls failed this turn and weren't resolved. Tell me how you'd like to proceed."
+                    "text": f"Execution halted: {_max_failures}+ tool calls failed this turn and weren't resolved. Tell me how you'd like to proceed."
                 })
             except Exception:
                 pass
         _record_exit("tool_failures")
+        return "end"
+
+    # Tool-call budget — enforce max_tool_calls from state
+    _max_tool_calls = int(state.get("max_tool_calls", 0) or MAX_TOOL_CALLS)
+    _tool_calls = int(state.get("tool_calls_total", 0) or 0)
+    if _max_tool_calls and _tool_calls >= _max_tool_calls:
+        logger.warning(f"Agent exceeded {_max_tool_calls} tool calls this turn")
+        emit = _get_emit()
+        if emit:
+            try:
+                emit("system_notice", {
+                    "text": f"Execution halted: hit my tool call limit ({_max_tool_calls}) for this turn — say 'continue' to proceed."
+                })
+            except Exception:
+                pass
+        _record_exit("tool_call_budget")
         return "end"
 
     if iteration >= max_iterations:
@@ -2053,6 +2073,8 @@ def run_agent(
         "budget_warn_fired": False,
         "budget_warn_threshold": float(BUDGET_WARN_THRESHOLD or 0.8),
         "task_progress": {},
+        "max_tool_calls": MAX_TOOL_CALLS,
+        "max_failures": MAX_TOOL_FAILURES_PER_TURN,
     }
 
     try:

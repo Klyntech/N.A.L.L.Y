@@ -163,7 +163,7 @@ class ExecutionBudget:
         Prefers the authoritative ``deadline`` field when present; falls back
         to ``start_time`` (treated as monotonic post-migration) + budget.
         """
-        warn_fired = bool(state.get("budget_warn_fired", False))
+        warn_fired = bool(state.get("budget_warn_fired", False) or state.get("warn_fired", False))
         deadline = state.get("deadline", 0) or 0.0
         limit = int(state.get("wall_time_budget", 0) or wall_time_limit or 0)
         if deadline:
@@ -186,8 +186,8 @@ class ExecutionBudget:
                 state.get("budget_warn_threshold", 0) or warn_threshold or 0.8
             ),
             max_iterations=int(state.get("max_iterations", 0) or max_iterations),
-            max_tool_calls=max_tool_calls,
-            max_failures=max_failures,
+            max_tool_calls=int(state.get("max_tool_calls", 0) or max_tool_calls),
+            max_failures=int(state.get("max_failures", 0) or max_failures),
             warn_fired=warn_fired,
         )
 
