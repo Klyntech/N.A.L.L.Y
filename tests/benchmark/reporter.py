@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Dict, List
 
-from .cases import Task, TaskCategory
 from .cost import CostTracker
 
 
@@ -95,7 +94,7 @@ def generate_json_report(
             key = (r["task_id"], base)
             paired[key][m] = r["score"]
         lifts = []
-        for (tid, base), scores in paired.items():
+        for (_tid, _base), scores in paired.items():
             if "nally" in scores and "raw" in scores:
                 lifts.append(scores["nally"] - scores["raw"])
         if lifts:
@@ -111,7 +110,7 @@ def generate_json_report(
 
     report = {
         "meta": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "total_tasks": len(results),
             "models_tested": models,
             "elapsed_seconds": round(elapsed_s, 1),
@@ -186,10 +185,10 @@ def generate_markdown_report(report: Dict) -> str:
     if lift:
         lines.append("## NALLY Lift (NALLY − Raw, Paired)")
         lines.append("")
-        lines.append(f"> Same task, same model, same params — does NALLY architecture help?")
+        lines.append("> Same task, same model, same params — does NALLY architecture help?")
         lines.append("")
-        lines.append(f"| Metric | Value |")
-        lines.append(f"|--------|-------|")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
         lines.append(f"| Paired tasks | {lift['paired_tasks']} |")
         lines.append(f"| NALLY avg | {_pct(lift['nally_avg'])} |")
         lines.append(f"| Raw avg | {_pct(lift['raw_avg'])} |")
@@ -200,8 +199,8 @@ def generate_markdown_report(report: Dict) -> str:
     # Overall (secondary)
     lines.append("## Overall (Secondary)")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
     lines.append(f"| Average Score | {_pct(overall['avg_score'])} |")
     lines.append(f"| Pass Rate | {_pct(overall['pass_rate'])} |")
     lines.append(f"| Passed | {overall['total_passed']} |")
@@ -224,10 +223,10 @@ def generate_markdown_report(report: Dict) -> str:
     lines.append("")
     for cat, s in sorted(categories.items()):
         lines.append(f"### {cat}")
-        lines.append(f"```")
+        lines.append("```")
         lines.append(f"Score: {_bar(s['avg_score'])} {_pct(s['avg_score'])}")
         lines.append(f"Range: {_pct(s['min_score'])} – {_pct(s['max_score'])}")
-        lines.append(f"```")
+        lines.append("```")
         lines.append("")
 
     # Cost

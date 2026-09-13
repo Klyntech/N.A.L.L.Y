@@ -15,7 +15,6 @@ write-back or on task completion.
 
 import json
 import sqlite3
-import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -24,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from ..config import DATA_DIR, DATABASE_URL, TURSO_TOKEN, TURSO_URL, memory_backend
 from ..utils.logger import logger
+
 
 # Reuse postgres helpers from memory.store (lazy import to avoid cycle)
 def _is_pg_backend() -> bool:
@@ -222,6 +222,7 @@ class ScratchpadStore:
         if TURSO_URL and TURSO_TOKEN:
             try:
                 import libsql_experimental as libsql
+
                 from ..memory.store import LibSQLConnectionProxy
                 raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
                 return LibSQLConnectionProxy(raw)
@@ -362,7 +363,6 @@ class ScratchpadStore:
         conn = self._create_connection()
         try:
             self._ensure_schema(conn)
-            cutoff = datetime.now().isoformat()
             cursor = conn.execute(
                 "DELETE FROM scratchpads WHERE status IN ('completed', 'failed')",
             )

@@ -2,20 +2,16 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from nally.agent.harness import (
     Classification,
-    PipelineConfig,
     TaskClass,
     _classify_regex,
     classify_by_llm,
     classify_intent,
     get_pipeline_config,
 )
-
 
 # ── Regex Classifier ──────────────────────────────────────
 
@@ -321,7 +317,7 @@ class TestCritiquePipeline:
         assert d["should_revise"] is True
 
     def test_critique_pipeline_skips_revision_when_not_needed(self):
-        from nally.agent.harness import run_critique_pipeline, TaskClass
+        from nally.agent.harness import TaskClass, run_critique_pipeline
 
         def mock_llm(messages, temperature=0.7):
             # Critique says no revision needed
@@ -341,7 +337,7 @@ class TestCritiquePipeline:
         assert "revise" not in result.stages_fired  # not fired
 
     def test_critique_pipeline_revises_when_needed(self):
-        from nally.agent.harness import run_critique_pipeline, TaskClass
+        from nally.agent.harness import TaskClass, run_critique_pipeline
 
         call_count = [0]
 
@@ -369,7 +365,7 @@ class TestCritiquePipeline:
         assert "revise" in result.stages_fired
 
     def test_critique_pipeline_handles_generate_failure(self):
-        from nally.agent.harness import run_critique_pipeline, TaskClass
+        from nally.agent.harness import TaskClass, run_critique_pipeline
 
         def mock_llm(messages, temperature=0.7):
             raise Exception("API error")
@@ -385,7 +381,7 @@ class TestCritiquePipeline:
         assert result.was_revised is False
 
     def test_critique_pipeline_handles_critique_failure(self):
-        from nally.agent.harness import run_critique_pipeline, TaskClass
+        from nally.agent.harness import TaskClass, run_critique_pipeline
 
         def mock_llm(messages, temperature=0.7):
             content = messages[-1]["content"]

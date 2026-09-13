@@ -10,7 +10,6 @@ from nally.agent.controller import (
 from nally.agent.harness import Classification, TaskClass
 from nally.agent.task_router import RouteDecision, Strategy
 
-
 # ── Signal extraction ──────────────────────────────────────
 
 
@@ -189,7 +188,6 @@ def test_decide_no_classification():
 
 
 def test_approval_gate_high_stakes_only_mode(monkeypatch):
-    import os
     monkeypatch.setenv("NALLY_PLAN_REQUIRE_APPROVAL", "high_stakes_only")
     ctrl = NallyController()
     c = Classification(TaskClass.COMPLEX, 0.85, "multi-step")
@@ -200,7 +198,6 @@ def test_approval_gate_high_stakes_only_mode(monkeypatch):
 
 
 def test_approval_gate_all_mode(monkeypatch):
-    import os
     monkeypatch.setenv("NALLY_PLAN_REQUIRE_APPROVAL", "all")
     ctrl = NallyController()
     c = Classification(TaskClass.COMPLEX, 0.85, "multi-step")
@@ -210,7 +207,6 @@ def test_approval_gate_all_mode(monkeypatch):
 
 
 def test_approval_gate_none_mode(monkeypatch):
-    import os
     monkeypatch.setenv("NALLY_PLAN_REQUIRE_APPROVAL", "none")
     ctrl = NallyController()
     c = Classification(TaskClass.HIGH_STAKES, 0.9, "risky")

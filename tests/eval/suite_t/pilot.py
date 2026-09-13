@@ -20,8 +20,8 @@ _project_root = str(Path(__file__).parent.parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from tests.eval.suite_t.runner import gold_trajectory, noop_trajectory, replay, run_suite
-from tests.eval.suite_t.schema import TaskSpec, load_all_tasks
+from tests.eval.suite_t.runner import gold_trajectory, noop_trajectory, replay, run_suite  # noqa: E402
+from tests.eval.suite_t.schema import TaskSpec, load_all_tasks  # noqa: E402
 
 
 def degraded_trajectory(task: TaskSpec) -> List[Dict]:

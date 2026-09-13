@@ -6,16 +6,15 @@ Run: pytest tests/test_voice_pipeline.py
 import asyncio
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
-import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from nally.voice.bargein import BargeInDetector, has_content_word
 from nally.voice.metrics import init_telemetry, reset_telemetry
 from nally.voice.pipeline import VoicePipeline, resample_pcm
-
 
 # ── Barge-in ──
 
@@ -117,7 +116,7 @@ class FakeDeepgramSocket:
             transcript = transcript
 
         class Channel:
-            alternatives = [Alt()]
+            alternatives: ClassVar[list] = [Alt()]
 
         class Msg:
             type = "Results"
@@ -153,13 +152,13 @@ class FakeDeepgramSTT:
             if timeout is None:
                 return await self._final_q.get()
             return await asyncio.wait_for(self._final_q.get(), timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     async def get_partial_transcript(self, timeout=0.05):
         try:
             return await asyncio.wait_for(self._partial_q.get(), timeout)
-        except (asyncio.TimeoutError, asyncio.QueueEmpty):
+        except (TimeoutError, asyncio.QueueEmpty):
             return None
 
     async def close(self):

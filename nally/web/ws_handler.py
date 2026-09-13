@@ -23,12 +23,10 @@ Protocol:
 """
 
 import asyncio
-import base64
 import hmac
 import json
 import logging
 import os
-import tempfile
 import threading
 
 from fastapi import WebSocket, WebSocketDisconnect

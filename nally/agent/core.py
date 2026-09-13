@@ -3,7 +3,7 @@
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Callable, List, Optional
 
 from ..config import CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS
@@ -12,12 +12,11 @@ from ..core.errors import LLMError, NallyError
 from ..core.tracing import tracer
 from ..memory import memory_store
 from ..utils.logger import logger
-from .router import matcher
 
 # Post-processing helpers — canonical definitions live in response_composer.py.
 # Imported here to avoid duplication; fallback path uses these too.
-from .response_composer import _strip_emojis, _capitalize_sentences
-
+from .response_composer import _capitalize_sentences, _strip_emojis
+from .router import matcher
 
 _TIME_SENSITIVE_PATTERNS = [
     r"this\s+(season|year|month|week|weekend)",
@@ -235,7 +234,7 @@ class NallyAgent:
         start = time.time()
 
         # Prefix user message with temporal context (no extra messages accumulated)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts_prefix = f"[Current time: {now.strftime('%Y-%m-%d %H:%M UTC')} | Day: {now.strftime('%A')}]\n\n"
 
         # ── Input Guardrails ──
@@ -570,7 +569,7 @@ class NallyAgent:
 
             # ── Harness v2: Critique Pipeline (Phase 2) ──
             try:
-                from ..config import HARNESS_ENABLED, HARNESS_CRITIQUE_ENABLED
+                from ..config import HARNESS_CRITIQUE_ENABLED, HARNESS_ENABLED
                 if (
                     HARNESS_ENABLED
                     and HARNESS_CRITIQUE_ENABLED
@@ -578,7 +577,7 @@ class NallyAgent:
                     and _classification.task_class.value in ("COMPLEX", "CREATIVE")
                 ):
                     from .harness import (
-                        TaskClass,
+                        _summarize_receipts,
                         run_critique_pipeline,
                     )
                     from .llm import llm as _harness_llm
@@ -597,12 +596,21 @@ class NallyAgent:
                             logger.warning(f"Harness LLM critique call failed: {e}")
                             raise
 
+                    # Build receipt evidence for the revision LLM
+                    try:
+                        from ..tools.receipts import receipt_store as _critique_rs
+                        _critique_receipts = _critique_rs.get_recent(limit=10)
+                        _receipt_text = _summarize_receipts(_critique_receipts)
+                    except Exception:
+                        _receipt_text = ""
+
                     critique_result = run_critique_pipeline(
                         user_request=user_input,
                         task_class=_classification.task_class,
                         llm_call_fn=_harness_llm_call,
                         existing_response=final_response,
                         context_messages=self.messages[:-1],
+                        receipt_summaries=_receipt_text,
                     )
                     if critique_result.was_revised:
                         final_response = critique_result.response
@@ -642,6 +650,30 @@ class NallyAgent:
                 _is_partial = bool(_v.should_block)
                 if _v.guardrail_blocked and _v.guardrail_warnings:
                     final_response = f"[Blocked by guardrail] {_v.guardrail_warnings[0]}"
+                elif _v.should_correct and _v.correction_prompt:
+                    logger.warning(
+                        f"Verification: {_v.unsupported} unsupported, {_v.contradicted} contradicted — "
+                        f"attempting correction rewrite"
+                    )
+                    try:
+                        from .llm import call_llm as _verify_call_llm
+                        _corrected = _verify_call_llm(
+                            messages=[
+                                {"role": "system", "content": (
+                                    "You are Nally. Fix your previous response based on the verification feedback. "
+                                    "If tool receipts show actions succeeded, your correction MUST reflect that reality. "
+                                    "Output ONLY the corrected response, no preamble."
+                                )},
+                                {"role": "user", "content": _v.correction_prompt},
+                            ],
+                            temperature=0.1,
+                        )
+                        if _corrected and not _corrected.startswith("Error"):
+                            final_response = _corrected
+                            _verified_ok = True
+                            logger.info("Final verification: correction rewrite applied")
+                    except Exception as corr_err:
+                        logger.warning(f"Correction rewrite failed: {corr_err}")
                 elif _v.should_block and _v.partial_reason:
                     final_response = f"[TASK NOT COMPLETE] {_v.partial_reason}\n\n{final_response}"
                     _is_partial = True

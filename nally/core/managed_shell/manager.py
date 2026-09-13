@@ -24,7 +24,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -361,7 +361,7 @@ class ManagedShellManager:
         out: List[dict] = []
         with self._lock:
             live_ids = set(self._sessions.keys())
-            for sid, rec in list(self._sessions.items()):
+            for _sid, rec in list(self._sessions.items()):
                 sess = self._refresh_status(rec)
                 out.append(asdict(sess))
         # Also include on-disk orphans not in live

@@ -1,7 +1,5 @@
-import sqlite3
 import os
-import shutil
-import time
+import sqlite3
 
 print("=" * 60)
 print("CLEARING ALL NALLY SESSIONS")
@@ -97,12 +95,12 @@ if os.path.exists(db_path):
     try:
         conn.execute("DELETE FROM pending_approvals")
         print("  pending_approvals: cleared")
-    except:
+    except Exception:
         pass
     try:
         conn.execute("DELETE FROM stream_events")
         print("  stream_events: cleared")
-    except:
+    except Exception:
         pass
     conn.commit()
     conn.close()

@@ -6,8 +6,7 @@ Master DB schema (single Neon DB):
 """
 
 import time
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from ..config import DATABASE_URL, LAYERBASE_API_KEY, LAYERBASE_DB_ID
 from ..utils.logger import logger

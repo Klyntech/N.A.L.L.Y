@@ -31,7 +31,7 @@ class HookConfig:
     tool_pattern: Optional[str] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "HookConfig":
+    def from_dict(cls, data: dict) -> HookConfig:
         # Support both string and dict
         event = HookEvent(data.get("event", "PreToolUse"))
         matcher = data.get("matcher", "*")
@@ -102,7 +102,7 @@ class HookResult:
     timed_out: bool = False
 
     @classmethod
-    def from_json(cls, data: dict, exit_code: int = 0, stdout: str = "", stderr: str = "", timed_out: bool = False) -> "HookResult":
+    def from_json(cls, data: dict, exit_code: int = 0, stdout: str = "", stderr: str = "", timed_out: bool = False) -> HookResult:
         if not isinstance(data, dict):
             return cls(decision="allow", exit_code=exit_code, stdout=stdout, stderr=stderr, timed_out=timed_out)
         # Hook stdout may be {"hookSpecificOutput": {"permissionDecision": "deny", ...}} or direct
@@ -122,5 +122,5 @@ class HookResult:
         )
 
     @classmethod
-    def passthrough(cls, exit_code: int = 0, stdout: str = "", stderr: str = "", timed_out: bool = False) -> "HookResult":
+    def passthrough(cls, exit_code: int = 0, stdout: str = "", stderr: str = "", timed_out: bool = False) -> HookResult:
         return cls(decision="allow", exit_code=exit_code, stdout=stdout, stderr=stderr, timed_out=timed_out)

@@ -20,13 +20,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger("nally.task_router")
 
 
-class Strategy(str, Enum):
+class Strategy(StrEnum):
     """Canonical execution strategies.
 
     Lifecycle: a strategy is a temporary per-request execution mode, not a
@@ -110,11 +110,7 @@ def _detect_plan_signals(text: str) -> bool:
     sentences = lower.count(".") + lower.count("!") + lower.count("?")
     action_kw = ("build", "create", "deploy", "migrate", "configure", "implement", "set up", "setup")
     has_action = any(kw in lower for kw in action_kw)
-    if hits >= 1:
-        return True
-    if sentences >= 3 and has_action and len(lower.split()) >= 40:
-        return True
-    return False
+    return hits >= 1 or (sentences >= 3 and has_action and len(lower.split()) >= 40)
 
 
 def route_from_classification(

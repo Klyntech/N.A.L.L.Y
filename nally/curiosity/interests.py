@@ -24,7 +24,7 @@ _STOPWORDS = frozenset({
     "here", "once", "only", "own", "same", "its", "my", "your", "his",
     "her", "our", "their", "me", "him", "us", "them", "i", "you", "he",
     "she", "we", "they", "am", "as", "get", "got", "make", "made",
-    "like", "just", "now", "still", "even", "way", "well", "back",
+    "like", "now", "still", "even", "way", "well", "back",
     "good", "new", "first", "last", "long", "great", "little", "right",
     "big", "high", "old", "different", "next", "small", "large", "part",
     "say", "said", "go", "going", "come", "came", "take", "took",
@@ -36,8 +36,7 @@ _STOPWORDS = frozenset({
     "query", "string", "list", "data", "type", "function", "class",
     "module", "import", "return", "true", "false", "none", "null",
     "value", "key", "item", "element", "object", "result", "output",
-    "input", "default", "user", "config", "option", "command", "run",
-    "using", "use", "used", "check", "checked", "make", "made",
+    "input", "default", "user", "config", "option", "command", "using", "check", "checked",
 })
 
 # Tool names that signal specific interests

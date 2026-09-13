@@ -302,8 +302,8 @@ class ContextManager:
 
         # ── Complementary: weighted SemanticMemoryEngine (hydrates on cold start) ──
         try:
-            from .semantic_memory import semantic_memory as _sem
             from ..memory import memory_store as _store
+            from .semantic_memory import semantic_memory as _sem
             if not getattr(_sem, "_memories", None):
                 try:
                     _sem.hydrate_from_store(store=_store, limit=200)

@@ -10,10 +10,9 @@ Each SOP defines:
     - Output schema (Pydantic model)
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nally.sop")
 
@@ -180,7 +179,7 @@ class SOPEngine:
             f"Goal: {step.description}",
         ]
         if context:
-            parts.append(f"\nContext from previous steps:")
+            parts.append("\nContext from previous steps:")
             for k, v in context.items():
                 parts.append(f"  {k}: {str(v)[:200]}")
         if step.output_fields:

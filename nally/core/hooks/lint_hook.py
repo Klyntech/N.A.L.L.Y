@@ -9,6 +9,7 @@ import pathlib
 import py_compile
 import sys
 
+
 def main():
     try:
         data = json.load(sys.stdin)

@@ -27,18 +27,16 @@ from ..config import (
     ACTIVE_MODEL,
     APPROVAL_TIMEOUT,
     BUDGET_WARN_THRESHOLD,
-    CONTEXT_MAX_TOKENS,
     DATA_DIR,
     DATABASE_URL,
     DUPLICATE_TOOL_THRESHOLD,
     MAX_AGENT_WALL_TIME,
-    MAX_TOOL_FAILURES_PER_TURN,
     MAX_TOOL_CALLS,
+    MAX_TOOL_FAILURES_PER_TURN,
     MAX_TOOL_OUTPUT,
     PLAN_ENABLED,
     RECURSION_LIMIT,
     SESSION_ID,
-    TOKEN_WARN_THRESHOLD,
     TOOL_RETRY_LIMIT,
     WALL_TIME_OVERRIDES,
     ensure_data_dir,
@@ -338,9 +336,7 @@ _RETRYABLE_ERROR_HINTS = (
 def _tool_is_destructive(tool_name: str, tool_args: dict) -> bool:
     if tool_name in _NON_RETRYABLE_TOOLS:
         return True
-    if tool_name == "file_ops" and tool_args.get("action") in ("delete", "move", "copy"):
-        return True
-    return False
+    return tool_name == "file_ops" and tool_args.get("action") in ("delete", "move", "copy")
 
 
 def _is_transient_error(result: str) -> bool:
@@ -397,7 +393,7 @@ def _execute_tool_with_retry(tool_name: str, tool_args: dict, tool_id: str):
 
 
 # ── Thread-local state ────────────────────────────────────
-from .emit_context import _get_emit, _set_emit, get_emit, set_emit  # noqa: F401
+from .emit_context import _get_emit, _set_emit, get_emit, set_emit  # noqa: E402, F401
 
 
 def _ensure_tracer_store():
@@ -508,7 +504,7 @@ def _has_duplicate_tool_calls(messages: list, window: int = 10) -> bool:
                 try:
                     key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=True)}"
                 except Exception:
-                    key = f"{name}:{str(args)}"
+                    key = f"{name}:{args!s}"
                 seen[key] = seen.get(key, 0) + 1
                 if seen[key] >= effective_threshold:
                     return True
@@ -1436,9 +1432,9 @@ def tool_executor(state: AgentState) -> AgentState:
 
         # ── Harness v2: Tool-Result Verification (Phase 4) ──
         try:
-            from ..config import HARNESS_ENABLED, HARNESS_VERIFY_ENABLED, HARNESS_SCRATCHPAD_ENABLED
+            from ..config import HARNESS_ENABLED, HARNESS_SCRATCHPAD_ENABLED, HARNESS_VERIFY_ENABLED
             if HARNESS_ENABLED and HARNESS_VERIFY_ENABLED:
-                from .harness import verify_tool_result, _TOOL_VERIFY_MAX_RETRIES
+                from .harness import verify_tool_result
                 # Get objective from state if available
                 _objective = ""
                 _intent = state.get("intent_class", "")
@@ -1548,7 +1544,7 @@ def tool_executor(state: AgentState) -> AgentState:
         # Track files created, read, and executed so Nally can resume without re-reading everything.
         if success:
             try:
-                from ..tools.task_state import task_state_manager, TaskState
+                from ..tools.task_state import TaskState, task_state_manager
 
                 # Brain session_id (stable), not LangGraph fresh_thread and not
                 # process-wide SESSION_ID alone — matches NallyAgent._session_id.
@@ -1611,7 +1607,6 @@ def tool_executor(state: AgentState) -> AgentState:
         return ToolMessage(content=str(result)[:MAX_TOOL_OUTPUT], tool_call_id=tool_id)
 
     tool_messages = []
-    waits = []
 
     # Capture current tracing context BEFORE dispatching to pool threads
     # (thread-local span stack does not propagate into ThreadPoolExecutor).
@@ -1850,6 +1845,7 @@ def create_agent_graph():
 
     # ── Planning nodes (optional) ──
     if PLAN_ENABLED:
+        from .human_checkpoint import human_checkpoint_node
         from .planner import (
             classify_node,
             critique_node,
@@ -1862,7 +1858,6 @@ def create_agent_graph():
             route_after_replan,
             synthesize_node,
         )
-        from .human_checkpoint import human_checkpoint_node
 
         graph.add_node("classify", classify_node)
         graph.add_node("planner", planner_node)

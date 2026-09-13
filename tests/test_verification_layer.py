@@ -6,8 +6,6 @@ trust_score to control whether the response reaches the composer.
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from nally.agent.verification.layer import (
     VerificationLayer,
     VerificationTurnResult,
@@ -16,7 +14,6 @@ from nally.agent.verification.layer import (
     verification_layer,
 )
 from nally.tools.receipts import Receipt
-
 
 # ── Helpers ────────────────────────────────────────────────
 

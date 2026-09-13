@@ -74,10 +74,7 @@ class CuriosityScanner:
             return False
 
         last_scan = self._get_last_scan_time()
-        if time.time() - last_scan < self._interval:
-            return False
-
-        return True
+        return time.time() - last_scan >= self._interval
 
     def _scan(self):
         """Run a curiosity scan cycle."""

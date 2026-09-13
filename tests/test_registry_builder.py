@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
-
 import pytest
 
 
@@ -37,7 +34,7 @@ def test_load_all_tools_registers_builtins_once():
     pytest.importorskip("openai")
     from nally.tools import is_tools_loaded, load_all_tools, registry
 
-    count1, mcp1 = load_all_tools()
+    count1, _mcp1 = load_all_tools()
     assert is_tools_loaded()
     assert count1 >= 10
 
@@ -80,8 +77,8 @@ def test_tool_registry_builder_build():
 
 def test_no_circular_import_tools_registry_builder():
     """registry -> registry_builder -> registry must not explode."""
-    from nally.tools.registry import registry as singleton
     from nally.tools import registry_builder as rb
+    from nally.tools.registry import registry as singleton
 
     assert singleton is not None
     assert callable(rb.load_all_tools)

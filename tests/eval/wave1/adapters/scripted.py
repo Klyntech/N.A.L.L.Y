@@ -17,16 +17,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from tests.eval.wave1.config import FROZEN
-
 Protocol = Any  # TaskSpec union across suites
 
 
 def scripted_gold(task: Protocol) -> List[Dict[str, Any]]:
     """Deterministic oracle: replays the task's own gold."""
     # suite_t/a/c: gold_tool_sequence with {name, args}
-    if hasattr(task, "gold_tool_sequence") and getattr(task, "gold_tool_sequence"):
-        seq = getattr(task, "gold_tool_sequence")
+    if hasattr(task, "gold_tool_sequence") and task.gold_tool_sequence:
+        seq = task.gold_tool_sequence
         return [{"role": "agent", "name": s.get("name", s.get("action")), "args": dict(s.get("args", {}))} for s in seq]
     # suite_p: gold is a structured output (plan / verdict / predicted_state)
     gold = getattr(task, "gold", {}) or {}

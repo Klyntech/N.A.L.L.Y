@@ -13,15 +13,14 @@ This decoupling is what makes the full loop drivable end-to-end by
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .approaches import ensure_categories, parse_approaches
 from .intake import (
     is_ambiguous,
     parse_assumptions,
     parse_task,
 )
-from .approaches import ensure_categories, parse_approaches
 from .models import (
     Approach,
     ApproachScore,

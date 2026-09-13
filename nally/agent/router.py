@@ -8,9 +8,9 @@ eval, jokes, etc.) were intentionally removed. They belong behind permission
 gates, not regex.
 """
 
+import re
 from datetime import datetime
 from typing import Callable, List, Optional
-import re
 
 
 class Pattern:

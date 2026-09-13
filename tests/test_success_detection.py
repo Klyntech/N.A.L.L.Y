@@ -9,8 +9,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from nally.tools.registry import _result_is_success
 from nally.agent.llm import call_llm
+from nally.tools.registry import _result_is_success
 
 
 def test_error_prefix_is_failure():

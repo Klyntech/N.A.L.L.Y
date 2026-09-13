@@ -10,14 +10,14 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 _project_root = str(Path(__file__).parent.parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from tests.eval.suite_p.schema import TaskSpec, load_all_tasks
-from tests.eval.suite_p.scorer import score_task
+from tests.eval.suite_p.schema import TaskSpec, load_all_tasks  # noqa: E402
+from tests.eval.suite_p.scorer import score_task  # noqa: E402
 
 AgentOutputBuilder = Callable[[TaskSpec], Dict[str, Any]]
 

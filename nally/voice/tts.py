@@ -12,7 +12,6 @@ import io
 import logging
 import struct
 import time
-import typing
 import urllib.request
 from pathlib import Path
 
@@ -291,7 +290,7 @@ class ElevenLabsBackend(TTSBackend):
 
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=recv_timeout)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         if first_audio_at is None:
                             # Still no audio — fast failure
                             logger.warning(
@@ -446,7 +445,7 @@ class FishAudioBackend(TTSBackend):
     name = "fishaudio"
 
     def _get_config(self):
-        from ..config import FISH_API_KEY, FISH_VOICE_ID, FISH_MODEL
+        from ..config import FISH_API_KEY, FISH_MODEL, FISH_VOICE_ID
         if not FISH_API_KEY:
             raise ValueError("FISH_API_KEY not set")
         return FISH_API_KEY, FISH_VOICE_ID, FISH_MODEL
@@ -455,8 +454,10 @@ class FishAudioBackend(TTSBackend):
         if not text or not text.strip():
             return
         try:
+            import io
+            import wave
+
             import sounddevice as sd
-            import io, wave
             wav_bytes = self.synthesize_to_wav(text)
             if not wav_bytes:
                 print(f"[TTS unavailable] {text}")
@@ -523,7 +524,6 @@ class FishAudioBackend(TTSBackend):
         Uses Fish Audio's streaming endpoint when available, falling back to a
         single convert() call that is decoded + resampled.
         """
-        import asyncio
 
         from fishaudio import AsyncFishAudio
         from fishaudio.types.tts import TTSConfig
@@ -644,8 +644,9 @@ def _resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
         logger.debug(f"soxr resample failed ({e}), trying scipy")
     # Try scipy polyphase
     try:
-        from scipy.signal import resample_poly  # type: ignore
         import math
+
+        from scipy.signal import resample_poly  # type: ignore
 
         audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
         g = math.gcd(int(src_rate), int(dst_rate))

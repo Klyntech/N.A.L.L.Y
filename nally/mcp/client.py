@@ -452,7 +452,7 @@ def _run_connect_http(server_config: dict, reg, timeout: float = 10.0) -> int:
         loop.run_until_complete(
             asyncio.wait_for(connect_http_server(server_config, reg), timeout=timeout)
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         name = server_config.get("name", "unknown")
         raise TimeoutError(f"MCP HTTP server '{name}' timed out after {timeout}s")
     finally:
@@ -544,7 +544,7 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str, tim
 
     try:
         tools = _run_coro_safely(asyncio.wait_for(_fetch_tools(), timeout=timeout))
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise TimeoutError(f"MCP server '{name}' timed out after {timeout}s")
     finally:
         mcp_logger.setLevel(prev_level)

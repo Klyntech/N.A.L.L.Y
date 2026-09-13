@@ -400,7 +400,7 @@ class _NoOpCursor:
 
 class _PostgresRow:
     """Dict-like wrapper over Postgres tuple rows (supports row['col'] and row[0])."""
-    __slots__ = ("_data", "_keys", "_key_list")
+    __slots__ = ("_data", "_key_list", "_keys")
 
     def __init__(self, row_tuple, description):
         self._data = row_tuple

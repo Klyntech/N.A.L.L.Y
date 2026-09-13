@@ -12,10 +12,10 @@ them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Literal
 import hashlib
 import json
+from dataclasses import asdict, dataclass, field
+from typing import Dict, List, Literal
 
 WAVE1_CONFIG_VERSION = "wave1-v1.0-frozen-2026-09-06"
 

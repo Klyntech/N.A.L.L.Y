@@ -1,7 +1,7 @@
 """SubAgent Tool - Delegate tasks to autonomous sub-agents"""
 
-from ..tools.registry import Tool, registry
 from ..config import MAX_SUBAGENT_DEPTH
+from ..tools.registry import Tool, registry
 from .pool import pool
 
 

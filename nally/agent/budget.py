@@ -157,7 +157,7 @@ class ExecutionBudget:
         max_iterations: int = 30,
         max_tool_calls: int = 50,
         max_failures: int = 5,
-    ) -> "ExecutionBudget":
+    ) -> ExecutionBudget:
         """Rebuild a budget view from LangGraph state.
 
         Prefers the authoritative ``deadline`` field when present; falls back

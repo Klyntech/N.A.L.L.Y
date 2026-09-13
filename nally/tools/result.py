@@ -48,17 +48,17 @@ class ToolResult:
         return self.to_llm_text(), self.ok
 
     @classmethod
-    def success(cls, value: Any = None, **metadata: Any) -> "ToolResult":
+    def success(cls, value: Any = None, **metadata: Any) -> ToolResult:
         meta = {k: v for k, v in metadata.items() if v is not None}
         return cls(ok=True, value=value, error=None, metadata=meta)
 
     @classmethod
-    def failure(cls, error: str, value: Any = None, **metadata: Any) -> "ToolResult":
+    def failure(cls, error: str, value: Any = None, **metadata: Any) -> ToolResult:
         meta = {k: v for k, v in metadata.items() if v is not None}
         return cls(ok=False, value=value, error=error, metadata=meta)
 
     @classmethod
-    def from_legacy(cls, tool_name: str, raw: Any) -> "ToolResult":
+    def from_legacy(cls, tool_name: str, raw: Any) -> ToolResult:
         """Adapt a legacy tool return value into ToolResult.
 
         - ToolResult → returned as-is

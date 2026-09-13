@@ -2,7 +2,7 @@
 
 import pytest
 
-from nally.voice.formatter import VoiceFormatter, VoiceConfig, VoiceMode, format_for_voice
+from nally.voice.formatter import VoiceFormatter, VoiceMode, format_for_voice
 
 
 class TestVoiceFormatter:

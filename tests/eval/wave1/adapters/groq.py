@@ -13,10 +13,9 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 from typing import Any, Dict, List
 
-from tests.eval.wave1.config import FROZEN, DEFAULT_TEMPERATURE
+from tests.eval.wave1.config import DEFAULT_TEMPERATURE, FROZEN
 
 PROVIDER_ID = "groq/llama-3.3"
 MODEL = "llama-3.3-70b-versatile"
@@ -130,7 +129,6 @@ def adapter(task: Any, temperature: float = DEFAULT_TEMPERATURE, max_calls: int 
     Respects FROZEN budget and temperature; provider is fixed to Groq.
     Returns [] on missing API key (caller treats as 0-score, never crashes harness).
     """
-    from tests.eval.suite_t.world import SimWorld
 
     max_calls = max_calls or FROZEN.budget["MAX_TOOL_CALLS"]
     seed = getattr(task, "seed", 0)
@@ -188,7 +186,7 @@ def _adapter_simworld(task: Any, temperature: float, max_calls: int, seed: int) 
             if name == "end_conversation":
                 break
             # execute in SimWorld and feed back
-            ok, out = world.apply_tool(name, args)
+            _ok, out = world.apply_tool(name, args)
             messages.append({"role": "assistant", "content": content, "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": name, "arguments": tc.function.arguments or "{}"}}]})
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": _truncate(out, 2000)})
         # check if we already ended
@@ -220,7 +218,7 @@ def _adapter_p_world(task: Any, temperature: float) -> List[Dict[str, Any]]:
     try:
         resp = client.chat.completions.create(model=MODEL, messages=messages, temperature=temperature, max_tokens=1024)
         text = resp.choices[0].message.content or ""
-    except Exception as e:
+    except Exception:
         return []
     # parse according to task type
     if getattr(task, "type", None) in ("generation", "optimal", "replan", "reuse"):

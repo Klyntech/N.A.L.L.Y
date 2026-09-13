@@ -1,6 +1,6 @@
 """NALLY Benchmark Suite — one-time performance evaluation."""
 
+from .cases import ALL_TASKS, Task, TaskCategory
 from .runner import BenchmarkSuite
-from .cases import Task, TaskCategory, ALL_TASKS
 
-__all__ = ["BenchmarkSuite", "Task", "TaskCategory", "ALL_TASKS"]
+__all__ = ["ALL_TASKS", "BenchmarkSuite", "Task", "TaskCategory"]

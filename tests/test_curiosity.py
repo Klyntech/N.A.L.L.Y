@@ -1,14 +1,9 @@
 """Tests for Nally Curiosity — proactive learning system."""
 
-import json
-import os
 import sqlite3
-import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # ── Interest Inference ────────────────────────────────────
 
@@ -264,8 +259,9 @@ class TestStoreTTL:
         assert val == "ttl_value"
 
     def test_prune_expired(self, tmp_dir):
-        from nally.memory.store import MemoryRepository
         from datetime import datetime, timedelta
+
+        from nally.memory.store import MemoryRepository
         db = Path(tmp_dir) / "test_prune.db"
         store = MemoryRepository(db_path=db)
 
@@ -297,8 +293,9 @@ class TestStoreTTL:
         assert val == "valid_val"
 
     def test_recall_skips_expired_by_default(self, tmp_dir):
-        from nally.memory.store import MemoryRepository
         from datetime import datetime, timedelta
+
+        from nally.memory.store import MemoryRepository
         db = Path(tmp_dir) / "test_recall.db"
         store = MemoryRepository(db_path=db)
 

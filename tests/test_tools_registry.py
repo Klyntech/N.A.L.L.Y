@@ -1,8 +1,7 @@
 """Tests for nally.tools.registry — ToolError handling and success detection."""
 
-import pytest
 from nally.core.errors import ToolError
-from nally.tools.registry import ToolRegistry, Tool, _result_is_success
+from nally.tools.registry import Tool, ToolRegistry, _result_is_success
 
 
 class TestResultIsSuccess:

@@ -8,10 +8,9 @@ Reads test cases from JSON files, runs them through the harness classifier
 """
 
 import json
-import os
 import sys
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -75,7 +74,7 @@ def load_cases(cases_dir: Optional[str] = None) -> List[EvalCase]:
 
 def run_eval_case(case: EvalCase) -> EvalResult:
     """Run a single eval case through the harness classifier."""
-    from nally.agent.harness import classify_intent, TaskClass
+    from nally.agent.harness import classify_intent
 
     start = time.time()
 
@@ -117,7 +116,7 @@ def run_eval_case(case: EvalCase) -> EvalResult:
 
 def _check_pass_criteria(case: EvalCase, classification) -> bool:
     """Check if pass criteria are met (heuristic, not LLM-based)."""
-    criteria = case.pass_criteria.lower()
+    _criteria = case.pass_criteria.lower()
 
     # For injection cases, check that the classification is reasonable
     if "injection" in case.id:
@@ -170,7 +169,7 @@ def run_all_evals(cases_dir: Optional[str] = None) -> Dict[str, Any]:
 def print_results(summary: Dict[str, Any]):
     """Print eval results in a readable format."""
     print(f"\n{'='*60}")
-    print(f"  HARNESS EVALUATION RESULTS")
+    print("  HARNESS EVALUATION RESULTS")
     print(f"{'='*60}")
     print(f"  Total cases:    {summary['total']}")
     print(f"  Passed:         {summary['passed']}")

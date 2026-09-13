@@ -23,17 +23,17 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import List
 
 from .speech_pipeline import (
     SpeechSegment as _EngineSegment,
+)
+from .speech_pipeline import (
     detect_user_sentiment,
     process_for_speech,
     process_for_speech_flat,
     split_into_sentences,
 )
-
 
 # Re-export segment type so callers don't import the engine directly.
 SpeechSegment = _EngineSegment

@@ -16,8 +16,8 @@ try:
     from duckduckgo_search import DDGS
 except ImportError:
     DDGS = None
-from .registry import Tool
 from ._retry import retry_transient
+from .registry import Tool
 
 logger = logging.getLogger("nally.tools.websearch")
 

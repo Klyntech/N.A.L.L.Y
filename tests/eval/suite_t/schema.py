@@ -94,7 +94,7 @@ class TaskSpec:
         return errors
 
     def _has_cycle(self, mids: List[str]) -> bool:
-        order = {mid: i for i, mid in enumerate(mids)}
+        _order = {mid: i for i, mid in enumerate(mids)}
         adjacent = {m.id: [d for d in m.after] for m in self.milestones}
         visiting, done = set(), set()
 

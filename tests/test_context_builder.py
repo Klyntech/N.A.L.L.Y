@@ -8,12 +8,8 @@ Acceptance conditions:
 
 import copy
 from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
 
-import pytest
-
-from nally.agent.context_builder import BuiltContext, ContextBuilder, context_builder
-
+from nally.agent.context_builder import ContextBuilder, context_builder
 
 # ── Helpers ────────────────────────────────────────────────
 

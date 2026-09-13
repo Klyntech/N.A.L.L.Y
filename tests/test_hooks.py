@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from nally.core.hooks.manager import HookManager
-from nally.core.hooks.models import HookEvent
 
 
 def _py_cmd(code: str) -> str:

@@ -11,12 +11,9 @@ Acceptance conditions:
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from nally.tools.router_types import BUILTIN_ROUTES, CapabilityTag, RoutingDecision, ToolRoute
-from nally.tools.capability_router import CapabilityRouter, capability_router
+from nally.tools.capability_router import CapabilityRouter
 from nally.tools.registry import Tool, ToolRegistry
-
+from nally.tools.router_types import BUILTIN_ROUTES, CapabilityTag, RoutingDecision, ToolRoute
 
 # ── Helper: minimal in-memory registry for testing ───────────
 

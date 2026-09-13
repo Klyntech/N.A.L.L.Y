@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
-from ..utils.logger import logger
 from ..core.tracing import tracer
+from ..utils.logger import logger
 
 
 def _get_filtered_tools(query: str) -> List[Dict]:

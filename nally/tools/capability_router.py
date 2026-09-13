@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Set
 
-from .router_types import BUILTIN_ROUTES, CapabilityTag, RoutingDecision, ToolRoute
+from .router_types import BUILTIN_ROUTES, RoutingDecision, ToolRoute
 
 logger = logging.getLogger("nally.capability_router")
 

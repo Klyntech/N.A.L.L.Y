@@ -2,9 +2,11 @@
 
 import os
 import tempfile
-import pytest
 from pathlib import Path
-from nally.tools.files import ReadFile, FileOps, _is_safe_write_path, _validate_file
+
+import pytest
+
+from nally.tools.files import FileOps, ReadFile, _is_safe_write_path, _validate_file
 
 
 @pytest.fixture

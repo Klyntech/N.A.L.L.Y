@@ -9,8 +9,6 @@ toolbox + sandboxed workspace) and runs it, returning a short summary string
 
 from __future__ import annotations
 
-from typing import Dict
-
 from .loop import EngineeringLoop
 from .models import EngineeringError
 from .protocol import NallyLLMBackend

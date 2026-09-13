@@ -1,20 +1,20 @@
 """Judges — evaluation functions for each benchmark metric.
 
-Each judge takes a TaskResult and returns a score (0.0–1.0) plus details.
+Each judge takes a TaskResult and returns a score (0.0-1.0) plus details.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from .cases import Task, TaskCategory
 
 
 @dataclass
 class JudgeResult:
-    score: float  # 0.0 – 1.0
+    score: float  # 0.0 - 1.0
     details: str = ""
     passed: bool = True
     evidence: Dict[str, Any] = field(default_factory=dict)
@@ -110,7 +110,7 @@ def judge_failure_recovery(task: Task, receipts: list, response: str) -> JudgeRe
     else:
         score = 0.0
         details = "Falsely claimed success despite tool failure"
-        passed = False
+        _passed = False
 
     return JudgeResult(
         score=score,

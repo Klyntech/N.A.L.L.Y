@@ -16,7 +16,7 @@ import hashlib
 import json
 import re
 from datetime import date, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 OUTPUT_CAP = 5000  # test-side truncation; independent of NALLY_MAX_TOOL_OUTPUT
 
@@ -171,7 +171,7 @@ class SimWorld:
         if not re.fullmatch(r"[\d\s+\-*/().%]+", expr):
             return False, "ValueError: expression must be arithmetic only"
         try:
-            value = eval(expr, {"__builtins__": {}}, {})  # noqa: S307 (sandboxed grammar)
+            value = eval(expr, {"__builtins__": {}}, {})
         except Exception as e:
             return False, f"CalcError: {e}"
         if isinstance(value, float) and value.is_integer():

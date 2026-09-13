@@ -4,10 +4,8 @@ Extends Nally's existing tracer with dashboard-ready data formats.
 Provides structured trace data for visualization in web UI.
 """
 
-import json
 import logging
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nally.tracing_dashboard")

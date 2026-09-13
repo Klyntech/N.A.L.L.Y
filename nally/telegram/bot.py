@@ -10,10 +10,13 @@ ffmpeg required for voice support.
 
 import asyncio
 import io
+
+# ── DNS 11001 spam filter: collapse httpx getaddrinfo failures to one warning ──
+import logging as _logging
 import os
 import secrets
-import time
 import threading
+import time
 from typing import Optional
 
 from telegram.constants import UpdateType
@@ -33,8 +36,6 @@ from ..agent.sessions import session_manager
 from ..utils.logger import logger
 from .format import md_to_telegram_html
 
-# ── DNS 11001 spam filter: collapse httpx getaddrinfo failures to one warning ──
-import logging as _logging
 
 class _GetAddrInfoFilter(_logging.Filter):
     """Collapse Telegram polling DNS failures (11001 getaddrinfo) to a single warning.
@@ -202,6 +203,7 @@ def _clean_message_text(text: str) -> str:
 def _get_stream_db():
     """Get/create the stream_events table for Telegram streaming."""
     import sqlite3
+
     from ..config import DATA_DIR
     db_path = DATA_DIR / "nally.db"
     conn = sqlite3.connect(db_path, timeout=30.0)
@@ -268,6 +270,7 @@ def _clear_stream_events(session_id: str):
 def _get_callback_db():
     """Get/create the callback_id_map table for cross-process truncation resolve."""
     import sqlite3
+
     from ..config import DATA_DIR
     db_path = DATA_DIR / "nally.db"
     conn = sqlite3.connect(db_path, timeout=30.0)
@@ -554,7 +557,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command — show system health."""
     import time
-    from ..config import ACTIVE_MODEL, DAILY_TOKEN_BUDGET, PROVIDER
+
+    from ..config import ACTIVE_MODEL, PROVIDER
 
     # Uptime
     uptime = time.time() - _start_time
@@ -775,7 +779,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Outbound file markers (IMAGE_FILE: / SEND_FILE:) — send as Telegram attachments
     try:
-        from .media import parse_outbound_files, strip_file_markers, send_attachments_bot
+        from .media import parse_outbound_files, send_attachments_bot, strip_file_markers
         out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
         if out_files:
             cleaned = strip_file_markers(text_response)
@@ -900,7 +904,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # If agent also produced files (e.g. image gen via voice), send them
         try:
-            from .media import parse_outbound_files, send_attachments_bot, strip_file_markers
+            from .media import parse_outbound_files, send_attachments_bot
             out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
             if out_files:
                 await send_attachments_bot(context.bot, chat.id, out_files)
@@ -952,7 +956,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Download media to inbox and build combined prompt
     combined = caption
     try:
-        from .media import save_bot_media, build_agent_input, analyze_image_for_game
+        from .media import analyze_image_for_game, build_agent_input, save_bot_media
         saved_path, media_desc = await save_bot_media(context.bot, message, ref.route_key)
         if saved_path and saved_path.suffix.lower() in {".jpg",".jpeg",".png",".webp",".gif",".bmp"}:
             try:
@@ -962,8 +966,9 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     media_desc += f"\n\n{vision_block}\n\n[Instruction: Use the Vision analysis above as the primary source. Do not run PIL/code to re-analyze the image — answer directly from Vision. This is the authoritative description.]"
                     # Record a receipt so the claim verifier sees this as grounded
                     try:
-                        from nally.tools.receipts import receipt_store
                         import uuid
+
+                        from nally.tools.receipts import receipt_store
                         receipt_store.record(
                             tool_call_id=f"vision_{uuid.uuid4().hex[:8]}",
                             tool="vision_analyze",
@@ -1049,7 +1054,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Outbound files
     try:
-        from .media import parse_outbound_files, strip_file_markers, send_attachments_bot
+        from .media import parse_outbound_files, send_attachments_bot, strip_file_markers
         out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
         if out_files:
             cleaned = strip_file_markers(text_response)
@@ -1203,7 +1208,7 @@ async def _generate_voice_summary(text: str) -> str:
 
 async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE):
     """Log errors from the telegram bot — collapse DNS 11001 to one warning."""
-    from telegram.error import TimedOut, NetworkError
+    from telegram.error import NetworkError, TimedOut
     error = context.error
     err_str = str(error) if error else ""
     # DNS / network down — already filtered to one warning every 30s, just log compactly

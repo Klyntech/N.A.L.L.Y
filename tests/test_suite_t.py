@@ -8,24 +8,22 @@ diagnostics separation), and world simulation edge cases.
 import sys
 from pathlib import Path
 
-import pytest
-
 _project_root = str(Path(__file__).parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from tests.eval.suite_t.pilot import (
+from tests.eval.suite_t.pilot import (  # noqa: E402
     degraded_trajectory,
     hallucinating_trajectory,
 )
-from tests.eval.suite_t.runner import (
+from tests.eval.suite_t.runner import (  # noqa: E402
     gold_trajectory,
     noop_trajectory,
     replay,
     run_suite,
 )
-from tests.eval.suite_t.schema import load_all_tasks, load_task
-from tests.eval.suite_t.world import SimWorld
+from tests.eval.suite_t.schema import load_all_tasks, load_task  # noqa: E402
+from tests.eval.suite_t.world import SimWorld  # noqa: E402
 
 TASKS_DIR = Path(__file__).parent / "eval" / "suite_t" / "tasks"
 

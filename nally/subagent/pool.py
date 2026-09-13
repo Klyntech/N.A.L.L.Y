@@ -6,9 +6,9 @@ import threading
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
-from .agent import SubAgent
 from ..config import MAX_SUBAGENT_DEPTH
 from ..core.tracing import tracer
+from .agent import SubAgent
 
 logger = logging.getLogger("nally.subagent.pool")
 

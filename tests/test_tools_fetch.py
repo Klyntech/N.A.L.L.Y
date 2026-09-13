@@ -1,9 +1,11 @@
 """Tests for nally.tools.fetch — FetchTool with retry and SSL config."""
 
 import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from nally.tools.fetch import FetchTool, _fetch_url, VERIFY_SSL
+
+from nally.tools.fetch import VERIFY_SSL, FetchTool, _fetch_url
 
 
 @pytest.fixture
@@ -38,6 +40,7 @@ class TestVerifySSL:
         with patch.dict(os.environ, {"NALLY_VERIFY_SSL": "true"}):
             # Re-import to pick up env change
             import importlib
+
             import nally.tools.fetch as fetch_mod
             importlib.reload(fetch_mod)
             assert fetch_mod.VERIFY_SSL is True
@@ -48,6 +51,7 @@ class TestVerifySSL:
         """NALLY_VERIFY_SSL=1 also enables verification."""
         with patch.dict(os.environ, {"NALLY_VERIFY_SSL": "1"}):
             import importlib
+
             import nally.tools.fetch as fetch_mod
             importlib.reload(fetch_mod)
             assert fetch_mod.VERIFY_SSL is True

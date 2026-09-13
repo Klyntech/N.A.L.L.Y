@@ -194,8 +194,9 @@ class DeepgramStreamingSTT:
             try:
                 import importlib
                 import sys
-                import websockets as _ws
                 from contextlib import asynccontextmanager
+
+                import websockets as _ws
 
                 @asynccontextmanager
                 async def _proxy_disabled_connect(url, extra_headers=None, additional_headers=None, **kwargs):
@@ -428,7 +429,7 @@ class DeepgramStreamingSTT:
                     msg = await asyncio.wait_for(
                         self._socket.recv(), timeout=self.RECV_TIMEOUT
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(
                         f"deepgram_recv_timeout: no data for {self.RECV_TIMEOUT}s, reconnecting"
                     )
@@ -536,7 +537,7 @@ class DeepgramStreamingSTT:
         # Only log at DEBUG to avoid spamming, but keep a throttled INFO for empty/silent.
         try:
             await asyncio.wait_for(self._socket.send_media(audio_bytes), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("deepgram_send_timeout: send blocked 5s, marking disconnected")
             self._connected = False
         except Exception as e:
@@ -549,14 +550,14 @@ class DeepgramStreamingSTT:
             if timeout is None:
                 return await self._final_queue.get()
             return await asyncio.wait_for(self._final_queue.get(), timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     async def get_partial_transcript(self, timeout: float = 0.05) -> str | None:
         """Return the latest interim transcript, or None if none available."""
         try:
             return await asyncio.wait_for(self._partial_queue.get(), timeout)
-        except (asyncio.TimeoutError, asyncio.QueueEmpty):
+        except (TimeoutError, asyncio.QueueEmpty):
             return None
 
     @property

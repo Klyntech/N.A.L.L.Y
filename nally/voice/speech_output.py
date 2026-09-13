@@ -66,7 +66,7 @@ async def render_to_wav(
     # TTS backend — backend-agnostic, Fish primary for calls already handled
     # via get_backend() elsewhere; here we just use whatever is configured.
     try:
-        from .tts import get_backend, _build_wav, _wav_to_pcm
+        from .tts import _build_wav, _wav_to_pcm, get_backend
 
         backend = get_backend()
     except Exception as e:
@@ -128,10 +128,10 @@ async def render_to_wav(
 
     # Build final WAV at target_rate
     try:
-        from .tts import _build_wav
-
         # _build_wav expects PCM bytes and sample rate
         import numpy as np
+
+        from .tts import _build_wav
 
         pcm_array = np.frombuffer(bytes(pcm_accum), dtype=np.int16)
         return _build_wav(pcm_array.tobytes(), target_rate)

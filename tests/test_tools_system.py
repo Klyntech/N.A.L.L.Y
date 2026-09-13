@@ -1,8 +1,9 @@
 """Tests for nally.tools.system — RunCommand and SystemHealth."""
 
-import platform
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from nally.tools.system import RunCommand, SystemHealth, _get_shell, _normalize_powershell
 
 
@@ -28,7 +29,7 @@ class TestGetShell:
     @patch("nally.tools.system.platform.system", return_value="Windows")
     @patch("nally.tools.system.shutil.which", return_value="C:\\Program Files\\PowerShell\\7\\pwsh.exe")
     def test_windows_prefers_pwsh(self, mock_which, mock_platform):
-        executable, args = _get_shell()
+        executable, _args = _get_shell()
         assert "pwsh" in executable.lower() or "powershell" in executable.lower()
 
     @patch("nally.tools.system.platform.system", return_value="Linux")

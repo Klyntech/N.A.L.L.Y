@@ -10,7 +10,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -24,10 +23,10 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from .cases import ALL_TASKS, Task, TaskCategory, get_tasks_by_category
-from .cost import CostTracker
-from .judges import JudgeResult, run_judge
-from .reporter import (
+from .cases import Task, TaskCategory, get_tasks_by_category  # noqa: E402
+from .cost import CostTracker  # noqa: E402
+from .judges import run_judge  # noqa: E402
+from .reporter import (  # noqa: E402
     generate_json_report,
     generate_markdown_report,
     write_json_report,
@@ -57,7 +56,7 @@ class BenchmarkSuite:
     @staticmethod
     def _detect_current_model() -> str:
         try:
-            from nally.config import PROVIDER, ACTIVE_MODEL
+            from nally.config import ACTIVE_MODEL, PROVIDER
             return f"{PROVIDER}/{ACTIVE_MODEL}"
         except Exception:
             return "unknown"
@@ -82,8 +81,9 @@ class BenchmarkSuite:
 
         # Override permission gate — keep denys for adversarial, allow-all for others
         try:
-            from nally.tools.permissions import gate
             import json as _json
+
+            from nally.tools.permissions import gate
             # If adversarial tasks are in suite, use benchmark-specific permissions that keep denys
             has_adv = any(c == TaskCategory.ADVERSARIAL for c in self.categories)
             if has_adv:
@@ -353,7 +353,7 @@ class BenchmarkSuite:
         md_path = write_markdown_report(md_content, self.output_dir)
 
         print(f"\n{'='*60}")
-        print(f"  Benchmark Complete!")
+        print("  Benchmark Complete!")
         print(f"  Overall: {report['overall']['avg_score']*100:.1f}% avg, "
               f"{report['overall']['pass_rate']*100:.0f}% pass rate")
         print(f"  JSON: {json_path}")
@@ -404,8 +404,9 @@ def main():
 
     # Pilot mode: sample N tasks stratified across categories for Phase 2 gate
     if args.pilot is not None:
-        from .cases import ALL_TASKS as _ALL
         import random as _rnd
+
+        from .cases import ALL_TASKS as _ALL
         _rnd.seed(42)
         # Stratified sample: 12-14 per category for ~100
         by_cat = {}
@@ -413,7 +414,7 @@ def main():
             by_cat.setdefault(t.category, []).append(t)
         sampled = []
         per_cat = max(1, args.pilot // len(by_cat))
-        for cat, lst in by_cat.items():
+        for _cat, lst in by_cat.items():
             k = min(len(lst), per_cat)
             sampled.extend(_rnd.sample(lst, k))
         # Fill remainder

@@ -101,7 +101,7 @@ def test_unknown_tool(reg):
     tr = reg.execute_result("definitely_missing_tool", {})
     assert tr.ok is False
     assert "not found" in (tr.error or "").lower()
-    text, ok = reg.execute("definitely_missing_tool", {})
+    _text, ok = reg.execute("definitely_missing_tool", {})
     assert ok is False
 
 
@@ -182,7 +182,7 @@ def test_failure_cannot_look_like_success(reg):
     # to_llm_text must remain failure under string success detector
     assert _result_is_success("str_err", tr.to_llm_text()) is False
     # accidental success() with Error value would still fail detector via from_legacy
-    bad = ToolResult.success(value="Error: leaked failure")
+    _bad = ToolResult.success(value="Error: leaked failure")
     # explicit ok=True but text starts with Error — callers using as_tuple trust ok flag
     # boundary: from_legacy must not mark Error strings as ok
     adapted = ToolResult.from_legacy("t", "Error: leaked failure")
@@ -191,7 +191,7 @@ def test_failure_cannot_look_like_success(reg):
 
 def test_serialization_logging_safety(reg):
     _register(reg, _StructOk())
-    tr = reg.execute_result("struct_ok", {})
+    _tr = reg.execute_result("struct_ok", {})
     # metadata must not contain obvious secrets even if tool put them there
     sneaky = ToolResult.success(value="x", access_token="nope", tool="struct_ok")
     from nally.tools.result import _safe_metadata

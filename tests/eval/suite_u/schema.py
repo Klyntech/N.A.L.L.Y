@@ -12,10 +12,10 @@ Each task declares:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 import json
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -66,7 +66,7 @@ class ComputerTask:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "ComputerTask":
+    def from_dict(cls, d: Dict[str, Any]) -> ComputerTask:
         return cls(
             id=d["id"],
             objective=d["objective"],

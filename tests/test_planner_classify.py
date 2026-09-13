@@ -4,7 +4,6 @@ import pytest
 
 from nally.agent.planner import classify_by_patterns
 
-
 # ── Queries that MUST classify as 'simple' ────────────────
 
 SIMPLE_CASES = [

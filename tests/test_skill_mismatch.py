@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
-from nally.tools.registry import Tool, registry
 from nally.tools.filter import tool_filter
+from nally.tools.registry import registry
 
 
 def _stubbed_agent(monkeypatch):

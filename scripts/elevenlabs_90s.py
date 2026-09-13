@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Generate a 90s-style voice recording using ElevenLabs and save to desktop."""
 
-import os
 import sys
 from pathlib import Path
 

@@ -4,13 +4,11 @@ Runs the eval cases as pytest tests so they're part of the regular test suite.
 Each eval case becomes a separate test function for granular reporting.
 """
 
-import json
 from pathlib import Path
 
 import pytest
 
 from .runner import load_cases, run_eval_case
-
 
 # Load all cases at module level
 _CASES_DIR = str(Path(__file__).parent / "cases")

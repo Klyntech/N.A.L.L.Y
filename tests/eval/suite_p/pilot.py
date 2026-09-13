@@ -19,9 +19,9 @@ _project_root = str(Path(__file__).parent.parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from tests.eval.suite_p.runner import degraded_output, gold_output, noop_output, run_suite
-from tests.eval.suite_p.schema import load_all_tasks
-from tests.eval.suite_p.scorer import score_task
+from tests.eval.suite_p.runner import degraded_output, gold_output, noop_output, run_suite  # noqa: E402
+from tests.eval.suite_p.schema import load_all_tasks  # noqa: E402
+from tests.eval.suite_p.scorer import score_task  # noqa: E402
 
 
 def hallucinating_plan(task) -> Dict:

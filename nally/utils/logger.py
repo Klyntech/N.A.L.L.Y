@@ -33,6 +33,7 @@ class _StructuredFormatter(logging.Formatter):
 # ── Global DNS/network spam filter (applies to all Nally processes) ──
 import logging as _logging  # noqa: E402
 
+
 class _DnsSpamFilter(_logging.Filter):
     """Collapse repeated DNS 11001 / WinError 1231/1236 to one WARNING per 30s."""
     _last_log = 0.0

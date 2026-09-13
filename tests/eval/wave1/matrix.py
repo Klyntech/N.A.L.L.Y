@@ -23,10 +23,9 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from pathlib import Path
 from typing import Dict, List
 
-from tests.eval.wave1.config import FROZEN, EXPERIMENTS, DEFAULT_TEMPERATURE, SC_TEMPERATURE
+from tests.eval.wave1.config import DEFAULT_TEMPERATURE, FROZEN, SC_TEMPERATURE
 from tests.eval.wave1.runner import Wave1Runner
 
 # Adapter imports — thin integrations only

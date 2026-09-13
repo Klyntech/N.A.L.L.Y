@@ -8,7 +8,8 @@ Each task still defines initial_state -> dependency_graph -> milestones
 from pathlib import Path
 from typing import List, Optional
 
-from tests.eval.suite_t.schema import Milestone, TaskSpec, task_from_dict, load_task
+from tests.eval.suite_t.schema import Milestone, TaskSpec, load_task, task_from_dict
+
 
 def load_all_tasks(tasks_dir: Optional[Path] = None) -> List[TaskSpec]:
     if tasks_dir is None:
@@ -18,4 +19,4 @@ def load_all_tasks(tasks_dir: Optional[Path] = None) -> List[TaskSpec]:
         tasks.append(load_task(jf))
     return tasks
 
-__all__ = ["Milestone", "TaskSpec", "task_from_dict", "load_task", "load_all_tasks"]
+__all__ = ["Milestone", "TaskSpec", "load_all_tasks", "load_task", "task_from_dict"]

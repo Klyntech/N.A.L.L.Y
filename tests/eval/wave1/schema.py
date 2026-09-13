@@ -7,12 +7,13 @@ a Wave 1 data point. Substrate files (80 tasks + scorers) are never written.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
 import json
 import time
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List
 
 from .config import FROZEN
+
 
 @dataclass
 class TaskResult:

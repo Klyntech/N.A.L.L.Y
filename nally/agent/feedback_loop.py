@@ -9,8 +9,8 @@ This is NOT prompt-level reflection — it's grounded in actual runtime output.
 
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List
 
 logger = logging.getLogger("nally.feedback_loop")
 

@@ -121,7 +121,6 @@ class ContextBuilder:
 
         # ── 2. Compact ──
         compacted = False
-        before_tokens = context_manager.estimate_tokens(msgs)
         compacted_msgs = context_manager.compact(msgs)
         if compacted_msgs is not msgs:
             compacted = True

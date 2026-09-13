@@ -3,7 +3,7 @@
 import pytest
 
 from nally.agent import identity
-from nally.agent.identity import SessionRef, resolve_session
+from nally.agent.identity import resolve_session
 
 
 @pytest.fixture(autouse=True)

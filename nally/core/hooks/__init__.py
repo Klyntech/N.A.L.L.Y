@@ -7,4 +7,4 @@ Config: nally/config/hooks.json (JSON, merge with permissions.json semantics)
 from .manager import HookManager, get_hook_manager
 from .models import HookConfig, HookEvent
 
-__all__ = ["HookManager", "get_hook_manager", "HookConfig", "HookEvent"]
+__all__ = ["HookConfig", "HookEvent", "HookManager", "get_hook_manager"]

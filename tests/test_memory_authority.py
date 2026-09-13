@@ -6,13 +6,9 @@ Acceptance conditions:
   3. Context integration — recalled memory reaches the model through ContextBuilder
 """
 
-import time
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from nally.memory.store import MemoryRepository
-
 
 # ── Helpers ────────────────────────────────────────────────
 

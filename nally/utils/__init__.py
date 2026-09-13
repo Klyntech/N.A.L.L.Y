@@ -15,4 +15,4 @@ def ffmpeg_available() -> bool:
     return _ffmpeg_available
 
 
-__all__ = ["logger", "ffmpeg_available"]
+__all__ = ["ffmpeg_available", "logger"]

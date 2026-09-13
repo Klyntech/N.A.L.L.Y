@@ -1,22 +1,19 @@
 """Tests for the speech pipeline — sentence splitting, preprocessing, prosody."""
 
-import pytest
 from nally.voice.speech_pipeline import (
-    split_into_sentences,
-    preprocess_for_speech,
+    VOICE_PROFILES,
+    SentenceStream,
+    SpeechSegment,
+    apply_voice_profile,
     check_sentence_boundary,
     detect_emotion,
     detect_user_sentiment,
+    preprocess_for_speech,
     process_for_speech,
     process_for_speech_flat,
-    SentenceStream,
-    SpeechSegment,
     smooth_prosody,
-    apply_voice_profile,
-    VOICE_PROFILES,
-    EMOTION_PROSODY,
+    split_into_sentences,
 )
-
 
 # ════════════════════════════════════════════════════════════════
 #  Sentence Boundary Detection

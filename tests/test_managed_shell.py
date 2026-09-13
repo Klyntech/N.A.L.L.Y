@@ -17,7 +17,7 @@ def test_start_and_read_output(tmp_path: Path):
             break
         time.sleep(0.1)
     else:
-        assert False, "output never arrived"
+        raise AssertionError("output never arrived")
     assert s.status in ("running", "completed")
 
 

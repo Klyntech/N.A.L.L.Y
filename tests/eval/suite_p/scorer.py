@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from .schema import TaskSpec
-from .world import predicate_holds, validate_plan, optimal_cost, PWorld
+from .world import optimal_cost, predicate_holds, validate_plan
 
 
 def _subgoal_scores(snapshots: List[Dict[str, Any]], subgoals) -> Tuple[float, Dict[str, float], bool]:

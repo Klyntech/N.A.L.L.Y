@@ -11,8 +11,8 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .registry import Tool
 from ._retry import retry_transient
+from .registry import Tool
 
 logger = logging.getLogger("nally.tools.fetch")
 

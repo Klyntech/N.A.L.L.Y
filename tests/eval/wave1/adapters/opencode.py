@@ -15,7 +15,7 @@ import os
 import re
 from typing import Any, Dict, List
 
-from tests.eval.wave1.config import FROZEN, DEFAULT_TEMPERATURE
+from tests.eval.wave1.config import DEFAULT_TEMPERATURE, FROZEN
 
 PROVIDER_ID = "opencode/hy3-free"
 MODEL = "muse-spark-1.2-contributor-free"
@@ -155,12 +155,13 @@ def _adapter_simworld(task: Any, temperature: float, max_calls: int, seed: int) 
                 # Use the shared NallyLLM which already handles muse-spark responses mapping
                 r = nally_llm.chat(messages=messages, tools=tools, temperature=temperature)
                 # Convert to OpenAI-like shape for uniform handling
-                class _Resp: pass
+                class _Resp:
+                    pass
                 msg = r.choices[0].message
                 tc = getattr(msg, "tool_calls", None)
                 # Re-inject into trajectory handling below by mocking resp
                 resp = type("R", (), {"choices": [type("C", (), {"message": msg})()]})()
-            except Exception as e2:
+            except Exception:
                 trajectory.append({"role": "agent", "name": "end_conversation", "args": {"result": f"provider_error: {str(e)[:180]}"}})
                 break
         msg = resp.choices[0].message
@@ -179,7 +180,7 @@ def _adapter_simworld(task: Any, temperature: float, max_calls: int, seed: int) 
             trajectory.append({"role": "agent", "name": name, "args": args})
             if name == "end_conversation":
                 break
-            ok, out = world.apply_tool(name, args)
+            _ok, out = world.apply_tool(name, args)
             messages.append({"role": "assistant", "content": content, "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": name, "arguments": tc.function.arguments or "{}"}}]})
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": _truncate(out, 2000)})
         if any(t.get("name") == "end_conversation" for t in trajectory):

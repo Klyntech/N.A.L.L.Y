@@ -20,9 +20,8 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
-from nally.agent.budget import ExecutionBudget, budget_warning_message
+from nally.agent.budget import ExecutionBudget
 from nally.agent.verification.layer import VerificationLayer, _partial_reason
-
 
 # ── T1: Warning fires exactly once across consecutive turns ──
 

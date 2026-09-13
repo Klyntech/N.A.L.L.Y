@@ -105,7 +105,7 @@ class BridgeRegistry:
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return f"Error: Bridge request timed out after {timeout}s", False
         except Exception as e:
             return f"Error communicating with bridge: {e}", False

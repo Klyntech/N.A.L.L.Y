@@ -1,25 +1,28 @@
 """Suite C offline tests — no network."""
 import sys
 from pathlib import Path
-import pytest
+
 _project_root=str(Path(__file__).parent.parent.parent)
-if _project_root not in sys.path: sys.path.insert(0,_project_root)
-from tests.eval.suite_c.schema import load_all_tasks
-from tests.eval.suite_t.runner import gold_trajectory, noop_trajectory, replay, run_suite
+if _project_root not in sys.path:
+    sys.path.insert(0,_project_root)
+from tests.eval.suite_c.schema import load_all_tasks  # noqa: E402
+from tests.eval.suite_t.runner import gold_trajectory, noop_trajectory, replay, run_suite  # noqa: E402
 
 TASKS_DIR=Path(__file__).parent/"eval"/"suite_c"/"tasks"
 
 def _degraded(task):
     ev=gold_trajectory(task)
     idx=[i for i,e in enumerate(ev) if e.get("role")=="agent"]
-    if len(idx)>1: ev.pop(idx[-2])
+    if len(idx)>1:
+        ev.pop(idx[-2])
     return ev
 
 def test_all_validate():
     tasks=load_all_tasks(TASKS_DIR)
     assert len(tasks)==12
     errs=[]
-    for t in tasks: errs.extend(t.validate())
+    for t in tasks:
+        errs.extend(t.validate())
     assert errs==[], errs
 
 def test_gold_one():

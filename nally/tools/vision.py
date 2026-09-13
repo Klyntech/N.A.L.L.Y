@@ -11,12 +11,11 @@ so results are consistent and grounded via receipt for the verifier.
 """
 
 import asyncio
-import re
 from pathlib import Path
 from typing import Optional
 
-from .registry import Tool, registry
 from ..utils.logger import logger
+from .registry import Tool, registry
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
@@ -127,7 +126,7 @@ class AnalyzeImage(Tool):
 
             # analyze_image is async, so we need to run it
             try:
-                loop = asyncio.get_running_loop()
+                _ = asyncio.get_running_loop()
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     future = pool.submit(asyncio.run, analyze_image(target, user_question=question))

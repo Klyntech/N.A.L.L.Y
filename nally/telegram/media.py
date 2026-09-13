@@ -363,9 +363,7 @@ def _should_use_vision() -> bool:
         if any(k in m for k in vision_keywords):
             return True
         # Muse Spark 1.2 family is multimodal (text+image+video+audio+pdf) per Meta
-        if "muse" in m:
-            return True
-        return False
+        return "muse" in m
     except Exception:
         return False
 
@@ -373,8 +371,8 @@ def _should_use_vision() -> bool:
 def _try_ocr(image_path: Path) -> Optional[str]:
     """Try local OCR via pytesseract if installed. Returns extracted text or None."""
     try:
-        from PIL import Image
         import pytesseract  # type: ignore
+        from PIL import Image
 
         # quick check: tesseract binary must be available
         try:
@@ -386,7 +384,7 @@ def _try_ocr(image_path: Path) -> Optional[str]:
         img = Image.open(image_path).convert("L")
         # Simple contrast stretch for dark images
         try:
-            from PIL import ImageOps, ImageEnhance
+            from PIL import ImageEnhance, ImageOps
 
             # Autocontrast + slight upscale for small UI text
             img = ImageOps.autocontrast(img, cutoff=2)
@@ -421,6 +419,7 @@ async def describe_image_vision(image_path: Path, prompt: str = "Describe this i
         return None
     try:
         import base64
+
         from ..agent.llm import llm as nally_llm
 
         b64 = base64.b64encode(image_path.read_bytes()).decode("utf-8")

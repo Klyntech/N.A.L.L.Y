@@ -1,7 +1,8 @@
 """Tests for nally.tools.code — RunCode exec timeout and CodeAnalysis."""
 
 import pytest
-from nally.tools.code import RunCode, CodeAnalysis, CODE_TIMEOUT
+
+from nally.tools.code import CodeAnalysis, RunCode
 
 
 @pytest.fixture

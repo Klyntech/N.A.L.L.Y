@@ -27,29 +27,30 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .config import FROZEN, DEFAULT_TEMPERATURE, EXPERIMENTS
-from .schema import TaskResult, ExperimentSummary
+from tests.eval.suite_a.schema import load_all_tasks as load_a
+from tests.eval.suite_c.schema import load_all_tasks as load_c
+from tests.eval.suite_p.schema import load_all_tasks as load_p
+from tests.eval.suite_t.runner import replay as replay_t
 
 # Suite loaders / scorers — READ-ONLY
 from tests.eval.suite_t.schema import load_all_tasks as load_t
-from tests.eval.suite_p.schema import load_all_tasks as load_p
-from tests.eval.suite_a.schema import load_all_tasks as load_a
-from tests.eval.suite_c.schema import load_all_tasks as load_c
 
-from tests.eval.suite_t.runner import replay as replay_t
-from tests.eval.suite_p.runner import gold_output as gold_p  # not used directly; scorer is via score_task
-from tests.eval.suite_t.scorer import score_trajectory as score_t
-from tests.eval.suite_p.scorer import score_task as score_p
+from .config import EXPERIMENTS, FROZEN
+from .schema import ExperimentSummary, TaskResult
 
 # Adapter type: given a suite-tagged TaskSpec, produce trajectory events
 Adapter = Callable[[Any], List[Dict[str, Any]]]
 
 
 def _suite_for_task(task_id: str) -> str:
-    if task_id.startswith("t"): return "suite_t"
-    if task_id.startswith("p"): return "suite_p"
-    if task_id.startswith("a"): return "suite_a"
-    if task_id.startswith("c"): return "suite_c"
+    if task_id.startswith("t"):
+        return "suite_t"
+    if task_id.startswith("p"):
+        return "suite_p"
+    if task_id.startswith("a"):
+        return "suite_a"
+    if task_id.startswith("c"):
+        return "suite_c"
     raise ValueError(task_id)
 
 
@@ -130,7 +131,7 @@ class Wave1Runner:
         task_ids: Optional[List[str]] = None,
         write: bool = True,
     ) -> ExperimentSummary:
-        start = time.time()
+        _start = time.time()
         all_tasks = _load_all()
         if task_ids is not None:
             wanted = set(task_ids)

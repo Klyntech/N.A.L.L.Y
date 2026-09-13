@@ -429,12 +429,25 @@ def _parse_critique_response(response: str) -> CritiqueResult:
         return CritiqueResult(raw_response=response)
 
 
+def _summarize_receipts(receipts) -> str:
+    """Summarize recent tool receipts into a compact evidence block for the revision LLM."""
+    if not receipts:
+        return ""
+    lines = ["TOOL EXECUTION EVIDENCE (read this before revising):"]
+    for r in receipts[-10:]:  # last 10 receipts max
+        status = "OK" if r.success else "FAILED"
+        result_preview = (r.result or "")[:120].replace("\n", " ")
+        lines.append(f"  [{status}] {r.tool}: {result_preview}")
+    return "\n".join(lines)
+
+
 def run_critique_pipeline(
     user_request: str,
     task_class: TaskClass,
     llm_call_fn,
     existing_response: str,
     context_messages: Optional[List[Dict]] = None,
+    receipt_summaries: str = "",
 ) -> CritiquePipelineResult:
     """Run Critique→Revise pipeline on the given existing response.
 
@@ -447,6 +460,7 @@ def run_critique_pipeline(
         llm_call_fn: Callable that takes (messages, temperature) and returns a string.
         existing_response: The response from the LangGraph agent to critique/revise.
         context_messages: Optional conversation context (used for rubric framing).
+        receipt_summaries: Optional receipt evidence block for the revision LLM.
 
     Returns:
         CritiquePipelineResult with the (possibly revised) response and metadata.
@@ -472,10 +486,12 @@ def run_critique_pipeline(
         )
 
     stages_fired.append("critique")
+    _receipt_block = f"\n\n{receipt_summaries}\n" if receipt_summaries else ""
     critique_prompt = (
         f"{rubric}\n\n"
         f"USER REQUEST: {user_request[:1000]}\n\n"
-        f"RESPONSE TO EVALUATE:\n{existing_response[:3000]}\n\n"
+        f"RESPONSE TO EVALUATE:\n{existing_response[:3000]}\n"
+        f"{_receipt_block}"
         f'Output JSON: {{"issues": ["issue1", ...], "severity": "none|low|medium|high", '
         f'"should_revise": true/false}}\n'
         f"Output ONLY the JSON."
@@ -511,8 +527,11 @@ def run_critique_pipeline(
         f"ISSUES FOUND:\n{issues_text}\n\n"
         f"SEVERITY: {critique.severity}\n\n"
         f"ORIGINAL REQUEST: {user_request[:1000]}\n\n"
-        f"YOUR PREVIOUS RESPONSE:\n{existing_response[:3000]}\n\n"
-        f"Rewrite the response fixing the issues above. Output ONLY the revised response."
+        f"YOUR PREVIOUS RESPONSE:\n{existing_response[:3000]}\n"
+        f"{_receipt_block}"
+        f"Rewrite the response fixing the issues above. "
+        f"If tool execution evidence shows actions succeeded, your revision MUST reflect that. "
+        f"Output ONLY the revised response."
     )
 
     try:
@@ -548,6 +567,7 @@ def run_critique_pipeline(
 
 # Hard retry cap for tool verification failures (configurable via env)
 import os as _os
+
 _TOOL_VERIFY_MAX_RETRIES = int(_os.getenv("NALLY_HARNESS_VERIFY_RETRIES", "2"))
 
 
@@ -616,7 +636,7 @@ def verify_tool_result(
             evidence="",
             satisfies_objective=False,
             confidence=0.9,
-            reasoning=f"Tool returned error or reported failure",
+            reasoning="Tool returned error or reported failure",
         )
 
     if is_empty:

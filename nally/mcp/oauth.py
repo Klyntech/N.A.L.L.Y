@@ -9,7 +9,6 @@ SQLite-backed PKCE state persistence to survive server restarts.
 
 from __future__ import annotations
 
-
 import asyncio
 import base64
 import hashlib
@@ -31,6 +30,7 @@ def _base_url() -> str:
     Falls back to http://localhost:5000 for local dev.
     """
     import os as _os
+
     from ..config import NALLY_BASE_URL
     if NALLY_BASE_URL:
         return NALLY_BASE_URL

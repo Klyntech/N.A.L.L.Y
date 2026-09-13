@@ -9,8 +9,8 @@ import logging
 import math
 import re
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
 logger = logging.getLogger("nally.semantic_memory")
 
@@ -153,7 +153,7 @@ class SemanticMemoryEngine:
 
         # Update last_accessed for recalled memories
         result = []
-        for mem, score in scored[:limit]:
+        for mem, _score in scored[:limit]:
             mem.last_accessed = now
             result.append(mem)
 

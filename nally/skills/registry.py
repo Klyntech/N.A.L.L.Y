@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .loader import SKILLS_DIR, Skill, get_skill_manifest, load_skills, clear_cache
+from .loader import SKILLS_DIR, Skill, clear_cache, load_skills
 
 logger = logging.getLogger("nally.skills")
 

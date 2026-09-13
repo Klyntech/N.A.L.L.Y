@@ -9,7 +9,7 @@ specialist receives only what they need.
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 
 def rewrite_context(

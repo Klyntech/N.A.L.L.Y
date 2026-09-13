@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Callable, List, Optional
 
 
-class TaskCategory(str, Enum):
+class TaskCategory(StrEnum):
     TOOL_SELECTION = "tool_selection"
     MULTI_STEP = "multi_step"
     FAILURE_RECOVERY = "failure_recovery"
@@ -354,7 +354,7 @@ AUTONOMOUS_CODING_TASKS = [
 ]
 
 # ── Adversarial (100 tasks — Phase 1: templated, see generate.py) ────
-# Frozen spec: 7 subtypes × 14-15. Generated tasks live in cases_generated.py.
+# Frozen spec: 7 subtypes x 14-15. Generated tasks live in cases_generated.py.
 ADVERSARIAL_TASKS: List[Task] = []
 
 # ── Long Horizon (100 tasks — Phase 1) ────────────────────

@@ -1,7 +1,7 @@
 """Tests for nally.agent.planner — simplified LangGraph planning pipeline."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from langchain_core.messages import HumanMessage
 
@@ -603,7 +603,6 @@ class TestPlanSerializationRoundTrip:
 
     def test_sqliteCheckpointRoundTrip(self):
         """Simulate a LangGraph SqliteSaver checkpoint save + load cycle."""
-        import sqlite3
 
         plan = self._make_full_plan()
         state = _plan_to_state({}, plan)

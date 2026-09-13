@@ -247,7 +247,6 @@ def _check_sensitive_data(text: str, context: Dict) -> Optional[GuardrailResult]
 def _check_honesty(text: str, context: Dict) -> Optional[GuardrailResult]:
     """Check for potential false success claims."""
     text_lower = text.lower()
-    receipts = context.get("receipts", [])
     failed_tools = context.get("failed_tools", [])
 
     # Agent claims success but tools failed

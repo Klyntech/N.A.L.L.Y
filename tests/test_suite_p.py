@@ -1,18 +1,16 @@
 """Suite P offline tests — no network, no LLM keys, no production imports."""
 import sys
 from pathlib import Path
-import pytest
-import json
 
 _project_root = str(Path(__file__).parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from tests.eval.suite_p.schema import load_all_tasks, load_task
-from tests.eval.suite_p.world import validate_plan, optimal_cost
-from tests.eval.suite_p.scorer import score_task
-from tests.eval.suite_p.runner import gold_output, noop_output, degraded_output, run_suite
-from tests.eval.suite_p.pilot import hallucinating_plan
+from tests.eval.suite_p.pilot import hallucinating_plan  # noqa: E402
+from tests.eval.suite_p.runner import degraded_output, gold_output, noop_output, run_suite  # noqa: E402
+from tests.eval.suite_p.schema import load_all_tasks, load_task  # noqa: E402
+from tests.eval.suite_p.scorer import score_task  # noqa: E402
+from tests.eval.suite_p.world import optimal_cost, validate_plan  # noqa: E402
 
 TASKS_DIR = Path(__file__).parent / "eval" / "suite_p" / "tasks"
 

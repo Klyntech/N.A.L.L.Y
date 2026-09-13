@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from .schema import TaskSpec, load_all_tasks, load_task
+from .schema import TaskSpec, load_all_tasks
 from .scorer import score_trajectory
 from .world import SimWorld
 

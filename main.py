@@ -184,7 +184,7 @@ def run_web(port=None):
     # via its own Application (started in the FastAPI lifespan), so spawning a
     # second poller here would cause a Telegram 409 conflict on the same token.
     bot_proc = None
-    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID
+    from nally.config import TELEGRAM_USER_ID, resolve_telegram_mode
 
     telegram_mode = resolve_telegram_mode()
     if telegram_mode == "polling":
@@ -221,7 +221,7 @@ def run_web(port=None):
     # Start Telegram user account (Telethon) as a separate process
     # Voice calls are handled inside user.py (same process, same Telethon client)
     tg_user_proc = None
-    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID, DATA_DIR
+    from nally.config import DATA_DIR, resolve_telegram_mode
 
     _tg_session = DATA_DIR / "telegram_user" / "nally_user.session"
 
@@ -239,6 +239,7 @@ def run_web(port=None):
         print("[warn] TELEGRAM_USER_ID not set — Telegram user account not started.")
 
     import signal
+
     import uvicorn
 
     from nally.web.app import app

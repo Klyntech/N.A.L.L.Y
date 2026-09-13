@@ -362,12 +362,10 @@ class Reflector:
         if _re.search(r"(password|passwd|secret)\s*[:=]\s*\S+", low):
             return False
         # Typed-memory allowlist (Fable discipline: user/feedback/project/reference)
-        if category and category not in (
+        return not category or category in (
             "user", "feedback", "project", "reference",
             "person", "tool", "goal", "preference", "personal", "auto_fact", "profile",
-        ):
-            return False
-        return True
+        )
 
     def _extract_topics(self, llm, convo_text: str) -> List[str]:
         """Extract conversation topics (simple heuristic + LLM fallback)."""

@@ -15,12 +15,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
-from nally.config import resolve_telegram_mode
-from nally.telegram.bot import run_telegram_bot
+from nally.config import resolve_telegram_mode  # noqa: E402
+from nally.telegram.bot import run_telegram_bot  # noqa: E402
 
 if __name__ == "__main__":
     if resolve_telegram_mode() != "polling":

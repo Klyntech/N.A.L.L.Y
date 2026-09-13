@@ -10,14 +10,11 @@ Acceptance conditions:
   7. OutputRouter handles Telegram message splitting
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-
-from nally.output.types import ComposedResponse
+from nally.agent.response_composer import ResponseComposer, compose_response, response_composer
 from nally.output.router import OutputRouter, OutputTarget, RoutedOutput, route_output
-from nally.agent.response_composer import ResponseComposer, response_composer, compose_response
-
+from nally.output.types import ComposedResponse
 
 # ── 1. ComposedResponse data model ──────────────────────────
 
@@ -276,9 +273,9 @@ def test_router_voice_format_ogg_telegram():
 
 def test_core_imports_composer_helpers():
     """core.py imports _strip_emojis and _capitalize_sentences from response_composer."""
-    from nally.agent import core
     # Verify the helpers are imported (not defined locally)
     import nally.agent.response_composer as rc
+    from nally.agent import core
     assert core._strip_emojis is rc._strip_emojis
     assert core._capitalize_sentences is rc._capitalize_sentences
 

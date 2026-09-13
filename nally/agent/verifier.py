@@ -51,7 +51,7 @@ class ClaimFinding:
 # Negative context: if a claim appears after these words, skip it (it's conditional/negated/hypothetical)
 _NEGATIVE_LOOKBEHIND = re.compile(
     r"(?:"
-    r"(?:^|\s)(?:don't|doesn't|didn't|won't|wouldn't|couldn't|shouldn't|can't|not|never|no)\s+"
+    r"(?:^|\s)(?:don't|doesn't|didn't|won't|wouldn't|couldn't|shouldn't|can't|haven't|hasn't|hadn't|not|never|no)\s+"
     r"|(?:if|when|unless|whether|could|would|should|might|may|let me|i (?:will|would|can|could|might|may|shall|should)\s+)"
     r")",
     re.IGNORECASE,
@@ -102,6 +102,9 @@ _SUCCESS_PATTERNS = [
 _FAILURE_PATTERNS = [
     r"(?:the\s+)?(?:file|command|script|task|operation)\s+(?:failed|errored|broke|crashed)",
     r"(?:was |were )?(?:denied|refused|blocked)",
+    r"(?:don't|doesn't|didn't|haven't|hasn't|hadn't|can't|couldn't|won't)\s+have\s+(?:access|permission)",
+    r"(?:no|not|without)\s+(?:access|permission|authorization)",
+    r"(?:unable|not\s+able)\s+to\s+(?:access|read|write|modify)",
 ]
 
 

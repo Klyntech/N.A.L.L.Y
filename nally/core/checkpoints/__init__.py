@@ -11,4 +11,4 @@ from .file_store import FileStore
 from .fs import DiskFilesystem
 from .models import FileState
 
-__all__ = ["Checkpointer", "FileState", "FileStore", "DiskFilesystem"]
+__all__ = ["Checkpointer", "DiskFilesystem", "FileState", "FileStore"]
