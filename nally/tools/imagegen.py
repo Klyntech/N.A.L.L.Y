@@ -9,13 +9,23 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-
-import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter
 from typing import Optional
 
-from .registry import Tool, registry
+np = None  # lazy — loaded on first use
+Image = ImageEnhance = ImageFilter = None  # lazy — loaded on first use
+
+
+def _load_image_deps():
+    global np, Image, ImageEnhance, ImageFilter
+    if np is None:
+        import numpy as _np
+        np = _np
+    if Image is None:
+        from PIL import Image as _Image, ImageEnhance as _Enhance, ImageFilter as _Filter
+        Image, ImageEnhance, ImageFilter = _Image, _Enhance, _Filter
+
 from ..storage import storage
+from .registry import Tool, registry
 
 logger = logging.getLogger("nally.tools.imagegen")
 
@@ -198,6 +208,7 @@ def enhance_prompt_llm(prompt: str, content_type: str = None) -> str:
 
 def score_aesthetics(image_bytes: bytes) -> dict:
     """Score image on 8 aesthetic qualities. Returns dict with scores and total (0-100)."""
+    _load_image_deps()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     arr = np.array(img, dtype=np.float64)
 
@@ -472,6 +483,7 @@ def generate_pollinations(
 
 
 def upscale_image(image_bytes: bytes, target_size: int = 2048) -> bytes:
+    _load_image_deps()
     img = Image.open(io.BytesIO(image_bytes))
     orig_w, orig_h = img.size
 

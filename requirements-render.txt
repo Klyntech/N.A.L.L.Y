@@ -1,0 +1,54 @@
+# NALLY — Lean Render requirements (no voice, no torch, no livekit)
+# Target: <300MB installed, fits in Render free tier 512MB
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0
+
+# LLM
+openai>=1.0.0
+python-dotenv>=1.0.0
+
+# Agent framework
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langgraph-checkpoint-sqlite>=2.0.0
+
+# Token counting
+tiktoken>=0.7.0
+
+# System
+psutil>=5.9.0
+
+# Fetch tool readability extraction
+readability-lxml>=0.8
+
+# MCP (Model Context Protocol)
+mcp>=1.27,<2
+
+# Token encryption
+cryptography>=41.0.0
+
+# Web search + HTTP
+duckduckgo-search>=7.0.0
+httpx>=0.27.0
+
+# Curiosity / proactive learning
+feedparser>=6.0.0
+
+# Telegram bot (lazy, only loaded when TELEGRAM_MODE=webhook)
+python-telegram-bot>=20.0
+
+# Terminal UI (startup display)
+rich>=13.0
+pyfiglet>=1.0
+
+# Database — Postgres (lazy, only if DATABASE_URL set)
+psycopg[binary]>=3.1
+
+# Cloudflare R2 (lazy, only if S3 configured)
+boto3>=1.28.0
+
+# Redis (lazy, only if configured)
+redis>=5.0.0
