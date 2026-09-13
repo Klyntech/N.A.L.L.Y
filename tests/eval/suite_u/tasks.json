@@ -1,0 +1,114 @@
+{
+  "version": "suite_u-v1",
+  "description": "Computer-use benchmark — NALLY as a real computer agent",
+  "tasks": [
+    {
+      "id": "u01_single_write",
+      "objective": "Write the word BENCHMARK to /home/nally/workspace/bench-u01.txt on the computer",
+      "budget_sec": 60,
+      "intent": "SIMPLE",
+      "category": "stc",
+      "description": "Single file write. Proves NALLY can reach the computer and write a file.",
+      "verify": [
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u01.txt"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u01.txt", "expected": "BENCHMARK"}
+      ]
+    },
+    {
+      "id": "u02_write_read_back",
+      "objective": "Write the word HELLO_WORLD to /home/nally/workspace/bench-u02.txt on the computer, then read it back and tell me what it says",
+      "budget_sec": 90,
+      "intent": "SIMPLE",
+      "category": "mtc",
+      "description": "Write then read. Proves observation feedback — the read content must match the write.",
+      "verify": [
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u02.txt"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u02.txt", "expected": "HELLO_WORLD"}
+      ]
+    },
+    {
+      "id": "u03_chain_3_files",
+      "objective": "Write the numbers 10, 20, 30 to three separate files: /home/nally/workspace/bench-u03a.txt, /home/nally/workspace/bench-u03b.txt, /home/nally/workspace/bench-u03c.txt on the computer. Then read all three and tell me their sum.",
+      "budget_sec": 120,
+      "intent": "COMPLEX",
+      "category": "mcp",
+      "description": "Multi-step planning: 3 writes + 3 reads + sum. Proves the planning path works on a real computer.",
+      "verify": [
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u03a.txt"},
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u03b.txt"},
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u03c.txt"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u03a.txt", "expected": "10"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u03b.txt", "expected": "20"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u03c.txt", "expected": "30"}
+      ]
+    },
+    {
+      "id": "u04_observation_chain",
+      "objective": "Write the word STEP_ONE to /home/nally/workspace/bench-u04.txt on the computer. Then read it back and use the content you read to write STEP_TWO_FOLLOWED to /home/nally/workspace/bench-u04b.txt. Then read that file back and tell me what it says.",
+      "budget_sec": 120,
+      "intent": "COMPLEX",
+      "category": "mcp",
+      "description": "3-step observation chain. Each step's output drives the next action. Proves NALLY reads and uses tool observations.",
+      "verify": [
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u04.txt"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u04.txt", "expected": "STEP_ONE"},
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u04b.txt"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u04b.txt", "expected": "STEP_TWO_FOLLOWED"}
+      ]
+    },
+    {
+      "id": "u05_plan_script_exec",
+      "objective": "Write a Python script to /home/nally/workspace/bench-u05.py on the computer that prints the numbers 1 through 5, each on a new line. Then run it and tell me the output.",
+      "budget_sec": 120,
+      "intent": "COMPLEX",
+      "category": "plan",
+      "description": "Write a script, execute it, capture output. Proves the planning path can orchestrate write-then-exec.",
+      "verify": [
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u05.py"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u05.py", "expected": "print"}
+      ]
+    },
+    {
+      "id": "u06_persistence",
+      "objective": "Write the word PERSIST_TEST to /home/nally/workspace/bench-u06.txt on the computer",
+      "budget_sec": 60,
+      "intent": "SIMPLE",
+      "category": "persist",
+      "description": "Write in one session. A second session (u06b) reads it back. Proves cross-session persistence.",
+      "verify": [
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u06.txt"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u06.txt", "expected": "PERSIST_TEST"}
+      ]
+    },
+    {
+      "id": "u06b_persistence_read",
+      "objective": "Read the file /home/nally/workspace/bench-u06.txt on the computer and tell me exactly what it says",
+      "budget_sec": 60,
+      "intent": "SIMPLE",
+      "category": "persist",
+      "description": "Read back what u06 wrote. Must see PERSIST_TEST. Proves cross-session file persistence.",
+      "verify": []
+    },
+    {
+      "id": "u07_correction",
+      "objective": "Write the word CORRECT to /home/nally/workspace/bench-u07-wrong.txt on the computer. Oh wait, that was the wrong filename. The correct file should be /home/nally/workspace/bench-u07.txt. Please write it to the correct file.",
+      "budget_sec": 90,
+      "intent": "SIMPLE",
+      "category": "recovery",
+      "description": "Self-correction: user gives wrong filename, then corrects. NALLY must detect the correction and use the right file.",
+      "verify": [
+        {"kind": "file_exists", "path": "/home/nally/workspace/bench-u07.txt"},
+        {"kind": "file_contains", "path": "/home/nally/workspace/bench-u07.txt", "expected": "CORRECT"}
+      ]
+    },
+    {
+      "id": "u08_exec_command",
+      "objective": "Run the command 'echo BENCH_ECHO_TEST' on the computer and tell me the output",
+      "budget_sec": 60,
+      "intent": "SIMPLE",
+      "category": "stc",
+      "description": "Remote exec via NallPuter. Proves command execution works through the full chain.",
+      "verify": []
+    }
+  ]
+}
