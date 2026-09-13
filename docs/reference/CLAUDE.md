@@ -151,7 +151,7 @@ python run_tg_user.py
 # Run Telegram voice-call sessions (pytgcalls, separate process)
 python run_tg_call.py
 
-# VoIP phone interface (requires LiveKit Cloud — see docs/LIVEKIT_SIP_SETUP.md)
+# VoIP phone interface (requires LiveKit Cloud — see ../guides/LIVEKIT_SIP_SETUP.md)
 python -m nally.voice.livekit_agent
 
 # Run the autonomous engineering loop (opt-in build mode)

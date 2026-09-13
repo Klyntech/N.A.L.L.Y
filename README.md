@@ -1,145 +1,64 @@
 # N.A.L.L.Y
 
-Personal AI assistant inspired by Jarvis from Iron Man. Built by Clinton (Klyntech/Klynvybz).
+![CI](https://github.com/Klyntech/N.A.L.L.Y/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![License](https://img.shields.io/badge/license-proprietary-red)
 
-## Quick Start
+**N.A.L.L.Y is a self-hosted personal AI assistant — a LangGraph agent with its own tools, memory, voice, and frontends for web, Telegram, and CLI.**
+
+## Why Nally is different
+
+| Differentiator | What it does |
+|----------------|--------------|
+| **Permission Gate** | Every tool call is evaluated against declarative `allow` / `ask` / `deny` rules. Destructive commands and deletes require explicit approval — skills can never override a `deny`. |
+| **Tool Receipts** | Every tool execution produces an HMAC-signed, tamper-evident receipt (append-only JSONL). The audit trail is verifiable, not vibes. |
+| **Claim Verifier** | Post-response checks cross-examine the model's claims against actual tool receipts — catching hallucinations without an LLM in the hot path. |
+| **NallPuter** | A provider-neutral computer adapter (`ToolRegistry → ComputerAdapter → NallPuterClient`) with preflight, reconnect, and lifecycle management. Transport never leaks into tools. |
+| **Capability Router** | Task-aware tool selection and sub-agent boundaries keep prompts small, routing deterministic, and parallel work contained. |
+
+## Quick start
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-
-# 2. Set up environment
-cp .env.example .env
-# Edit .env with your API keys
-
-# 3. Run
-python main.py
+cp .env.example .env   # add your API keys
+python main.py          # web UI at http://localhost:5000
 ```
 
-Then open http://localhost:5000 in your browser.
-
-## What It Does
-
-- **Chat** — Talk to Nally via web UI, CLI, or Telegram bot
-- **Tools** — Run commands, read/write files, analyze code, control system, generate images
-- **Memory** — Remembers facts, episodes, and conversation history across sessions
-- **MCP Integrations** — GitHub, Notion, Gmail via Model Context Protocol; Google Drive/Calendar + Higgsfield via OAuth flows
-- **Sub-agents** — Spawn parallel sub-agents for complex tasks
-- **Streaming** — Real-time SSE and WebSocket streaming for responsive feel
-
-## Configuration
-
-All settings live in `.env`:
-
-```env
-NALLY_PROVIDER=opencode          # or "groq"
-OPENCODE_API_KEY=sk-...          # OpenCode Zen API key
-GROQ_API_KEY=gsk_...             # Groq API key (if using groq)
-NALLY_ACCESS_TOKEN=your-secret   # Auth token for API access
+```bash
+python main.py --cli              # terminal mode
+python main.py --telegram-only    # Telegram bot only
+python main.py --engineer "TASK"  # autonomous engineering loop
 ```
-
-See [CLAUDE.md](CLAUDE.md) for full configuration reference.
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, patterns, and data flow.
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python, FastAPI, LangGraph |
-| Frontend | Vanilla JS, HTML, CSS |
-| LLM | OpenCode Zen or Groq |
-| Database | SQLite (`data/nally.db` + `data/nally_memory.db`); PostgreSQL/Redis reachability health probes only |
-| Streaming | SSE + WebSocket |
-| MCP | GitHub, Notion, Gmail (default servers); Google Drive/Calendar + Higgsfield via OAuth; Context7/Meta/Telegram via npm packages |
-
-## Project Structure
-
-```
-nally/
-├── config.py           # All settings (single source of truth)
-├── core/
-│   ├── errors.py       # Typed error hierarchy
-│   ├── startup.py      # StartupDisplay + print_banner
-│   └── validator.py    # Startup config validation
-├── agent/              # Agent orchestrator + LangGraph (incl. harness, scratchpad)
-├── tools/              # Tool registry + implementations
-│   ├── system.py       # RunCommand, SystemHealth
-│   ├── files.py        # ReadFile, FileOps
-│   ├── code.py         # RunCode, CodeAnalysis
-│   ├── imagegen.py     # Image generation (Pollinations)
-│   ├── gmail.py        # Gmail direct API tools
-│   ├── websearch.py    # Web search (Parallel.ai + DuckDuckGo)
-│   ├── fetch.py        # Web page fetch tool
-│   └── mcp.py          # MCP server status
-├── memory/             # Memory repository + models
-├── subagent/           # Sub-agent spawning
-├── engineering/        # Autonomous engineering loop (python main.py --engineer)
-├── curiosity/          # Proactive idle-cycle learning (feeds, interests, scanner)
-├── mcp/                # MCP client + OAuth flows
-├── skills/             # Skill loading system
-├── telegram/           # Telegram bot (+ user.py Telethon, voice_call.py)
-├── voice/              # Voice interaction (STT/TTS, pipeline, metrics, LiveKit)
-├── web/
-│   ├── app.py          # FastAPI server
-│   ├── health.py       # Health endpoints (no auth; DB/Redis probes)
-│   └── ws_handler.py   # WebSocket streaming
-└── utils/logger.py     # Structured logging
+```mermaid
+flowchart TD
+    UI[Web / Telegram / CLI / Voice] --> Agent[NallyAgent — orchestration]
+    Agent --> Gate[Permission Gate]
+    Agent --> Graph[LangGraph ReAct loop]
+    Graph --> Router[Capability Router]
+    Router --> Tools[Tool Registry]
+    Router --> Sub[Sub-agent Pool]
+    Tools --> Computer[NallPuter Adapter]
+    Tools --> Receipts[HMAC Receipts]
+    Receipts --> Verifier[Claim Verifier]
+    Agent --> Memory[Memory + Reflector]
+    Agent --> Skills[Skill Registry]
 ```
 
-## Development
+Full design docs: [`docs/architecture/`](docs/architecture/) · Guides: [`docs/guides/`](docs/guides/) · Consolidation status: [`docs/STATUS.md`](docs/STATUS.md)
 
-```bash
-# Run in CLI mode
-python main.py --cli
+## Consolidation status
 
-# Run voice mode (push-to-talk)
-python main.py --voice
+Active work happens on `refactor/nally-architecture-consolidation` — a Phase 1–5 hardening pass (controller, typed context, verification facade, memory authority, capability router) plus the NallPuter computer slices and deadline-authoritative execution budgets. See [`docs/STATUS.md`](docs/STATUS.md) for the phase-by-phase tracker. `master` stays deployable.
 
-# Run the web server (default; Telegram bot auto-spawns in polling mode)
-python main.py
+## Docs
 
-# Run the Telegram bot only (no web server)
-python main.py --telegram-only
-
-# Run the Telegram bot in a separate process (polling mode)
-python run_bot_standalone.py
-
-# Run the Telethon user-account client (real user, separate process)
-python run_tg_user.py
-
-# Run Telegram voice-call sessions (pytgcalls, separate process)
-python run_tg_call.py
-
-# Run the autonomous engineering loop on a task
-python main.py --engineer "TASK"
-python -m nally.engineering
-
-# Run with specific provider
-python main.py --provider groq
-python main.py --provider opencode
-
-# Show full MCP server tree during startup
-python main.py --verbose
-
-# Run on custom port
-python main.py --port 8080
-
-# Evaluate the Harness intent classifier against test cases
-python -m tests.harness_eval.runner
-```
-
-## VoIP / Live Voice (Phone Calls)
-
-Zero-cost phone interface — dial Nally from a free SIP app (e.g. Linphone) via a LiveKit Cloud SIP Inbound Trunk. Requires LiveKit Cloud credentials and an inbound trunk (see `docs/LIVEKIT_SIP_SETUP.md`):
-
-```bash
-pip install -r requirements.txt
-python -m nally.voice.livekit_agent
-```
+- [Architecture](docs/architecture/ARCHITECTURE.md) · [Harness](docs/architecture/HARNESS.md) · [NallPuter contract](docs/architecture/COMPUTER.md)
+- [API](docs/guides/API.md) · [Deployment](docs/guides/DEPLOYMENT.md) · [MCP](docs/guides/MCP_GUIDE.md) · [Memory](docs/guides/MEMORY.md) · [Testing](docs/guides/TESTING.md) · [Troubleshooting](docs/guides/TROUBLESHOOTING.md)
+- [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## License
 
-Private — Built by Clinton Onyedikachi Chukwuma (Klyntech)
+Proprietary — see [LICENSE](LICENSE). Built by Clinton Onyedikachi Chukwuma (Klyntech).

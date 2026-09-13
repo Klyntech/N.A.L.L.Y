@@ -8,15 +8,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `LICENSE` — proprietary license stated explicitly (was "Private" in README only)
+- `docs/STATUS.md` — Phase 1–5 consolidation tracker for `refactor/nally-architecture-consolidation`
+- `docs/architecture/COMPUTER.md` — extracted NallPuter contract (chain, slices, types, invariants)
+- `attic/` — quarantined side projects (`Lexi/`, `NALLYMAKES/`) out of the product root
+
 ### Changed
 
+- Docs reorganized: `docs/architecture/` (ARCHITECTURE, HARNESS, COMPUTER), `docs/guides/` (API, deployment, MCP, memory, skills, voice, frontend, testing, troubleshooting, LiveKit SIP), `docs/reference/` (CLAUDE, personalities, plugins), `docs/archive/` (fix report, release notes, research)
+- `README.md` rewritten — short, sharp, modern: one-line pitch, differentiator table, quick start, architecture diagram, consolidation status
+- CI now also runs on `refactor/**` branches (was `master` only); status badge added to README
+
 ### Fixed
+
+- Stale doc links after reorg (`LIVEKIT_SIP_SETUP.md` paths in CHANGELOG and CLAUDE reference)
 
 ## [1.2.0] - 2026-08-13
 
 ### Added
 
-- VoIP phone interface — zero-cost voice calls via LiveKit SIP Ingress (`nally/voice/livekit_agent.py`; set `NALLY_VOICE_CALLS_ENABLED` and run `python -m nally.voice.livekit_agent`); see `docs/LIVEKIT_SIP_SETUP.md`
+- VoIP phone interface — zero-cost voice calls via LiveKit SIP Ingress (`nally/voice/livekit_agent.py`; set `NALLY_VOICE_CALLS_ENABLED` and run `python -m nally.voice.livekit_agent`); see `docs/guides/LIVEKIT_SIP_SETUP.md`
 - Telegram user account (`nally/telegram/user.py`, Telethon) with DM + proactive alert support — `run_tg_user.py`
 - Telegram real-time voice calls (`nally/telegram/voice_call.py`, pytgcalls + Deepgram + Silero VAD + barge-in) — `run_tg_call.py`
 - Structured tool success — `registry.execute()` returns `(result, success)`, the structured boolean being the primary signal for receipts, snapshot diffing, and frontend events; legacy `str(result).startswith("Error")` prefix check retained as defense-in-depth

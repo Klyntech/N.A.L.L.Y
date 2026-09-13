@@ -83,7 +83,7 @@ docs(api): add API.md reference document
 
 ## Project Structure
 
-See [CLAUDE.md](CLAUDE.md) for full project structure and architecture decisions.
+See [docs/reference/CLAUDE.md](docs/reference/CLAUDE.md) for full project structure and architecture decisions.
 
 ## Key Patterns
 
@@ -95,8 +95,8 @@ See [CLAUDE.md](CLAUDE.md) for full project structure and architecture decisions
 
 ## Testing
 
-See [TESTING.md](TESTING.md) for how to run and write tests.
+See [docs/guides/TESTING.md](docs/guides/TESTING.md) for how to run and write tests.
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, data flow, and core patterns.
+See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for system design, data flow, and core patterns.
