@@ -66,32 +66,12 @@ NALLY_VERIFY_SSL=false
 
 Note: Even when streaming fails, Nally falls back to non-streaming — you'll still get responses, just without real-time text display.
 
-## Voice Mode Not Working
-
-### No audio input
-- Check microphone permissions in your OS
-- Verify `sounddevice` is installed: `pip install sounddevice`
-- On Linux, ensure PulseAudio or ALSA is running
-
-### STT not transcribing
-- `faster-whisper` requires significant RAM (2-4GB)
-- First run downloads the model (~150MB for base model)
-- Check logs for CUDA errors if using GPU
-
-### TTS not speaking
-- **Piper**: Requires model download on first run. Check `data/voice/` directory exists
-- **ElevenLabs**: Verify `ELEVENLABS_API_KEY` is set and valid
-
 ## Telegram Bot Issues
 
 ### Bot not responding
 - Verify `TELEGRAM_BOT_TOKEN` is set correctly
 - Check if bot privacy mode is off (for group chats)
 - Bot only responds to @mentions in groups
-
-### Voice messages not working
-- Requires `ffmpeg` installed and in PATH
-- Check `nally/telegram/voice.py` can find ffmpeg
 
 ### Polling vs Webhook
 - Use polling for development: `python main.py --telegram-only`

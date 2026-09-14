@@ -1,4 +1,4 @@
-"""Tests for AgentSessionManager.commit_turn — voice fast-path persistence."""
+"""Tests for AgentSessionManager.commit_turn — lightweight turn persistence."""
 
 import pytest
 
@@ -48,7 +48,7 @@ def test_commit_turn_survives_save_failure(manager, monkeypatch):
     sid = "user:111"
     manager._sessions[sid] = fake
 
-    # Must not raise — persistence is best-effort for voice turns
+    # Must not raise — persistence is best-effort
     manager.commit_turn(sid, "hello", "hi")
     assert len(fake.messages) == 3
 

@@ -116,7 +116,7 @@ The final system prompt is built in this order (`nally/config.py` → `get_syste
 7. **Interface label** — "You are chatting via web/telegram/CLI" (only when an interface is given)
 8. **Trust & honesty rules** — always appended (grounded in Tool Execution Receipts)
 9. **Project registry** — where projects live on disk (`nally/agent/project_registry.py`)
-10. **Voice capabilities** — appended only when `NALLY_VOICE_CALLS_ENABLED` is true
+10. **Capabilities block** — full tool inventory in generated CAPABILITIES prompt
 
 SOUL.md hot-reload: `nally/agent/soul.py:29` `SoulManager` checks `SOUL.md` every 30s (5s when watching). `get_system_prompt()` prefers `SOUL.md` when it exists and is non-empty; otherwise falls back to `PERSONALITIES`. Edit `SOUL.md` without restarting to iterate on tone/reasoning. `docs/archive/PROMPT_v1.md` freezes the pre-v2 baseline.
 

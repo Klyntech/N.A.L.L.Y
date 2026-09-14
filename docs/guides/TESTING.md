@@ -58,8 +58,6 @@ tests/
 ├── test_tool_executor.py                  # Tool execution + parallel runs
 ├── test_tool_filter.py                    # Keyword-based tool selection
 ├── test_verifier.py                       # Claim verifier (hallucination detection)
-├── test_voice_formatter.py                # Text→speech formatting
-├── test_voice_pipeline.py                 # Voice interaction pipeline
 └── test_websearch.py                      # Web search (Parallel.ai + DuckDuckGo)
 
 tests/harness_eval/

@@ -57,23 +57,6 @@ def test_tg_user_maps_like_bot_dm(owner_111):
     assert resolve_session("tg_user", sender_id=999).session_id == "user:999"
 
 
-def test_voice_call_maps_to_owner_brain(owner_111):
-    ref = resolve_session("tg_voice", chat_id=111)
-    assert ref.session_id == "user:111"
-    assert ref.route_key == "tg_voice:111"
-
-
-def test_voip_owner_and_non_owner(owner_111):
-    assert resolve_session("voip", sender_id="111").session_id == "user:111"
-    assert resolve_session("voip", sender_id="999").session_id == "user:999"
-
-
-def test_local_voice_loop_maps_to_owner(owner_111):
-    ref = resolve_session("voice")
-    assert ref.session_id == "user:111"
-    assert ref.channel == "Voice"
-
-
 def test_unknown_channel_defaults_to_owner(owner_111):
     ref = resolve_session("carrier_pigeon")
     assert ref.session_id == "user:111"
@@ -181,6 +164,6 @@ def test_migrate_owner_history_skips_without_sources(tmp_path, monkeypatch):
     monkeypatch.setattr(identity, "get_owner_id", lambda: 111)
     monkeypatch.setattr(mem_pkg, "memory_store", store, raising=False)
 
-    # Only web:default/telegram:111/tg_user:111/tg_voice:111 are sources;
+    # Only web:default/telegram:111/tg_user:111 are sources;
     # group history stays untouched.
     assert identity.migrate_owner_history() == 0

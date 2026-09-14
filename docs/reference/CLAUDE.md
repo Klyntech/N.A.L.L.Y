@@ -8,10 +8,9 @@ Personal AI assistant inspired by Jarvis from Iron Man. Built by Clinton (Klynte
 
 ```
 N.A.L.L.Y/
-├── main.py                 # Entry point (CLI, voice, web, telegram modes)
+├── main.py                 # Entry point (CLI, web, telegram modes)
 ├── run_bot_standalone.py   # Telegram bot in a separate process (polling mode)
 ├── run_tg_user.py          # Telethon real-user account (separate process)
-├── run_tg_call.py          # Telegram voice-call sessions via pytgcalls (separate process)
 ├── .env.example            # Template for environment variables
 ├── nally/
 │   ├── config.py           # Single source of truth — all settings, no side effects
@@ -72,19 +71,8 @@ N.A.L.L.Y/
 │   ├── telegram/
 │   │   ├── bot.py          # Telegram bot (DM + group chat, polling/webhook)
 │   │   ├── user.py         # Telethon real-user account (launched via run_tg_user.py)
-│   │   ├── voice_call.py   # Telegram voice-call sessions via pytgcalls (run_tg_call.py)
 │   │   ├── format.py       # Markdown→Telegram HTML converter
-│   │   └── voice.py        # OGG/PCM/WAV audio conversion for Telegram voice
-│   ├── voice/
-│   │   ├── loop.py         # Voice interaction loop
-│   │   ├── stt.py          # Speech-to-text (Groq Whisper-first, faster-whisper fallback, Deepgram streaming)
-│   │   ├── tts.py          # Text-to-speech (Piper / ElevenLabs / Fish Audio)
-│   │   ├── formatter.py    # Text→speech formatting
-│   │   ├── pipeline.py     # VoicePipeline streaming orchestrator
-│   │   ├── metrics.py      # OpenTelemetry/Prometheus metrics
-│   │   ├── bargein.py      # Barge-in detector (barge_in.py is legacy/unused)
-│   │   ├── livekit_agent.py # LiveKit VoIP agent
-│   │   └── speech_pipeline.py # End-to-end speech pipeline
+│   │   └── media.py        # File/image upload helpers
 │   ├── thinking/           # Thinking/reasoning module
 │   │   ├── tool.py          # ThinkTool — structured reasoning before complex tasks
 │   │   ├── engine.py        # ThinkingEngine — multi-strategy reasoning orchestrator
@@ -136,9 +124,6 @@ python main.py
 # Run CLI mode
 python main.py --cli
 
-# Run voice mode (push-to-talk)
-python main.py --voice
-
 # Run Telegram bot only (no web server)
 python main.py --telegram-only
 
@@ -147,12 +132,6 @@ python run_bot_standalone.py
 
 # Run the Telethon user-account client (real user, separate process)
 python run_tg_user.py
-
-# Run Telegram voice-call sessions (pytgcalls, separate process)
-python run_tg_call.py
-
-# VoIP phone interface (requires LiveKit Cloud — see ../guides/LIVEKIT_SIP_SETUP.md)
-python -m nally.voice.livekit_agent
 
 # Run the autonomous engineering loop (opt-in build mode)
 python main.py --engineer "TASK"
@@ -206,18 +185,6 @@ SLACK_BOT_TOKEN=...              # Slack bot token
 SLACK_WEBHOOK_URL=...            # Slack webhook URL
 DISCORD_BOT_TOKEN=...            # Discord bot token
 DISCORD_WEBHOOK_URL=...          # Discord webhook URL
-
-# TTS (Text-to-Speech)
-NALLY_TTS_BACKEND=piper          # "piper" (default), "elevenlabs", or "fish"
-ELEVENLABS_API_KEY=...           # ElevenLabs API key (if using elevenlabs)
-ELEVENLABS_VOICE_ID=...          # ElevenLabs voice ID (default: Rachel)
-ELEVENLABS_MODEL=eleven_multilingual_v2  # ElevenLabs model
-FISH_API_KEY=...                 # Fish Audio API key (if using fish backend)
-FISH_VOICE_ID=...                # Fish Audio voice ID (empty = model default)
-FISH_MODEL=s2.1-pro-free         # Fish Audio model
-
-# STT (Speech-to-Text)
-DEEPGRAM_API_KEY=...             # Deepgram API key (streaming/real-time STT)
 
 # Proxy / SSL
 HTTP_PROXY=...                   # HTTP proxy URL (e.g. http://proxy:8080)

@@ -35,6 +35,6 @@ python -m tests.harness_eval.runner   # intent-classifier accuracy + latency
 ## Docs map
 
 - Architecture: `docs/architecture/` (`ARCHITECTURE.md`, `HARNESS.md`, `COMPUTER.md`)
-- Guides: `docs/guides/` (API, deployment, MCP, memory, skills, voice, frontend, testing, troubleshooting)
+- Guides: `docs/guides/` (API, deployment, MCP, memory, skills, frontend, testing, troubleshooting)
 - Reference: `docs/reference/` (`CLAUDE.md` for AI assistants, personalities, plugins)
 - Archive: `docs/archive/` (fix reports, release notes, research papers)

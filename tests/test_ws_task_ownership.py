@@ -1,4 +1,4 @@
-"""WebSocket connection owns agent/voice tasks; disconnect cancels them."""
+"""WebSocket connection owns agent tasks; disconnect cancels them."""
 
 from __future__ import annotations
 

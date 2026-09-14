@@ -39,7 +39,6 @@ web/
 │   ├── think.js      #   thought panel
 │   ├── toolcards.js  #   tool cards rendering
 │   ├── trace.js      #   trace panel
-│   ├── voice.js      #   mic input / voice pipeline
 │   └── websocket.js  #   WS client (/ws/{session_id})
 ├── marked.min.js     # Markdown parser (v4.3.0, bundled)
 ├── purify.min.js     # HTML sanitizer (DOMPurify, bundled)
@@ -82,7 +81,6 @@ The JS modules are plain `<script>` tags (no ES modules/imports) sharing globals
 - **WebSocket**: Bidirectional chat via `WS /ws/{session_id}` (lower latency)
 - **Tool Cards**: Visual display of tool calls and results
 - **Multi-tab Sync**: Broadcast channel keeps tabs in sync
-- **Voice Input**: Browser mic → STT → agent → TTS (via WebSocket)
 - **Markdown Rendering**: `marked.min.js` + DOMPurify for formatted, sanitized responses
 - **Syntax Highlighting**: highlight.js (CDN) colors code blocks in message output
 - **Diff Viewer**: Dedicated panel for file diffs returned by tools
@@ -133,14 +131,6 @@ ws.onmessage = (event) => {
 };
 ```
 
-### Voice Input
-
-1. User clicks mic button (or uses `/voice` command)
-2. Browser captures audio via `MediaRecorder` (webm format)
-3. Audio sent via WebSocket to `_process_voice()` handler
-4. Backend: webm → ffmpeg → PCM → STT (Faster-Whisper) → agent → TTS → WAV → base64
-5. Audio response played back in browser
-
 ## Theming
 
 The UI supports runtime theme customization. The settings panel is organized into sections (markup in `index.html`, behavior in `web/js/settings.js`):
@@ -181,7 +171,7 @@ The frontend is modular:
 
 ## Browser Support
 
-- Chrome/Edge: Full support (WebGL orb, voice)
+- Chrome/Edge: Full support (WebGL orb)
 - Firefox: Full support (Canvas 2D fallback for orb)
-- Safari: Full support (Canvas 2D fallback, no voice on older versions)
+- Safari: Full support (Canvas 2D fallback)
 - Mobile: Responsive layout, touch-friendly
