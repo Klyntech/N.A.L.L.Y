@@ -10,7 +10,7 @@ Tools may return ``ToolResult`` directly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -42,10 +42,6 @@ class ToolResult:
         if text[:5].lower() != "error":
             return f"Error: {text}"
         return text
-
-    def as_tuple(self) -> Tuple[str, bool]:
-        """Compatibility shim for callers that expect (text, success)."""
-        return self.to_llm_text(), self.ok
 
     @classmethod
     def success(cls, value: Any = None, **metadata: Any) -> ToolResult:

@@ -169,7 +169,8 @@ class ToolRegistry:
             (result, success) — compatibility adapter over ``execute_result``.
             Prefer ``execute_result`` for new callers.
         """
-        return self.execute_result(name, arguments).as_tuple()
+        tr = self.execute_result(name, arguments)
+        return tr.to_llm_text(), tr.ok
 
     def load_plugins(self):
         """Load plugins from the plugins directory (allowlist-gated, safe import)"""

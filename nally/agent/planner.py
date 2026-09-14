@@ -15,6 +15,7 @@ import re
 import time
 from enum import StrEnum
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 from ..config import (
@@ -445,14 +446,12 @@ def classify_node(state: Dict[str, Any]) -> Dict[str, Any]:
     classification = None
     intent = state.get("intent_class") or state.get("task_class")
     if intent:
-        class _Cls:
-            pass
-
-        classification = _Cls()
-        classification.task_class = intent
-        classification.confidence = float(state.get("intent_confidence") or 0.0)
-        classification.reasoning = state.get("intent_reasoning") or ""
-        classification.method = "harness"
+        classification = SimpleNamespace(
+            task_class=intent,
+            confidence=float(state.get("intent_confidence") or 0.0),
+            reasoning=state.get("intent_reasoning") or "",
+            method="harness",
+        )
 
     decision = route(user_text, classification=classification)
     # Single decision point: TaskRouter owns promotion + PLAN_ENABLED kill-switch.
