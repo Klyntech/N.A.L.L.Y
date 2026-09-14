@@ -89,6 +89,21 @@ def refresh_manifest() -> None:
         cfg._SYSTEM_PROMPT_CACHE.clear()
     except Exception:
         pass
+    # Clear filter + router caches (lesson 16 caching invalidation)
+    try:
+        from . import filter as _filter_mod
+
+        if hasattr(_filter_mod, "_filter_cache"):
+            _filter_mod._filter_cache.clear()
+    except Exception:
+        pass
+    try:
+        from . import capability_router as _router_mod
+
+        if hasattr(_router_mod, "_resolve_cache"):
+            _router_mod._resolve_cache.clear()
+    except Exception:
+        pass
     try:
         from .filter import tool_filter
         from .registry import registry

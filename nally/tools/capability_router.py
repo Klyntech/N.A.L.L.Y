@@ -37,6 +37,25 @@ class CapabilityRouter:
         """Return the static route for a tool, or None."""
         return self._routes.get(tool_name)
 
+    def _is_unconditionally_denied(self, tool_name: str, config: dict) -> bool:
+        """Check if tool is unconditionally denied (string 'deny') — no arg-dependent dict rules."""
+        try:
+            from .permissions import _wildcard_match
+
+            rules = config.get(tool_name)
+            if rules is None:
+                for pat, pr in config.items():
+                    if _wildcard_match(pat, tool_name):
+                        rules = pr
+                        break
+            if isinstance(rules, str) and rules == "deny":
+                return True
+            if isinstance(rules, dict) and len(rules) == 1 and rules.get("*") == "deny":
+                return True
+        except Exception:
+            pass
+        return False
+
     def resolve(
         self,
         query: str,
@@ -47,8 +66,7 @@ class CapabilityRouter:
         """Return permission-aware tool schemas for this turn.
 
         1. filter.select(query, task_class) narrows the set.
-        2. permissions gate drops DENY tools (ASK tools stay; the graph
-           owns the approval UX at execution time).
+        2. permissions gate drops DENY tools (ASK stays; graph owns approval).
         """
         # ── Step 1: keyword filtering ──
         schemas: List[Dict[str, Any]] = []
@@ -73,7 +91,7 @@ class CapabilityRouter:
                     schemas=[], available=set(), denied=set(), task_class=task_class
                 )
 
-        # ── Step 2: permission filtering ──
+        # ── Step 2: permission filtering — only unconditional DENY at selection ──
         available: Set[str] = set()
         denied: Set[str] = set()
 

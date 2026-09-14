@@ -4,10 +4,15 @@ Selects a relevant subset of tools per-request to reduce prompt size.
 Keyword-only (no embeddings) for determinism and prompt-cache stability.
 """
 
+import hashlib
 import re
-from typing import Dict, List, Set
+import time
+from typing import Dict, List, Set, Tuple
 
 from .registry import Tool
+
+_filter_cache: Dict[str, Tuple[float, List[dict]]] = {}
+_FILTER_TTL = 300
 
 # Core built-in tools — always included (small schema footprint)
 CORE_TOOLS = {
@@ -72,13 +77,26 @@ class ToolFilter:
         - Weak match (1 token): ALWAYS_ON + top 10 matched.
         - Complex/High-Stakes: ALWAYS_ON + all matched (uncapped; strong
           and weak share this path, unlike SIMPLE which caps weak at 10).
+
+        Cached per (query, task_class) for 5m to avoid recomputing select()
+        on repeated identical turns (lesson 16 caching).
         """
+        cache_key = hashlib.sha256(f"{query}::{task_class}".encode()).hexdigest()
+        now = time.time()
+        cached = _filter_cache.get(cache_key)
+        if cached and now - cached[0] < _FILTER_TTL:
+            return cached[1]
+
         if not self._ready or not self._tool_keywords:
-            return self._all_schemas
+            result = self._all_schemas
+            _filter_cache[cache_key] = (now, result)
+            return result
 
         query_tokens = _tokenize(query)
         if not query_tokens:
-            return self._core_schemas
+            result = self._core_schemas
+            _filter_cache[cache_key] = (now, result)
+            return result
 
         scored: List[tuple] = []
         for name, tool_tokens in self._tool_keywords.items():
@@ -88,7 +106,13 @@ class ToolFilter:
 
         # No matches → return core only (not all 300+ tools)
         if not scored:
-            return self._core_schemas
+            result = self._core_schemas
+            _filter_cache[cache_key] = (now, result)
+            if len(_filter_cache) > 500:
+                oldest = sorted(_filter_cache.items(), key=lambda kv: kv[1][0])[:100]
+                for k, _ in oldest:
+                    _filter_cache.pop(k, None)
+            return result
 
         # Sort by overlap count, take top matches
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -97,19 +121,36 @@ class ToolFilter:
         if task_class in ("COMPLEX", "HIGH_STAKES"):
             always_on = ALWAYS_ON
             selected_names = always_on | {name for name, _ in scored}
-            return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
+            result = [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
+            _filter_cache[cache_key] = (now, result)
+            if len(_filter_cache) > 500:
+                oldest = sorted(_filter_cache.items(), key=lambda kv: kv[1][0])[:100]
+                for k, _ in oldest:
+                    _filter_cache.pop(k, None)
+            return result
 
         # Weak match (1 token) → ALWAYS_ON + top 10 matched
         if scored[0][1] < 2:
             always_on = ALWAYS_ON
             selected_names = always_on | {name for name, _ in scored[:10]}
-            return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
+            result = [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
+            _filter_cache[cache_key] = (now, result)
+            if len(_filter_cache) > 500:
+                oldest = sorted(_filter_cache.items(), key=lambda kv: kv[1][0])[:100]
+                for k, _ in oldest:
+                    _filter_cache.pop(k, None)
+            return result
 
         # Strong match → ALWAYS_ON + all matched
         always_on = ALWAYS_ON
         selected_names = always_on | {name for name, _ in scored}
-
-        return [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
+        result = [self._tool_names[name].to_openai_schema() for name in selected_names if name in self._tool_names]
+        _filter_cache[cache_key] = (now, result)
+        if len(_filter_cache) > 500:
+            oldest = sorted(_filter_cache.items(), key=lambda kv: kv[1][0])[:100]
+            for k, _ in oldest:
+                _filter_cache.pop(k, None)
+        return result
 
 
 # Module-level singleton — matches existing call pattern in core.py and agent.py

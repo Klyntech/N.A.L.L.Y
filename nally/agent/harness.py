@@ -279,6 +279,10 @@ def classify_by_llm(text: str, llm_call_fn) -> Classification:
         return _classify_regex(text)
 
 
+# ── Classification cache (lesson 16) ──
+_classify_cache: dict = {}
+_CLASSIFY_TTL = 300
+
 # ── Public API ────────────────────────────────────────────
 
 def classify_intent(
@@ -297,26 +301,51 @@ def classify_intent(
     Returns:
         Classification with task_class, confidence, reasoning.
     """
+    # Cache key includes text + override + whether LLM is used (regex vs llm)
+    cache_key = f"{text}::{override}::{bool(llm_call_fn)}"
+    now = time.time()
+    cached = _classify_cache.get(cache_key)
+    if cached and now - cached[0] < _CLASSIFY_TTL:
+        return cached[1]
+
     # Debug override (tests/internal only)
     if override:
         override_upper = override.upper()
         try:
             task_class = TaskClass(override_upper)
-            return Classification(
+            result = Classification(
                 task_class=task_class,
                 confidence=1.0,
                 reasoning=f"Manual override: {override}",
                 method="override",
             )
+            _classify_cache[cache_key] = (now, result)
+            if len(_classify_cache) > 500:
+                oldest = sorted(_classify_cache.items(), key=lambda kv: kv[1][0])[:100]
+                for k, _ in oldest:
+                    _classify_cache.pop(k, None)
+            return result
         except ValueError:
             logger.warning(f"Invalid override class: {override}, classifying normally")
 
     # LLM classification (preferred)
     if llm_call_fn:
-        return classify_by_llm(text, llm_call_fn)
+        result = classify_by_llm(text, llm_call_fn)
+        _classify_cache[cache_key] = (now, result)
+        if len(_classify_cache) > 500:
+            oldest = sorted(_classify_cache.items(), key=lambda kv: kv[1][0])[:100]
+            for k, _ in oldest:
+                _classify_cache.pop(k, None)
+        return result
 
     # Regex fallback
-    return _classify_regex(text)
+    result = _classify_regex(text)
+    _classify_cache[cache_key] = (now, result)
+    if len(_classify_cache) > 500:
+        oldest = sorted(_classify_cache.items(), key=lambda kv: kv[1][0])[:100]
+        for k, _ in oldest:
+            _classify_cache.pop(k, None)
+    return result
 
 
 def get_pipeline_config(task_class: TaskClass) -> PipelineConfig:

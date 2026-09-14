@@ -10,6 +10,7 @@ Design:
   - receipts keyed by tool_call_id for fast lookup
 """
 
+import base64
 import hashlib
 import hmac
 import json
@@ -24,10 +25,34 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("nally.receipts")
 
 
-class Receipt:
-    """A single tool execution receipt."""
+def _b64url_encode(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
 
-    __slots__ = ("args", "duration_ms", "hash", "hmac", "id", "result", "success", "timestamp", "tool", "tool_call_id")
+
+def _b64url_decode(s: str) -> bytes:
+    # Pad to multiple of 4
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+class Receipt:
+    """A single tool execution receipt — now with JCS + Ed25519 + chain (lesson 18)."""
+
+    __slots__ = (
+        "args",
+        "duration_ms",
+        "hash",
+        "hmac",
+        "id",
+        "prev_hash",
+        "public_key",
+        "result",
+        "signature",
+        "success",
+        "timestamp",
+        "tool",
+        "tool_call_id",
+    )
 
     def __init__(
         self,
@@ -48,9 +73,12 @@ class Receipt:
         self.duration_ms = duration_ms
         self.hash = ""
         self.hmac = ""
+        self.prev_hash = ""
+        self.signature = ""
+        self.public_key = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "id": self.id,
             "timestamp": self.timestamp,
             "tool_call_id": self.tool_call_id,
@@ -62,6 +90,14 @@ class Receipt:
             "hash": self.hash,
             "hmac": self.hmac,
         }
+        # Only include chain/signature fields when present (keeps old JSONL compact)
+        if getattr(self, "prev_hash", ""):
+            d["prev_hash"] = self.prev_hash
+        if getattr(self, "signature", ""):
+            d["signature"] = self.signature
+        if getattr(self, "public_key", ""):
+            d["public_key"] = self.public_key
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Receipt":
@@ -85,6 +121,13 @@ class ReceiptStore:
         self.store_path = store_path
         self._key_path = self.store_path.parent / ".receipt_key"
         self._secret_key = self._load_or_create_key(secret_key)
+        # Ed25519 keypair for asymmetric receipts (lesson 18) — separate from HMAC
+        self._ed_priv_path = self.store_path.parent / ".receipt_ed25519_priv"
+        self._ed_pub_path = self.store_path.parent / ".receipt_ed25519_pub"
+        self._ed_priv = None  # Ed25519PrivateKey or None
+        self._ed_pub_b64 = ""  # b64url public key for receipts
+        self._last_hash = ""  # chain head for prev_hash linking
+        self._init_ed_keys()
         self._by_tool_call_id: Dict[str, Receipt] = {}
         # Idempotency cache: (session_id, task_id) -> result string
         self._idempotent: Dict[str, str] = {}
@@ -92,6 +135,13 @@ class ReceiptStore:
         # worker threads (record/get_recent/get_idempotent).
         self._lock = threading.Lock()
         self._load_existing()
+        # After loading, set _last_hash to most recent receipt's hash for chaining
+        try:
+            if self._by_tool_call_id:
+                latest = max(self._by_tool_call_id.values(), key=lambda r: r.timestamp)
+                self._last_hash = latest.hash or ""
+        except Exception:
+            pass
 
     def _load_or_create_key(self, provided_key: Optional[str]) -> bytes:
         """Load existing key or create persistent one."""
@@ -109,9 +159,100 @@ class ReceiptStore:
         try:
             self._key_path.parent.mkdir(parents=True, exist_ok=True)
             self._key_path.write_text(key)
+            try:
+                os.chmod(self._key_path, 0o600)
+            except Exception:
+                pass
         except Exception as e:
             logger.warning(f"Failed to persist HMAC key to {self._key_path}: {e}")
         return key.encode()
+
+    def _init_ed_keys(self):
+        """Load or create Ed25519 keypair for asymmetric receipts. Graceful fallback if cryptography missing."""
+        # Env override: NALLY_RECEIPT_ED_PRIV_B64 (b64url seed) or NALLY_RECEIPT_PRIV
+        env_priv = os.getenv("NALLY_RECEIPT_ED_PRIV_B64", "") or os.getenv("NALLY_RECEIPT_ED_PRIV", "")
+        if env_priv:
+            try:
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+                seed = _b64url_decode(env_priv.strip()) if len(env_priv) > 44 else bytes.fromhex(env_priv.strip())
+                # Ed25519 seed is 32 bytes
+                if len(seed) == 32:
+                    self._ed_priv = Ed25519PrivateKey.from_private_bytes(seed)
+                    pub = self._ed_priv.public_key()
+                    self._ed_pub_b64 = _b64url_encode(pub.public_bytes_raw())
+                    return
+            except Exception as e:
+                logger.debug(f"Ed25519 env key load failed: {e}")
+
+        # Try load from files
+        if self._ed_priv_path.exists() and self._ed_pub_path.exists():
+            try:
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+                priv_b64 = self._ed_priv_path.read_text().strip()
+                pub_b64 = self._ed_pub_path.read_text().strip()
+                priv_bytes = _b64url_decode(priv_b64)
+                # priv file stores 32-byte seed b64url
+                if len(priv_bytes) == 32:
+                    self._ed_priv = Ed25519PrivateKey.from_private_bytes(priv_bytes)
+                    self._ed_pub_b64 = pub_b64
+                    return
+                # Also support raw 32+64 file (legacy)
+                if len(priv_bytes) >= 32:
+                    self._ed_priv = Ed25519PrivateKey.from_private_bytes(priv_bytes[:32])
+                    pub = self._ed_priv.public_key()
+                    self._ed_pub_b64 = _b64url_encode(pub.public_bytes_raw())
+                    return
+            except Exception as e:
+                logger.debug(f"Ed25519 file load failed: {e}")
+
+        # Generate new pair
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+            priv = Ed25519PrivateKey.generate()
+            pub = priv.public_key()
+            priv_b64 = _b64url_encode(priv.private_bytes_raw())
+            pub_b64 = _b64url_encode(pub.public_bytes_raw())
+            try:
+                self._ed_priv_path.parent.mkdir(parents=True, exist_ok=True)
+                self._ed_priv_path.write_text(priv_b64)
+                self._ed_pub_path.write_text(pub_b64)
+                try:
+                    os.chmod(self._ed_priv_path, 0o600)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.debug(f"Ed25519 persist failed: {e}")
+            self._ed_priv = priv
+            self._ed_pub_b64 = pub_b64
+        except Exception as e:
+            logger.debug(f"Ed25519 not available (cryptography missing?): {e}")
+            self._ed_priv = None
+            self._ed_pub_b64 = ""
+
+    def _canonical_bytes(self, receipt: Receipt) -> bytes:
+        """JCS-like canonical JSON for receipt (excluding hash/hmac/signature/pubkey)."""
+        # Chain: include prev_hash when present so hash links chain
+        payload: Dict[str, Any] = {
+            "id": receipt.id,
+            "timestamp": receipt.timestamp,
+            "tool_call_id": receipt.tool_call_id,
+            "tool": receipt.tool,
+            "args": receipt.args,
+            "result": receipt.result,
+            "success": receipt.success,
+            "duration_ms": receipt.duration_ms,
+        }
+        if getattr(receipt, "prev_hash", ""):
+            payload["prev_hash"] = receipt.prev_hash
+        # RFC8785: sort_keys + separators + ensure_ascii False + UTF-8
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+    def get_public_key(self) -> str:
+        """Return b64url Ed25519 public key for /.well-known/nally-receipt-pubkey."""
+        return self._ed_pub_b64
 
     def _rotate_if_needed(self):
         """Rotate receipt file if it exceeds MAX_STORE_SIZE."""
@@ -167,26 +308,23 @@ class ReceiptStore:
             logger.warning(f"Failed to load receipts from {path}: {e}")
 
     def _compute_hash(self, receipt: Receipt) -> str:
-        """SHA-256 of canonical receipt content (excludes hash and hmac fields)."""
-        content = json.dumps(
-            {
-                "id": receipt.id,
-                "timestamp": receipt.timestamp,
-                "tool_call_id": receipt.tool_call_id,
-                "tool": receipt.tool,
-                "args": receipt.args,
-                "result": receipt.result,
-                "success": receipt.success,
-                "duration_ms": receipt.duration_ms,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return hashlib.sha256(content.encode()).hexdigest()
+        """SHA-256 of JCS canonical bytes (includes prev_hash for chaining)."""
+        return hashlib.sha256(self._canonical_bytes(receipt)).hexdigest()
 
     def _compute_hmac(self, receipt: Receipt) -> str:
-        """HMAC-SHA256 of the receipt hash (tamper-evident signature)."""
+        """HMAC-SHA256 of the receipt hash (tamper-evident, backward compat)."""
         return hmac.new(self._secret_key, receipt.hash.encode(), hashlib.sha256).hexdigest()
+
+    def _compute_signature(self, receipt: Receipt) -> str:
+        """Ed25519 signature over canonical bytes, b64url. Empty if no private key."""
+        if not self._ed_priv:
+            return ""
+        try:
+            canon = self._canonical_bytes(receipt)
+            sig = self._ed_priv.sign(canon)
+            return _b64url_encode(sig)
+        except Exception:
+            return ""
 
     def record(
         self,
@@ -197,14 +335,19 @@ class ReceiptStore:
         success: bool,
         duration_ms: float,
     ) -> Receipt:
-        """Record a tool execution and return the signed receipt."""
+        """Record a tool execution and return the signed receipt (dual HMAC + Ed25519 + chain)."""
         receipt = Receipt(tool_call_id, tool, args, result, success, duration_ms)
-        receipt.hash = self._compute_hash(receipt)
-        receipt.hmac = self._compute_hmac(receipt)
-
-        # In-memory index
+        # Chain: link to previous receipt's hash
         with self._lock:
+            receipt.prev_hash = self._last_hash or ""
+            receipt.hash = self._compute_hash(receipt)
+            receipt.hmac = self._compute_hmac(receipt)
+            receipt.signature = self._compute_signature(receipt)
+            receipt.public_key = self._ed_pub_b64 if receipt.signature else ""
             self._by_tool_call_id[tool_call_id] = receipt
+            self._last_hash = receipt.hash
+
+        # In-memory index already updated under lock
 
         # Append to disk (with rotation check)
         try:
@@ -237,12 +380,47 @@ class ReceiptStore:
         return results[:limit]
 
     def verify(self, receipt: Receipt) -> bool:
-        """Verify receipt integrity — hash matches and HMAC is valid."""
+        """Verify receipt integrity — JCS hash + HMAC + optional Ed25519."""
         expected_hash = self._compute_hash(receipt)
-        if not hmac.compare_digest(receipt.hash, expected_hash):
+        if not hmac.compare_digest(receipt.hash or "", expected_hash):
             return False
         expected_hmac = self._compute_hmac(receipt)
-        return hmac.compare_digest(receipt.hmac, expected_hmac)
+        if not hmac.compare_digest(receipt.hmac or "", expected_hmac):
+            return False
+        # Ed25519 verify if signature present (lesson 18)
+        sig = getattr(receipt, "signature", "") or ""
+        if sig:
+            try:
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+                pub_b64 = getattr(receipt, "public_key", "") or self._ed_pub_b64
+                if not pub_b64:
+                    return False
+                pub_bytes = _b64url_decode(pub_b64)
+                pub = Ed25519PublicKey.from_public_bytes(pub_bytes)
+                canon = self._canonical_bytes(receipt)
+                pub.verify(_b64url_decode(sig), canon)
+            except Exception:
+                return False
+        return True
+
+    def verify_chain(self, limit: int = 100) -> bool:
+        """Verify hash chain integrity for recent receipts (append-only)."""
+        recent = sorted(self._by_tool_call_id.values(), key=lambda r: r.timestamp)
+        if len(recent) > limit:
+            recent = recent[-limit:]
+        prev = ""
+        for r in recent:
+            # Check hash recomputed matches stored (includes prev_hash)
+            if r.hash != self._compute_hash(r):
+                return False
+            # Check prev_hash links
+            if r.prev_hash and r.prev_hash != prev:
+                # Allow first receipt prev_hash == "" and also allow gaps where prev_hash is empty (old receipts pre-chain)
+                if prev != "":
+                    return False
+            prev = r.hash
+        return True
 
     # ── Idempotency ────────────────────────────────────────
     # Tools that accept a caller-supplied task_id can be made safe to retry:

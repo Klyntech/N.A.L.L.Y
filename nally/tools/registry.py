@@ -128,6 +128,18 @@ class ToolRegistry:
                 msg = f"Error: Tool '{name}' not found"
             return ToolResult.failure(error=msg, tool=name)
 
+        # Lightweight JSON Schema validation (required fields) — fail-closed before execution (lesson 04)
+        try:
+            required_missing = [k for k, v in (tool.parameters or {}).items() if v.get("required") and k not in (arguments or {})]
+            if required_missing:
+                return ToolResult.failure(
+                    error=f"Error: missing required params {required_missing} for tool '{name}'",
+                    tool=name,
+                    code="missing_params",
+                )
+        except Exception:
+            pass
+
         try:
             raw = tool.execute(**(arguments or {}))
             # Structured tools may return ToolResult directly

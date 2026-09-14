@@ -1,18 +1,66 @@
 """Execution Tracer — nested span recording for every agent turn.
 
-Self-hosted in the SQLite memory store. No external services, no data leaving
-the machine. Thread-safe via a thread-local current-span stack (mirrors the
-_get_emit()/_set_emit() pattern in graph.py).
-
-If tracing records a failure, it logs and moves on — it must never affect the
-underlying operation being traced.
+Dual-write: SQLite (always, free-tier local) + optional OTel OTLP (when
+OTEL_EXPORTER_OTLP_ENDPOINT is set and opentelemetry is installed).
+Thread-safe via thread-local stack. No failure in tracing ever affects the
+operation being traced.
 """
 
+import logging
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("nally.tracing")
+
+# Optional OTel — gracefully disabled when not installed or endpoint empty (Free tier)
+_otel_tracer = None
+_otel_initialized = False
+
+
+def _init_otel():
+    global _otel_tracer, _otel_initialized
+    if _otel_initialized:
+        return _otel_tracer
+    _otel_initialized = True
+    try:
+        import os
+
+        endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+        if not endpoint:
+            return None
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        resource = Resource.create(
+            {
+                "service.name": os.getenv("OTEL_SERVICE_NAME", "nally"),
+                "service.version": os.getenv("NALLY_VERSION", "1.0.0"),
+                "deployment.environment": os.getenv("NALLY_ENV", "production"),
+            }
+        )
+        provider = TracerProvider(resource=resource)
+        exporter = OTLPSpanExporter(endpoint=endpoint)
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+        _otel_tracer = trace.get_tracer("nally.tracer")
+        logger.info(f"OTel tracing enabled → {endpoint}")
+        return _otel_tracer
+    except Exception as e:
+        logger.debug(f"OTel not enabled: {e}")
+        return None
+
+
+# Try init at import (no-op on Free when endpoint empty)
+try:
+    _init_otel()
+except Exception:
+    pass
 
 
 @dataclass
@@ -68,10 +116,11 @@ def _get_stack() -> List[Span]:
 
 
 class Tracer:
-    """Records nested spans. Parent spans are auto-detected via thread-local stack."""
+    """Records nested spans. Dual-write: SQLite (always) + OTel OTLP when configured."""
 
     def __init__(self, store=None):
         self._store = store  # optional MemoryRepository
+        self._otel_spans: Dict[str, Any] = {}  # span_id -> OTel span
 
     def set_store(self, store):
         """Set the storage backend (injected once at startup)."""
@@ -101,6 +150,31 @@ class Tracer:
         )
 
         stack.append(span)
+
+        # Optional OTel span (no-op on Free when endpoint empty)
+        try:
+            otel = _otel_tracer or _init_otel()
+            if otel:
+                # Use OTel context propagation for parent — simplified: new span
+                ospan = otel.start_span(name)
+                # Add resource-like attributes
+                try:
+                    ospan.set_attribute("nally.span_id", span.span_id)
+                    ospan.set_attribute("nally.run_id", span.run_id)
+                    if parent_span_id:
+                        ospan.set_attribute("nally.parent_span_id", parent_span_id)
+                    # Truncate input to keep OTel payload small
+                    for k, v in (input or {}).items():
+                        try:
+                            ospan.set_attribute(f"nally.input.{k}", str(v)[:256])
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                self._otel_spans[span.span_id] = ospan
+        except Exception:
+            pass
+
         return span
 
     def end_span(
@@ -130,6 +204,38 @@ class Tracer:
         target.output = output
         target.error = error
         target.status = "error" if error else "ok"
+
+        # End OTel span if present
+        try:
+            ospan = self._otel_spans.pop(span_id, None)
+            if ospan:
+                try:
+                    if output:
+                        for k, v in output.items():
+                            try:
+                                ospan.set_attribute(f"nally.output.{k}", str(v)[:256])
+                            except Exception:
+                                pass
+                    if error:
+                        ospan.set_attribute("nally.error", str(error)[:512])
+                        try:
+                            from opentelemetry.trace import Status, StatusCode
+
+                            ospan.set_status(Status(StatusCode.ERROR, str(error)[:256]))
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            from opentelemetry.trace import Status, StatusCode
+
+                            ospan.set_status(Status(StatusCode.OK))
+                        except Exception:
+                            pass
+                    ospan.end()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         self._persist(target)
         return target

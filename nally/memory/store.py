@@ -868,6 +868,48 @@ class MemoryRepository:
         except Exception:
             return None  # Fall back to LIKE
 
+    def _try_embed_rerank(self, rows, query: str):
+        """Rerank rows via embed_api cosine + confidence when enabled.
+
+        Free-tier: NALLY stays lean; embed model on separate instance (MiniLM 384d).
+        Fallback to original confidence order when provider=none or API down.
+        """
+        if not rows or len(rows) <= 1:
+            return rows
+        try:
+            from ..config import NALLY_EMBED_BASE_URL, NALLY_EMBED_PROVIDER
+            provider = (NALLY_EMBED_PROVIDER or "none").lower()
+            if provider == "none" or not NALLY_EMBED_BASE_URL:
+                return rows
+        except Exception:
+            return rows
+        try:
+            from .embeddings import cosine_sim, embed_texts
+
+            # Build texts for each row
+            texts = [f"{r['key']}: {r['value']}" for r in rows]
+            # Embed query + all texts in one batch for cache locality
+            all_texts = [query] + texts
+            embs = embed_texts(all_texts)
+            if not embs or len(embs) != len(all_texts):
+                return rows
+            q_emb = embs[0]
+            t_embs = embs[1:]
+            scored = []
+            for r, e in zip(rows, t_embs):
+                cos = cosine_sim(q_emb, e)
+                # Blend cosine (0.6) + normalized confidence (0.4) — keeps high-confidence relevant items up
+                conf = float(r["confidence"] or 0.5)
+                score = 0.6 * cos + 0.4 * conf
+                # Also boost exact key/value substring match slightly
+                if query.lower() in r["key"].lower() or query.lower() in r["value"].lower():
+                    score += 0.05
+                scored.append((score, r))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return [r for _, r in scored]
+        except Exception:
+            return rows
+
     @staticmethod
     def _now() -> str:
         return datetime.now().isoformat()

@@ -105,6 +105,8 @@ class SemanticMemoryEngine:
         """Recall memories ranked by composite score.
 
         Score = w_sim * similarity + w_rec * recency + w_imp * importance + w_con * confidence
+        When embed_api is enabled (Free-tier separate instance), similarity uses cosine via MiniLM 384d.
+        Falls back to keyword overlap when provider=none or API down.
         """
         if not self._memories:
             return []
@@ -113,17 +115,58 @@ class SemanticMemoryEngine:
         now = time.time()
         scored = []
 
+        # Try embedding cosine for similarity when embed_api enabled (batched, fallback to tokens)
+        embed_sims: dict = {}
+        try:
+            from ..config import NALLY_EMBED_BASE_URL, NALLY_EMBED_PROVIDER
+            from ..memory.embeddings import cosine_sim, embed_texts
+
+            provider = (NALLY_EMBED_PROVIDER or "none").lower()
+            if provider != "none" and NALLY_EMBED_BASE_URL and self._memories:
+                # Only embed candidates passing confidence filter to bound batch (max 64 per request)
+                cand_texts = []
+                cand_idx = []
+                for idx, m in enumerate(self._memories):
+                    if m.confidence >= min_confidence:
+                        cand_texts.append(f"{m.key}: {m.value}")
+                        cand_idx.append(idx)
+                if cand_texts:
+                    # Batch query + candidates (embed_api batch cap 64)
+                    all_texts = [query] + cand_texts
+                    # Chunk to 64 to respect embed-api batch guard
+                    embs = []
+                    chunk = 60  # leave room for query
+                    for i in range(0, len(all_texts), chunk):
+                        part = all_texts[i : i + chunk]
+                        part_embs = embed_texts(part)
+                        if part_embs is None:
+                            embs = None
+                            break
+                        embs.extend(part_embs)
+                    if embs and len(embs) == len(all_texts):
+                        q_emb = embs[0]
+                        for j, idx in enumerate(cand_idx):
+                            e = embs[1 + j]
+                            # Map back to memory index for fast lookup below
+                            mem = self._memories[idx]
+                            embed_sims[id(mem)] = max(0.0, min(1.0, cosine_sim(q_emb, e)))
+        except Exception:
+            embed_sims = {}
+
         for mem in self._memories:
             if mem.confidence < min_confidence:
                 continue
 
-            # Similarity: keyword overlap
-            mem_tokens = self._tokenize(f"{mem.key} {mem.value}")
-            if query_tokens and mem_tokens:
-                overlap = len(query_tokens & mem_tokens)
-                similarity = min(overlap / max(len(query_tokens), 1), 1.0)
+            # Similarity: embedding cosine when available, else keyword overlap
+            if id(mem) in embed_sims:
+                similarity = embed_sims[id(mem)]
             else:
-                similarity = 0.0
+                mem_tokens = self._tokenize(f"{mem.key} {mem.value}")
+                if query_tokens and mem_tokens:
+                    overlap = len(query_tokens & mem_tokens)
+                    similarity = min(overlap / max(len(query_tokens), 1), 1.0)
+                else:
+                    similarity = 0.0
 
             # Recency: exponential decay (half-life = 7 days)
             age_days = (now - mem.last_accessed) / 86400
