@@ -174,7 +174,7 @@ def run_web(port=None):
     # via its own Application (started in the FastAPI lifespan), so spawning a
     # second poller here would cause a Telegram 409 conflict on the same token.
     bot_proc = None
-    from nally.config import TELEGRAM_USER_ID, resolve_telegram_mode
+    from nally.config import resolve_telegram_mode
 
     telegram_mode = resolve_telegram_mode()
     if telegram_mode == "polling":
@@ -197,35 +197,7 @@ def run_web(port=None):
             except Exception:
                 bot_proc.kill()
 
-    def _kill_tg_user():
-        if tg_user_proc is not None and tg_user_proc.poll() is None:
-            tg_user_proc.terminate()
-            try:
-                tg_user_proc.wait(timeout=5)
-            except Exception:
-                tg_user_proc.kill()
-
     atexit.register(_kill_bot)
-    atexit.register(_kill_tg_user)
-
-    # Start Telegram user account (Telethon) as a separate process
-    tg_user_proc = None
-    from nally.config import DATA_DIR, resolve_telegram_mode
-
-    _tg_session = DATA_DIR / "telegram_user" / "nally_user.session"
-
-    if TELEGRAM_USER_ID and os.getenv("NALLY_TELEGRAM_USER_ENABLED", "1") == "0":
-        print("[skip] NALLY_TELEGRAM_USER_ENABLED=0 — Telegram user account disabled.")
-    elif TELEGRAM_USER_ID and not _tg_session.exists():
-        print(f"[skip] No Telethon session file at {_tg_session} — run locally first to authenticate.")
-    elif TELEGRAM_USER_ID:
-        tg_user_proc = subprocess.Popen(
-            [sys.executable, "run_tg_user.py"],
-            cwd=str(Path(__file__).parent),
-        )
-        print("Telegram user account launched as a separate process (run_tg_user.py).")
-    else:
-        print("[warn] TELEGRAM_USER_ID not set — Telegram user account not started.")
 
     import signal
 

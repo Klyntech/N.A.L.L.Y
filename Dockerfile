@@ -27,7 +27,7 @@ COPY nally/ ./nally/
 COPY web/ ./web/
 COPY skills/ ./skills/
 COPY main.py .
-COPY run_tg_user.py run_bot_standalone.py ./
+COPY run_bot_standalone.py ./
 
 # Create data directories (generated is needed for image gen output)
 RUN mkdir -p data/generated logs && chown -R nally:nally /app

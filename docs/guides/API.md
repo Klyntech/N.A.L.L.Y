@@ -272,7 +272,7 @@ Bidirectional WebSocket chat. Auth via query token.
 WS /ws/web:default?token=<NALLY_ACCESS_TOKEN>
 ```
 
-Supports text messages and voice (browser mic audio).
+Supports text messages.
 
 ### Health (No Auth)
 

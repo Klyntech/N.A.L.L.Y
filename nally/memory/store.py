@@ -961,7 +961,7 @@ class MemoryRepository:
                 return {row["key"]: row["value"] for row in rows}
 
             if search:
-                # FTS5 tokenized search with LIKE fallback.
+                # FTS5 tokenized search with LIKE fallback + optional embedding rerank.
                 # A provided category applies as an AND filter on either path —
                 # callers (e.g. curiosity dedup) rely on combined semantics.
                 # expired_after reuses recall()'s now_iso so FTS and LIKE share
@@ -973,6 +973,7 @@ class MemoryRepository:
                 if rows:
                     if category:
                         rows = [r for r in rows if r["category"] == category]
+                    rows = self._try_embed_rerank(rows, search)
                     return {row["key"]: row["value"] for row in rows}
                 # Fallback to LIKE if FTS unavailable or empty
                 like_pattern = f"%{search}%"
@@ -982,6 +983,7 @@ class MemoryRepository:
                 ).fetchall()
                 if category:
                     rows = [r for r in rows if r["category"] == category]
+                rows = self._try_embed_rerank(rows, search)
                 return {row["key"]: row["value"] for row in rows}
 
             # Return all high-confidence memories

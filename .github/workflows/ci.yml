@@ -30,6 +30,47 @@ jobs:
       - name: Ruff format check
         run: ruff format --check .
 
+  doc-freshness:
+    name: Doc Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for stale doc references
+        run: |
+          echo "Checking docs for references to deleted files/modules..."
+          STALE=0
+          for pattern in \
+            "nally/voice" \
+            "voice_call\.py" \
+            "run_tg_call" \
+            "run_tg_user" \
+            "livekit_agent" \
+            "pytgcalls" \
+            "faster-whisper" \
+            "piper-tts" \
+            "ELEVENLABS" \
+            "DEEPGRAM_API" \
+            "LIVEKIT_" \
+            "NALLY_TTS_BACKEND" \
+            "NALLY_VOICE_CALLS" \
+            "BARGEIN_" \
+            "voice_tmp"; do
+            matches=$(grep -rn "$pattern" docs/ README.md SOUL.md CONTRIBUTING.md --exclude-dir=archive --exclude=CHANGELOG.md 2>/dev/null || true)
+            if [ -n "$matches" ]; then
+              echo "⚠️  Found stale reference to '$pattern':"
+              echo "$matches"
+              STALE=1
+            fi
+          done
+          if [ "$STALE" -eq 1 ]; then
+            echo ""
+            echo "❌ Stale doc references found. Update docs to match current codebase."
+            echo "   (Historical files like CHANGELOG.md and docs/archive/ are excluded.)"
+            exit 1
+          fi
+          echo "✅ No stale doc references found."
+
   test:
     name: Test
     runs-on: ubuntu-latest

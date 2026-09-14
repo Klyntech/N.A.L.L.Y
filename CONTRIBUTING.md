@@ -76,10 +76,19 @@ docs(api): add API.md reference document
 1. Fork the repo and create a feature branch (`feat/your-feature`)
 2. Make your changes — keep them focused
 3. Add tests if applicable
-4. Run the test suite: `pytest`
-5. Run linter: `ruff check .`
-6. Write a clear PR description explaining what and why
-7. Request review
+4. Update docs if you changed public behavior, CLI flags, env vars, or deleted features
+5. Run the test suite: `pytest`
+6. Run linter: `ruff check .`
+7. Write a clear PR description explaining what and why
+8. Request review
+
+## Documentation Policy
+
+- **Same PR rule**: If you change code that affects user-facing behavior, update the docs in the same PR — not a follow-up.
+- **Delete, don't update**: If a feature no longer exists, delete its docs. Don't leave "this feature was removed" stubs.
+- **README is truth**: If the README says it works, it works. If you change setup steps, env vars, or commands, update the README.
+- **CHANGELOG is history**: Past entries are frozen. Don't edit old changelog lines — add new ones.
+- **Diagrams are code**: Mermaid diagrams in README/docs describe the actual architecture. Update them when structure changes.
 
 ## Project Structure
 

@@ -10,7 +10,6 @@ Personal AI assistant inspired by Jarvis from Iron Man. Built by Clinton (Klynte
 N.A.L.L.Y/
 ├── main.py                 # Entry point (CLI, web, telegram modes)
 ├── run_bot_standalone.py   # Telegram bot in a separate process (polling mode)
-├── run_tg_user.py          # Telethon real-user account (separate process)
 ├── .env.example            # Template for environment variables
 ├── nally/
 │   ├── config.py           # Single source of truth — all settings, no side effects
@@ -70,7 +69,7 @@ N.A.L.L.Y/
 │   │   └── registry.py     # Skill registry singleton, hot-reload, intent matching
 │   ├── telegram/
 │   │   ├── bot.py          # Telegram bot (DM + group chat, polling/webhook)
-│   │   ├── user.py         # Telethon real-user account (launched via run_tg_user.py)
+│   │   ├── user.py         # Telethon real-user account
 │   │   ├── format.py       # Markdown→Telegram HTML converter
 │   │   └── media.py        # File/image upload helpers
 │   ├── thinking/           # Thinking/reasoning module
@@ -107,8 +106,6 @@ N.A.L.L.Y/
 - **Database**: SQLite data store (`data/nally.db` + `data/nally_memory.db`); PostgreSQL/Redis exist only as reachability health probes (no adapter modules)
 - **Streaming**: Server-Sent Events (SSE) + WebSocket (bidirectional, lower latency)
 - **MCP**: GitHub, Notion, Gmail (default MCP servers); Google Drive/Calendar + Higgsfield via OAuth flows only; Context7/Meta/Telegram via npm packages — not default servers
-- **TTS**: Piper (default) or ElevenLabs (`NALLY_TTS_BACKEND`) or Fish Audio (`FISH_*` env vars)
-- **STT**: Groq Whisper API (first), faster-whisper (fallback), Deepgram streaming (real-time)
 - **Image Gen**: Pollinations API (free, no key required)
 
 
@@ -129,9 +126,6 @@ python main.py --telegram-only
 
 # Run Telegram bot in a separate process (polling mode)
 python run_bot_standalone.py
-
-# Run the Telethon user-account client (real user, separate process)
-python run_tg_user.py
 
 # Run the autonomous engineering loop (opt-in build mode)
 python main.py --engineer "TASK"

@@ -71,7 +71,7 @@ boto3>=1.28.0
 # Redis (optional, for caching layer)
 redis>=5.0.0
 
-# Streaming STT & TTS & Observability additions
+# Observability
 websockets>=12.0
 opentelemetry-api>=1.20
 opentelemetry-sdk>=1.20

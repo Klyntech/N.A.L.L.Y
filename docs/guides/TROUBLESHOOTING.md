@@ -102,7 +102,6 @@ Note: Even when streaming fails, Nally falls back to non-streaming — you'll st
 ### High memory usage
 - The reflector runs hourly — disable by not starting it
 - CLIP model for image scoring loads on first image generation
-- Whisper model stays loaded for STT
 
 ## Image Generation
 

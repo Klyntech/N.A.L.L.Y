@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-proprietary-red)
 
-**N.A.L.L.Y is a self-hosted personal AI assistant — a LangGraph agent with its own tools, memory, voice, and frontends for web, Telegram, and CLI.**
+**N.A.L.L.Y is a self-hosted personal AI assistant — a LangGraph agent with its own tools, memory, and frontends for web, Telegram, and CLI.**
 
 ## Why Nally is different
 
@@ -34,7 +34,7 @@ python main.py --engineer "TASK"  # autonomous engineering loop
 
 ```mermaid
 flowchart TD
-    UI[Web / Telegram / CLI / Voice] --> Agent[NallyAgent — orchestration]
+    UI[Web / Telegram / CLI] --> Agent[NallyAgent — orchestration]
     Agent --> Gate[Permission Gate]
     Agent --> Graph[LangGraph ReAct loop]
     Graph --> Router[Capability Router]

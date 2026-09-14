@@ -19,7 +19,6 @@ reviewed slices. Last updated: 2026-09-13.
 ## What's next
 
 - [ ] Merge `refactor/nally-architecture-consolidation` → `master` (squash or staged PRs per phase)
-- [ ] Fix P0 audit items: missing `run_tg_user.py` / `run_tg_call.py` runners (Dockerfile + `main.py` reference them)
 - [ ] Tighten `nally/config/permissions.json` catch-all (`run_command: "*": "allow"`, blanket `gmail_write` / `mcp_*` allow)
 - [ ] Extract approval-gate DB + XML tool-call parsing out of `nally/agent/graph.py` (2,122 lines)
 - [ ] Add tests for `nally/thinking/` (currently zero coverage)
