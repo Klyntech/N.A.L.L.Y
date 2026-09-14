@@ -674,6 +674,25 @@ NALLY_EMBED_DIMS = int(os.getenv("NALLY_EMBED_DIMS", "384"))  # 384 for MiniLM, 
 NALLY_EMBED_TIMEOUT = int(os.getenv("NALLY_EMBED_TIMEOUT", "15"))  # seconds per embed request
 NALLY_EMBED_CACHE_TTL = int(os.getenv("NALLY_EMBED_CACHE_TTL", "3600"))  # seconds to cache embeddings in-memory
 
+# Validate embed config at import time (warning only, never blocks)
+if NALLY_EMBED_PROVIDER not in ("none", "embed_api", "openai"):
+    import warnings as _warnings
+    _warnings.warn(f"NALLY_EMBED_PROVIDER={NALLY_EMBED_PROVIDER!r} unknown — valid: none|embed_api|openai. Falling back to none.")
+    NALLY_EMBED_PROVIDER = "none"
+if NALLY_EMBED_PROVIDER in ("embed_api", "openai") and not NALLY_EMBED_BASE_URL:
+    import warnings as _warnings
+    _warnings.warn(
+        f"NALLY_EMBED_PROVIDER={NALLY_EMBED_PROVIDER!r} but NALLY_EMBED_BASE_URL is empty — embeddings disabled. "
+        "Set NALLY_EMBED_BASE_URL to your embed service (e.g. https://your-embed-free.onrender.com)."
+    )
+    NALLY_EMBED_PROVIDER = "none"
+if NALLY_EMBED_PROVIDER in ("embed_api", "openai") and NALLY_EMBED_DIMS not in (384, 768, 1536):
+    import warnings as _warnings
+    _warnings.warn(
+        f"NALLY_EMBED_DIMS={NALLY_EMBED_DIMS} unusual — typical: 384 (MiniLM), 768 (Gemma), 1536 (openai). "
+        "Ensure this matches your model."
+    )
+
 
 # ── Validation ─────────────────────────────────────────────
 

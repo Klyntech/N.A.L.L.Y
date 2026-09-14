@@ -81,6 +81,13 @@ def _embed_via_api(texts: List[str], model: str, base_url: str, api_key: str, ti
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    try:
+        from ..config import NALLY_EMBED_DIMS
+
+        expected_dims = NALLY_EMBED_DIMS
+    except Exception:
+        expected_dims = 384
+
     payload = {"input": texts, "model": model}
     try:
         resp = httpx.post(url, json=payload, headers=headers, timeout=timeout)
@@ -91,14 +98,22 @@ def _embed_via_api(texts: List[str], model: str, base_url: str, api_key: str, ti
         # OpenAI shape: {data: [{embedding: [...]}, ...]}
         items = data.get("data", [])
         if not items:
-            # Alt shape: {embeddings: [[...]]}
             alt = data.get("embeddings")
             if alt:
                 return alt
             return None
         # Sort by index to preserve input order
         items_sorted = sorted(items, key=lambda x: x.get("index", 0))
-        return [it["embedding"] for it in items_sorted]
+        embeddings = [it["embedding"] for it in items_sorted]
+
+        # Validate dims match config
+        if embeddings and len(embeddings[0]) != expected_dims:
+            logger.warning(
+                f"Embed API returned dims={len(embeddings[0])}, expected={expected_dims}. "
+                "Set NALLY_EMBED_DIMS to match your model or update your model."
+            )
+
+        return embeddings
     except Exception as e:
         logger.warning(f"Embed API failed: {e}")
         return None

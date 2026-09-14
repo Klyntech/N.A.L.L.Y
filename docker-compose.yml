@@ -28,8 +28,8 @@ services:
     networks:
       - nally
 
-  # ── Embed API (separate Free instance, MiniLM ONNX 20MB 384d) ──
-  # NALLY main stays lean (<300MB) — model lives here. Free 512MB fits MiniLM ONNX 120MB RAM.
+  # ── Embed API (separate Free instance, ONNX MiniLM 22MB 384d) ──
+  # NALLY main stays lean (<300MB) — no torch. Model baked at build via optimum ONNX, 120MB RAM.
   # Uses NALLY_INTERNAL_TOKEN for Bearer auth. Local: docker compose --profile with-embed up
   # On Render: deploy embed-api/ as separate Web Service (Free), set EMBED_API_KEY same token.
   embed-api:
@@ -40,7 +40,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - EMBED_MODEL=${EMBED_MODEL:-all-MiniLM-L6-v2}
+      - EMBED_MODEL=${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
       - EMBED_API_KEY=${NALLY_EMBED_API_KEY:-${NALLY_INTERNAL_TOKEN:-}}
       - PORT=8000
       - HF_HOME=/app/.cache/hf

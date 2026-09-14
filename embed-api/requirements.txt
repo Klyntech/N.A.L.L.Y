@@ -1,17 +1,17 @@
-# Embed API — Free tier separate instance (no torch, onnxruntime lightweight)
-# Keep image <350MB — NALLY main stays <300MB lean
+# Embed API — Free tier separate instance (ONNX runtime, no torch, no sentence-transformers)
+# Target: <400MB image, fits Render Free 512MB, 120MB RAM at runtime.
+# ONNX quantized MiniLM = 22MB model file, no torch dependency.
+
 fastapi==0.110.0
 uvicorn[standard]==0.29.0
 httpx==0.27.0
 pydantic==2.6.0
-# Embedding — onnxruntime is 120MB RAM vs torch 400MB+; fits Free 512MB
-# Primary: onnxruntime + optimum + transformers (ONNX 20MB quantized)
-# Fallback: sentence-transformers (80MB) without torch heavy? Actually ST needs torch.
-# For true Free tiny: keep only onnxruntime path; ST is fallback if onnx missing.
+
+# ONNX runtime — 120MB RAM, no torch needed
 onnxruntime==1.17.0
 transformers==4.38.0
 optimum[onnxruntime]==1.17.0
-sentence-transformers==2.5.1
-# Torch is heavy — only if you switch to bge/Gemma (needs Starter 1GB+)
-# torch==2.2.0  # uncomment only on Standard 2GB for Gemma 600MB
+tokenizers==0.15.2
 numpy==1.26.0
+
+# NO torch, NO sentence-transformers — model is baked via ONNX at build time
