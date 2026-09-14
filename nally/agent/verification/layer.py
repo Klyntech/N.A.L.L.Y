@@ -237,11 +237,22 @@ class VerificationLayer:
 
         correction_prompt = ""
         if should_correct and correction_lines:
+            # Build a receipt summary so the LLM knows what tools were actually called
+            _tool_summary = ""
+            if receipts:
+                _called = [r.tool for r in receipts if hasattr(r, "tool")]
+                _failed = [f.get("tool", "") for f in tool_failures]
+                _tool_summary = (
+                    "\n\nTools actually called this turn: "
+                    + (", ".join(_called) if _called else "none")
+                    + (f"\nFailed tools: {', '.join(_failed)}" if _failed else "")
+                )
             correction_prompt = (
                 "VERIFICATION FAILED — your last response contained unsupported claims:\n"
                 + "\n".join(correction_lines[:6])
+                + _tool_summary
                 + "\n\nRewrite your response. Remove or correct any claims not backed by receipts. "
-                  "If you did not call a tool, do not claim you did. "
+                  "Only reference tools that appear in the tools-called list above. "
                   "If a tool failed, say it failed. Do not invent numbers or limits."
             )
 

@@ -657,14 +657,23 @@ class NallyAgent:
                     )
                     try:
                         from .llm import call_llm as _verify_call_llm
+                        from ..tools.receipts import receipt_store as _rs_ctx
+                        _recent_receipts = _rs_ctx.get_recent(limit=10)
+                        _receipt_ctx = ""
+                        if _recent_receipts:
+                            _receipt_lines = []
+                            for _r in _recent_receipts:
+                                _status = "ok" if _r.success else "FAILED"
+                                _receipt_lines.append(f"  - {_r.tool}({_r.args}) → [{_status}]")
+                            _receipt_ctx = "\n\nTool receipts (most recent):\n" + "\n".join(_receipt_lines)
                         _corrected = _verify_call_llm(
                             messages=[
                                 {"role": "system", "content": (
                                     "You are Nally. Fix your previous response based on the verification feedback. "
-                                    "If tool receipts show actions succeeded, your correction MUST reflect that reality. "
+                                    "Tool receipts below show what actually happened — your correction MUST reflect that reality. "
                                     "Output ONLY the corrected response, no preamble."
                                 )},
-                                {"role": "user", "content": _v.correction_prompt},
+                                {"role": "user", "content": _v.correction_prompt + _receipt_ctx},
                             ],
                             temperature=0.1,
                         )
