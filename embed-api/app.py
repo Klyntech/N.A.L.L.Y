@@ -100,6 +100,9 @@ def _load_model():
         sess = ort.InferenceSession(onnx_file, providers=["CPUExecutionProvider"])
         _model = (tok, sess, "onnx")
         _model_dims = sess.get_inputs()[0].shape[-1] if sess.get_inputs() else 384
+        # Dynamic axes return string names (e.g. "sequence_length") — default to 384
+        if not isinstance(_model_dims, int):
+            _model_dims = 384
         _model_loaded_at = time.time()
         _model_backend = "onnx"
         print(f"[embed-api] ONNX loaded dims={_model_dims} backend=onnxruntime")
