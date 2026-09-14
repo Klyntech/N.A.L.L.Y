@@ -80,11 +80,19 @@ def _load_model():
         import onnxruntime as ort
         from transformers import AutoTokenizer
 
-        # Check baked path exists
-        onnx_file = os.path.join(MODEL_PATH, "model_quantized.onnx")
-        if not os.path.exists(onnx_file):
-            onnx_file = os.path.join(MODEL_PATH, "model.onnx")
-        if not os.path.exists(onnx_file):
+        # Check baked path exists — try multiple locations
+        candidates = [
+            os.path.join(MODEL_PATH, "model_quantized.onnx"),
+            os.path.join(MODEL_PATH, "model.onnx"),
+            os.path.join(MODEL_PATH, "onnx", "model.onnx"),
+            os.path.join(MODEL_PATH, "onnx", "model_q4.onnx"),
+        ]
+        onnx_file = None
+        for c in candidates:
+            if os.path.exists(c):
+                onnx_file = c
+                break
+        if not onnx_file:
             raise FileNotFoundError(f"No ONNX model found at {MODEL_PATH}")
 
         print(f"[embed-api] Loading ONNX from {onnx_file} ...")
