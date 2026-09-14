@@ -459,6 +459,16 @@ app.add_middleware(
 
 app.include_router(health_router)
 
+# ── Well-Known + A2A + NLWeb (no auth for discovery) ─────────
+try:
+    from .wellknown import router as wellknown_router
+
+    app.include_router(wellknown_router)
+except Exception as e:
+    import logging
+
+    logging.getLogger("nally.web").debug(f"wellknown router not loaded: {e}")
+
 
 # ── Middleware: rate limit + request ID ───────────────────
 

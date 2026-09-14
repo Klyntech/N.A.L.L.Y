@@ -1,0 +1,16 @@
+# NALLY — llms.txt (NLWeb)
+# Served at /llms.txt and /.well-known discovery for crawlers/agents
+
+User-Agent: *
+Allow: /api/chat
+Allow: /.well-known/agent.json
+Allow: /.well-known/nally-receipt-pubkey
+Allow: /health
+Allow: /a2a/rpc
+Allow: /docs
+
+# Agent
+# NALLY — autonomous reasoning system that gets things done: understand, act through tools, verify against evidence.
+# Stack: FastAPI + LangGraph ReAct + SQLite + MCP (GitHub/Notion/Gmail) + NallPuter
+# Capabilities: 40+ tools, streaming SSE, receipts Ed25519+JCS, OTel tracing
+# Endpoints: POST /api/chat, GET /health, GET /.well-known/agent.json, POST /a2a/rpc, GET /docs
