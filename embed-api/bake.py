@@ -1,77 +1,85 @@
 #!/usr/bin/env python3
 """Bake ONNX model into image at Docker build time.
 
-Downloads pre-exported ONNX from HuggingFace Hub (no torch export needed).
-Xenova/all-MiniLM-L6-v2 has community-maintained ONNX files.
+Strategy:
+1. Download pre-exported ONNX from Xenova/all-MiniLM-L6-v2 (fastest)
+2. Fallback: export via torch.onnx.export + sentence-transformers
 
-Produces /app/model/ with tokenizer + model.onnx (~90MB float32).
+Produces /app/model/ with tokenizer + model.onnx.
 """
 import os
 import shutil
-import subprocess
 import sys
+
 
 MODEL_NAME = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 MODEL_PATH = os.getenv("EMBED_MODEL_PATH", "/app/model")
 
-# Pre-exported ONNX sources (no torch needed at build time)
-ONNX_SOURCES = [
-    "Xenova/all-MiniLM-L6-v2",
-    "optimum/all-MiniLM-L6-v2",
-]
-
 
 def download_onnx():
-    """Download pre-exported ONNX model from HuggingFace."""
+    """Download pre-exported ONNX from HuggingFace."""
     from huggingface_hub import snapshot_download
 
-    for source in ONNX_SOURCES:
+    sources = ["Xenova/all-MiniLM-L6-v2", "optimum/all-MiniLM-L6-v2"]
+    for source in sources:
         try:
-            print(f"[embed-api bake] Trying pre-exported ONNX from {source} ...")
-            path = snapshot_download(
-                source,
-                allow_patterns=["*.onnx", "*.json", "*.txt", "*.model", "*.tiktoken"],
-                ignore_patterns=["*.bin", "*.safetensors", "*.h5", "*.msgpack", "*.ot"],
-            )
+            print(f"[embed-api bake] Downloading pre-exported ONNX from {source} ...")
+            path = snapshot_download(source)
             print(f"[embed-api bake] Downloaded to {path}")
-            return path
+
+            # Recursively find all .onnx files and copy them + tokenizer files
+            onnx_files = []
+            for root, dirs, files in os.walk(path):
+                for f in files:
+                    src = os.path.join(root, f)
+                    rel = os.path.relpath(src, path)
+                    dst = os.path.join(MODEL_PATH, rel)
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(src, dst)
+                    if f.endswith(".onnx"):
+                        onnx_files.append(dst)
+                        print(f"[embed-api bake] Found ONNX: {rel} ({os.path.getsize(src) / 1024 / 1024:.1f}MB)")
+
+            if onnx_files:
+                print(f"[embed-api bake] Copied {len(onnx_files)} ONNX file(s) to {MODEL_PATH}")
+                return True
+            else:
+                print(f"[embed-api bake] No .onnx files found in {source}")
+                # Clean up non-ONNX files we may have copied
+                for item in os.listdir(MODEL_PATH):
+                    if item.endswith(".onnx"):
+                        continue
+                    p = os.path.join(MODEL_PATH, item)
+                    if os.path.isdir(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.remove(p)
         except Exception as e:
             print(f"[embed-api bake] {source} failed: {e}")
-            continue
-    return None
+    return False
 
 
-def export_onnx_fallback():
-    """Fallback: export via sentence-transformers + torch.onnx.export."""
+def export_onnx():
+    """Export via torch.onnx.export (needs torch + sentence-transformers)."""
+    import gc
     import torch
     from sentence_transformers import SentenceTransformer
 
-    print(f"[embed-api bake] Fallback: exporting {MODEL_NAME} via torch.onnx.export ...")
+    print(f"[embed-api bake] Exporting {MODEL_NAME} via torch.onnx.export ...")
     model = SentenceTransformer(MODEL_NAME)
+    tokenizer = model.tokenizer
 
-    # Get the transformer model
-    inner_model = model[0]  # Transformer object
-    tokenizer = inner_model.tokenizer
+    # Get the transformer auto_model
+    auto_model = model[0].auto_model
+    auto_model.eval()
 
-    # Dummy input
     dummy = tokenizer("hello world", return_tensors="pt", padding=True, truncation=True, max_length=128)
 
-    class SentenceTransformerWrapper(torch.nn.Module):
-        def __init__(self, model):
-            super().__init__()
-            self.model = model
-
-        def forward(self, input_ids, attention_mask=None, token_type_ids=None):
-            out = self.model({"input_ids": input_ids, "attention_mask": attention_mask, "token_type_ids": token_type_ids})
-            # SentenceTransformer outputs: {'token_embeddings': tensor, 'attention_mask': tensor}
-            return out["token_embeddings"]
-
-    wrapper = SentenceTransformerWrapper(inner_model.auto_model)
-    wrapper.eval()
-
     onnx_path = os.path.join(MODEL_PATH, "model.onnx")
+
+    # Use torch.onnx.export directly (no onnxscript needed for opset 14)
     torch.onnx.export(
-        wrapper,
+        auto_model,
         (dummy["input_ids"], dummy["attention_mask"]),
         onnx_path,
         input_names=["input_ids", "attention_mask"],
@@ -84,56 +92,30 @@ def export_onnx_fallback():
         opset_version=14,
     )
 
-    # Save tokenizer
     tokenizer.save_pretrained(MODEL_PATH)
     print(f"[embed-api bake] ONNX exported to {onnx_path}")
 
-    del model, wrapper, torch
-    import gc
+    # Free memory
+    del model, auto_model, tokenizer, torch
     gc.collect()
-
     return True
 
 
 def main():
     print(f"[embed-api bake] Baking ONNX model to {MODEL_PATH}")
-
     os.makedirs(MODEL_PATH, exist_ok=True)
 
-    # Try downloading pre-exported ONNX first (fastest, no torch needed)
-    source_path = download_onnx()
+    # Try 1: download pre-exported ONNX
+    if download_onnx():
+        pass
+    # Try 2: export via torch
+    elif export_onnx():
+        pass
+    else:
+        print("[embed-api bake] FAILED: all methods failed", file=sys.stderr)
+        sys.exit(1)
 
-    if source_path:
-        # Copy ONNX files to MODEL_PATH
-        onnx_copied = False
-        for item in os.listdir(source_path):
-            src = os.path.join(source_path, item)
-            if item.endswith(".onnx") or item.endswith(".json") or item.endswith(".txt") or item.endswith(".model"):
-                dst = os.path.join(MODEL_PATH, item)
-                if os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
-                else:
-                    shutil.copy2(src, dst)
-                if item.endswith(".onnx"):
-                    onnx_copied = True
-
-        if onnx_copied:
-            print(f"[embed-api bake] Pre-exported ONNX copied from {source_path}")
-        else:
-            print(f"[embed-api bake] No .onnx files found in {source_path}, falling back to export")
-            source_path = None
-
-    # Fallback: export via torch
-    if not source_path or not onnx_copied:
-        try:
-            export_onnx_fallback()
-        except Exception as e:
-            print(f"[embed-api bake] Export failed: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    # Report what we have
+    # Report
     print(f"[embed-api bake] Files in {MODEL_PATH}:")
     for f in sorted(os.listdir(MODEL_PATH)):
         fpath = os.path.join(MODEL_PATH, f)

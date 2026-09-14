@@ -1,7 +1,8 @@
 # Builder stage deps — download pre-exported ONNX + fallback torch export
 # These are NOT in the runtime image (multi-stage build discards them)
 sentence-transformers==2.5.1
+onnxscript>=0.1.0
 transformers==4.38.0
 tokenizers==0.15.2
 numpy==1.26.0
-# torch comes as sentence-transformers dep — only used for fallback export
+# torch comes as sentence-transformers dep
