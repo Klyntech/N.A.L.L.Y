@@ -1,7 +1,8 @@
-# Builder stage deps — needs optimum + torch for ONNX export + quantization
+# Builder stage deps — needs optimum + torch + sentence-transformers for ONNX export
 # These are NOT in the runtime image (multi-stage build discards them)
 optimum[onnxruntime]==1.17.0
 onnxscript>=0.1.0
+sentence-transformers==2.5.1
 transformers==4.38.0
 tokenizers==0.15.2
 numpy==1.26.0
