@@ -74,6 +74,8 @@ async def agent_card(request: Request):
                 "health": f"{base}/health",
                 "receipt_pubkey": f"{base}/.well-known/nally-receipt-pubkey",
                 "a2a_rpc": f"{base}/a2a/rpc",
+                "workflow_runs": f"{base}/workflows/runs",
+                "workflow_trigger": f"{base}/workflows/trigger/{{name}}",
             },
             "a2a": {
                 "protocol": "json-rpc-2.0",
@@ -96,6 +98,7 @@ Allow: /.well-known/agent.json
 Allow: /.well-known/nally-receipt-pubkey
 Allow: /health
 Allow: /a2a/rpc
+Allow: /workflows/runs
 Allow: /docs
 
 # Agent
@@ -104,6 +107,7 @@ NALLY is an autonomous reasoning system that gets things done: understand the re
 - Health: GET /health → {status, version, provider, model}
 - Receipts: GET /.well-known/nally-receipt-pubkey → JWK Ed25519 (verify tool receipts, JCS)
 - A2A: POST /a2a/rpc JSON-RPC {jsonrpc:"2.0", method:"task.send", params:{input, session_id}, id:1}
+- Workflows: GET /workflows/runs → list recent runs; POST /workflows/trigger/{name} → async run
 - Docs: GET /docs (OpenAPI)
 
 # Tools

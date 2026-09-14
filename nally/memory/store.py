@@ -216,6 +216,29 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
     INSERT INTO memories_fts(memories_fts, rowid, key, value, category) VALUES('delete', old.id, old.key, old.value, old.category);
     INSERT INTO memories_fts(rowid, key, value, category) VALUES (new.id, new.key, new.value, new.category);
 END;
+
+CREATE TABLE IF NOT EXISTS memories_vec (
+    memory_id INTEGER PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    dims INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_memories_vec_dims ON memories_vec(dims);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id TEXT PRIMARY KEY,
+    workflow_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    inputs_json TEXT DEFAULT '{}',
+    outputs_json TEXT DEFAULT '{}',
+    visited_json TEXT DEFAULT '[]',
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_name ON workflow_runs(workflow_name);
 """
 
 # Postgres variant — same tables, SERIAL instead of AUTOINCREMENT, no FTS.
@@ -298,6 +321,29 @@ CREATE TABLE IF NOT EXISTS spans (
 );
 CREATE INDEX IF NOT EXISTS idx_spans_run_id ON spans(run_id);
 CREATE INDEX IF NOT EXISTS idx_spans_started ON spans(started_at);
+
+CREATE TABLE IF NOT EXISTS memories_vec (
+    memory_id INTEGER PRIMARY KEY,
+    embedding BYTEA NOT NULL,
+    dims INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_memories_vec_dims ON memories_vec(dims);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id TEXT PRIMARY KEY,
+    workflow_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    inputs_json TEXT DEFAULT '{}',
+    outputs_json TEXT DEFAULT '{}',
+    visited_json TEXT DEFAULT '[]',
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_name ON workflow_runs(workflow_name);
 """
 
 # Keep alias for tests that may import _SCHEMA
@@ -873,6 +919,8 @@ class MemoryRepository:
 
         Free-tier: NALLY stays lean; embed model on separate instance (MiniLM 384d).
         Fallback to original confidence order when provider=none or API down.
+        Uses stored vectors from memories_vec when available (1 API call for query only),
+        otherwise embeds all texts (fallback for backfill).
         """
         if not rows or len(rows) <= 1:
             return rows
@@ -885,10 +933,69 @@ class MemoryRepository:
             return rows
         try:
             from .embeddings import cosine_sim, embed_texts
+            import struct
 
-            # Build texts for each row
+            def _blob_to_vec(blob, dims):
+                try:
+                    if blob is None:
+                        return None
+                    # Handle memoryview / bytes
+                    if isinstance(blob, memoryview):
+                        blob = bytes(blob)
+                    if isinstance(blob, str):
+                        # postgres may return hex?
+                        return None
+                    # Unpack as little-endian float32
+                    n = len(blob) // 4
+                    if n != dims and dims:
+                        # Try dims from blob length
+                        n = dims
+                    return list(struct.unpack(f"<{n}f", blob[: n * 4]))
+                except Exception:
+                    return None
+
+            # Try to use stored vectors — fetch for these row ids
+            stored: dict = {}
+            try:
+                ids = [int(r["id"]) for r in rows if r["id"] is not None]
+                if ids:
+                    with self._connection() as conn:
+                        # Build placeholders
+                        if len(ids) == 1:
+                            cur = conn.execute("SELECT memory_id, embedding, dims FROM memories_vec WHERE memory_id = ?", (ids[0],))
+                        else:
+                            placeholders = ",".join("?" for _ in ids)
+                            cur = conn.execute(f"SELECT memory_id, embedding, dims FROM memories_vec WHERE memory_id IN ({placeholders})", tuple(ids))
+                        for row in cur.fetchall():
+                            vec = _blob_to_vec(row["embedding"], int(row["dims"] or 384))
+                            if vec:
+                                stored[int(row["memory_id"])] = vec
+            except Exception:
+                stored = {}
+
+            # If we have stored vectors for all rows, only embed query
+            if stored and len(stored) == len(rows):
+                q_embs = embed_texts([query])
+                if not q_embs or len(q_embs) != 1:
+                    return rows
+                q_emb = q_embs[0]
+                scored = []
+                for r in rows:
+                    vec = stored.get(int(r["id"]))
+                    if not vec:
+                        continue
+                    cos = cosine_sim(q_emb, vec)
+                    conf = float(r["confidence"] or 0.5)
+                    score = 0.6 * cos + 0.4 * conf
+                    if query.lower() in r["key"].lower() or query.lower() in r["value"].lower():
+                        score += 0.05
+                    scored.append((score, r))
+                if scored:
+                    scored.sort(key=lambda x: x[0], reverse=True)
+                    return [r for _, r in scored]
+
+            # Fallback: embed query + all texts (for backfill / missing vectors)
             texts = [f"{r['key']}: {r['value']}" for r in rows]
-            # Embed query + all texts in one batch for cache locality
             all_texts = [query] + texts
             embs = embed_texts(all_texts)
             if not embs or len(embs) != len(all_texts):
@@ -898,10 +1005,8 @@ class MemoryRepository:
             scored = []
             for r, e in zip(rows, t_embs):
                 cos = cosine_sim(q_emb, e)
-                # Blend cosine (0.6) + normalized confidence (0.4) — keeps high-confidence relevant items up
                 conf = float(r["confidence"] or 0.5)
                 score = 0.6 * cos + 0.4 * conf
-                # Also boost exact key/value substring match slightly
                 if query.lower() in r["key"].lower() or query.lower() in r["value"].lower():
                     score += 0.05
                 scored.append((score, r))
@@ -936,6 +1041,8 @@ class MemoryRepository:
         expires_at = None
         if ttl_days is not None:
             expires_at = (datetime.now() + timedelta(days=ttl_days)).isoformat()
+        mem_id = None
+        result_msg = ""
         with self._connection() as conn:
             existing = conn.execute(
                 "SELECT id, confidence, mention_count FROM memories WHERE key = ? AND deleted = 0",
@@ -945,6 +1052,7 @@ class MemoryRepository:
             if existing:
                 new_confidence = boost_confidence(existing["confidence"], 0.1)
                 new_count = existing["mention_count"] + 1
+                mem_id = int(existing["id"])
                 if expires_at:
                     conn.execute(
                         "UPDATE memories SET value = ?, category = ?, confidence = ?, mention_count = ?, last_confirmed = ?, expires_at = ? WHERE id = ?",
@@ -955,13 +1063,80 @@ class MemoryRepository:
                         "UPDATE memories SET value = ?, category = ?, confidence = ?, mention_count = ?, last_confirmed = ? WHERE id = ?",
                         (value, category, new_confidence, new_count, now, existing["id"]),
                     )
-                return f"Updated: {key} = {value} (confidence: {new_confidence:.1f}, mentions: {new_count})"
+                result_msg = f"Updated: {key} = {value} (confidence: {new_confidence:.1f}, mentions: {new_count})"
             else:
-                conn.execute(
+                cur = conn.execute(
                     "INSERT INTO memories (key, value, category, confidence, mention_count, created, last_confirmed, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (key, value, category, confidence, 1, now, now, expires_at),
                 )
-                return f"Remembered: {key} = {value}"
+                try:
+                    mem_id = int(cur.lastrowid)
+                except Exception:
+                    # Fallback: lookup by key
+                    row = conn.execute("SELECT id FROM memories WHERE key = ? AND deleted = 0", (key,)).fetchone()
+                    mem_id = int(row["id"]) if row else None
+                result_msg = f"Remembered: {key} = {value}"
+
+        # Fire-and-forget embed for vector fast path (separate Free instance, 1.5KB per memory)
+        if mem_id is not None:
+            try:
+                self._schedule_embed(mem_id, f"{key}: {value}")
+            except Exception:
+                pass
+        return result_msg
+
+    def _vec_to_blob(self, vec: list) -> bytes:
+        import struct
+
+        return struct.pack(f"<{len(vec)}f", *vec)
+
+    def _schedule_embed(self, memory_id: int, text: str):
+        """Fire-and-forget thread to embed text and store in memories_vec. No-op when provider=none."""
+        try:
+            from ..config import NALLY_EMBED_BASE_URL, NALLY_EMBED_MODEL, NALLY_EMBED_PROVIDER
+
+            provider = (NALLY_EMBED_PROVIDER or "none").lower()
+            if provider == "none" or not NALLY_EMBED_BASE_URL:
+                return
+        except Exception:
+            return
+
+        def _run():
+            try:
+                from .embeddings import embed_texts
+                import time
+
+                # Small delay to let transaction commit fully before embedding (free-tier cold start grace)
+                time.sleep(0.05)
+                embs = embed_texts([text])
+                if not embs or len(embs) != 1:
+                    return
+                vec = embs[0]
+                blob = self._vec_to_blob(vec)
+                dims = len(vec)
+                model = "all-MiniLM-L6-v2"
+                try:
+                    from ..config import NALLY_EMBED_MODEL
+
+                    model = NALLY_EMBED_MODEL or model
+                except Exception:
+                    pass
+                now = self._now()
+                with self._connection() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO memories_vec (memory_id, embedding, dims, model, updated_at) VALUES (?, ?, ?, ?, ?)",
+                        (memory_id, blob, dims, model, now),
+                    )
+            except Exception:
+                pass
+
+        try:
+            import threading
+
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+        except Exception:
+            pass
 
     def recall(
         self,

@@ -353,6 +353,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         display.phase("Curiosity", f"[red]failed: {e}[/]", ok=False)
 
+    # Workflow cron scheduler
+    try:
+        from ..workflows.scheduler import start as start_scheduler, _cron_enabled
+
+        if _cron_enabled:
+            start_scheduler()
+            display.phase("Workflows", "[green]cron active[/]")
+        else:
+            display.phase("Workflows", "[dim]cron off (NALLY_WORKFLOW_CRON_ENABLED=false)[/]")
+    except Exception as e:
+        display.phase("Workflows", f"[yellow]skipped: {e}[/]", ok=False)
+
     # Telegram — quick, non-blocking
     _tg_status = "[dim]skipped[/]"
     app.state.telegram_app = None
@@ -395,7 +407,7 @@ async def lifespan(app: FastAPI):
     # Yield immediately so Render detects open port quickly (health checks can pass while tools load in background)
     yield
 
-    # Shutdown: stop reflector, curiosity scanner, telegram bot, and save all active sessions
+    # Shutdown: stop reflector, curiosity scanner, workflow scheduler, telegram bot, and save all active sessions
     try:
         from ..memory.reflector import reflector
 
@@ -406,6 +418,12 @@ async def lifespan(app: FastAPI):
         from ..curiosity.scanner import curiosity_scanner
 
         curiosity_scanner.stop()
+    except Exception:
+        pass
+    try:
+        from ..workflows.scheduler import stop as stop_scheduler
+
+        stop_scheduler()
     except Exception:
         pass
     try:
@@ -468,6 +486,16 @@ except Exception as e:
     import logging
 
     logging.getLogger("nally.web").debug(f"wellknown router not loaded: {e}")
+
+# ── Workflow webhooks (trigger / resume / list) ─────────────
+try:
+    from .workflows import router as workflows_router
+
+    app.include_router(workflows_router)
+except Exception as e:
+    import logging
+
+    logging.getLogger("nally.web").debug(f"workflows router not loaded: {e}")
 
 
 # ── Middleware: rate limit + request ID ───────────────────

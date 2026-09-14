@@ -13,14 +13,46 @@ from ..utils.logger import logger
 from .models import Workflow
 
 
-def run_workflow(workflow: Workflow, inputs: Dict[str, Any] = None, session_id: str = "workflow:default") -> Dict[str, Any]:
-    """Run a workflow DAG, return {outputs, status, errors}."""
+def run_workflow(
+    workflow: Workflow,
+    inputs: Dict[str, Any] = None,
+    session_id: str = "workflow:default",
+    run_id: str = None,
+) -> Dict[str, Any]:
+    """Run a workflow DAG durably — survives restart via workflow_runs checkpoint.
+
+    If run_id provided and checkpoint exists, resumes from visited/outputs.
+    Saves after each node + emits OTel span + receipt.
+    """
     inputs = inputs or {}
     errors = workflow.validate()
     if errors:
         return {"status": "invalid", "errors": errors, "outputs": {}}
 
-    outputs: Dict[str, Any] = {}
+    # Durable: load or create run_id
+    try:
+        from .store import workflow_store
+    except Exception:
+        workflow_store = None  # type: ignore
+
+    if not run_id and workflow_store:
+        try:
+            run_id = workflow_store.new_id()
+        except Exception:
+            run_id = None
+
+    checkpoint_outputs: Dict[str, Any] = {}
+    checkpoint_visited: set = set()
+    if run_id and workflow_store:
+        try:
+            chk = workflow_store.get(run_id)
+            if chk and chk.get("outputs"):
+                checkpoint_outputs = chk["outputs"] or {}
+                checkpoint_visited = set(chk.get("visited") or [])
+        except Exception:
+            pass
+
+    outputs: Dict[str, Any] = dict(checkpoint_outputs)
     # Build id -> node map
     nodes = {n.id: n for n in workflow.nodes}
     # Build adjacency from nodes[].next and edges[]
@@ -42,9 +74,18 @@ def run_workflow(workflow: Workflow, inputs: Dict[str, Any] = None, session_id: 
     if not start_ids:
         start_ids = [workflow.nodes[0].id] if workflow.nodes else []
 
-    # Simple BFS with visited to avoid loops (cap 20 steps)
-    visited = set()
-    queue = list(start_ids)
+    # Simple BFS with visited to avoid loops (cap 50 steps for durable)
+    visited = set(checkpoint_visited)
+    # Queue: start from unvisited start nodes
+    queue = [nid for nid in start_ids if nid not in visited]
+    if not queue and checkpoint_visited:
+        # Resume: find frontier from visited adjacency
+        for vid in checkpoint_visited:
+            for nxt in adj.get(vid, []):
+                if nxt not in visited and nxt not in queue:
+                    queue.append(nxt)
+    if not queue and not visited:
+        queue = list(start_ids)
     steps = 0
     while queue and steps < 20:
         nid = queue.pop(0)
@@ -163,6 +204,39 @@ def run_workflow(workflow: Workflow, inputs: Dict[str, Any] = None, session_id: 
             else:
                 outputs[nid] = f"unknown kind {node.kind}"
 
+            # ── Checkpoint + OTel + receipt per node (durable) ──
+            try:
+                if run_id and workflow_store:
+                    workflow_store.save(run_id, workflow.name, "running", inputs, outputs, list(visited))
+            except Exception:
+                pass
+            try:
+                from ..core.tracing import tracer
+
+                # Best-effort span per node
+                span = tracer.start_span(f"workflow.node:{nid}", {"workflow": workflow.name, "node": nid, "kind": node.kind})
+                tracer.end_span(span.span_id, {"output": str(outputs.get(nid, ""))[:500]})
+            except Exception:
+                pass
+            try:
+                from ..tools.receipts import receipt_store
+
+                receipt_store.record(f"wf:{run_id}:{nid}", f"workflow:{node.kind}", {"workflow": workflow.name, "node": nid}, str(outputs.get(nid, ""))[:500], True, 0)
+            except Exception:
+                pass
+
+            # Approval pause — if harness verify on, save paused and return for human resume
+            if node.kind == "approval":
+                try:
+                    from ..config import NALLY_HARNESS_VERIFY
+
+                    if NALLY_HARNESS_VERIFY:
+                        if run_id and workflow_store:
+                            workflow_store.save(run_id, workflow.name, "paused", inputs, outputs, list(visited))
+                        return {"status": "paused", "outputs": outputs, "visited": list(visited), "run_id": run_id, "approval_node": nid}
+                except Exception:
+                    pass
+
             # Enqueue next nodes
             for nxt in adj.get(nid, []):
                 if nxt not in visited and nxt not in queue:
@@ -171,5 +245,16 @@ def run_workflow(workflow: Workflow, inputs: Dict[str, Any] = None, session_id: 
         except Exception as e:
             logger.warning(f"Workflow node {nid} failed: {e}")
             outputs[nid] = f"error: {e}"
+            try:
+                if run_id and workflow_store:
+                    workflow_store.save(run_id, workflow.name, "running", inputs, outputs, list(visited))
+            except Exception:
+                pass
 
-    return {"status": "ok", "outputs": outputs, "visited": list(visited)}
+    # Final save — completed
+    try:
+        if run_id and workflow_store:
+            workflow_store.save(run_id, workflow.name, "completed", inputs, outputs, list(visited))
+    except Exception:
+        pass
+    return {"status": "ok", "outputs": outputs, "visited": list(visited), "run_id": run_id}

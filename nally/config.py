@@ -22,6 +22,7 @@ if _env_path.exists():
 
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
+NALLY_WORKFLOWS_DIR = os.getenv("NALLY_WORKFLOWS_DIR", str(BASE_DIR / "workflows"))
 PLUGINS_DIR = BASE_DIR / "plugins"
 ALLOWED_PLUGINS: list[str] = []  # e.g. ["my_tools.py", "custom_agent.py"]
 
