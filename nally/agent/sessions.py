@@ -3,7 +3,7 @@
 Each session gets its own agent with isolated conversation history and
 LangGraph thread. Memory (facts/episodes) stays global across sessions.
 
-Since cross-platform unification, DMs from bot/Telethon/web/voice/VoIP all
+Since cross-platform unification, DMs from bot/Telethon/web all
 share the owner's single session (see agent/identity.py); groups keep their
 own per-group session.
 """
@@ -61,8 +61,7 @@ class AgentSessionManager:
     def commit_turn(self, session_id: str, user_text: str, reply: str, route_key: Optional[str] = None) -> None:
         """Commit an externally-generated turn into the shared session brain.
 
-        Used by the voice-call fast path (and any other lightweight LLM path)
-        so cross-platform history stays complete without paying full agent
+        Used by any lightweight LLM path so cross-platform history stays complete without paying full agent
         latency. Acquires the session lock so it can't interleave with a
         concurrent process() on the same brain.
         """
@@ -97,7 +96,7 @@ class AgentSessionManager:
         """Process a message for a specific session (thread-safe, per-route).
 
         V2: accepts a typed Input, dict, or plain str (backward compat).
-        Normalizes via agent.input.normalize_input so channel/voice intent
+        Normalizes via agent.input.normalize_input so channel intent
         travels with the turn instead of living in per-caller branches.
 
         Sets busy flag while processing, then drains queued messages.

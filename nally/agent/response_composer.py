@@ -1,13 +1,12 @@
 """Response Composer — turns verified execution state into the final user-facing response.
 
 V2 diagram:
-  VERIFICATION (PASS/FAIL) → RESPONSE COMPOSER → OUTPUT ROUTER → TEXT | VOICE
+  VERIFICATION (PASS/FAIL) → RESPONSE COMPOSER → OUTPUT ROUTER → TEXT
 
 Responsibilities (previously scattered):
   - Honesty: "report what actually happened" + ground every claim in receipts
   - Post-processing: emoji strip + sentence capitalization (core._llm_process tail)
   - Plan synthesis: aggregate step results into coherent answer (planner.synthesize_node)
-  - Voice summarization: shorten for voice without losing meaning (VoiceFormatter.SMART)
 
 The composer does NOT decide whether the answer is blocked — that is the
 Verification Layer's job. It only shapes a verified (or corrected) response
@@ -62,8 +61,7 @@ def _capitalize_sentences(text: str) -> str:
 class ResponseComposer:
     """Compose a final textual response from verified state.
 
-    All paths return plain text (Telegram HTML / voice pacing are applied by
-    OutputRouter downstream).
+    All paths return plain text (Telegram HTML is applied by OutputRouter downstream).
     """
 
     def compose(
@@ -86,8 +84,8 @@ class ResponseComposer:
             style: "default" | "concise" | "verbose".
             channel: Origin channel label. Presentation normalization
                 (emoji strip + sentence caps) is Telegram-only by locked
-                default — Web/API/voice paths keep neutral semantics so the
-                OutputRouter/SpeechPlanner downstream stays uncorrupted.
+                default — Web/API paths keep neutral semantics so the
+                OutputRouter downstream stays uncorrupted.
 
         Returns:
             Final plain-text response ready for OutputRouter.
@@ -99,7 +97,7 @@ class ResponseComposer:
         if out.startswith("[TASK NOT COMPLETE]") or out.startswith("[Blocked by guardrail]"):
             return out
         ch = (channel or "").lower()
-        is_telegram = "telegram" in ch or "tg_voice" in ch
+        is_telegram = "telegram" in ch
         if is_telegram:
             out = _strip_emojis(out)
             # Preserve explicitly lowercased casual tone for very short replies
@@ -110,7 +108,7 @@ class ResponseComposer:
             # Channel-neutral: light trim only; no emoji/case mutation.
             out = out.strip()
         if style == "concise" and len(out) > 800:
-            # Voice-style shortening: keep first 2 sentences + summary hint
+            # Concise shortening: keep first 2 sentences + summary hint
             parts = re.split(r"(?<=[.!?])\s+", out)
             if len(parts) > 3:
                 out = " ".join(parts[:2]) + " ... " + " ".join(parts[-1:])

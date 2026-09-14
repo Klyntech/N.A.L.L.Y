@@ -43,9 +43,6 @@ EVENT_TYPES = {
     "mcp_status",
     "confirmation_required",
     "busy",
-    # Voice events
-    "voice_transcript",
-    "tts_audio",
 }
 
 

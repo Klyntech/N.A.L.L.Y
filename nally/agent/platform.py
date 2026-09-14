@@ -77,11 +77,8 @@ def detect_interface(session_id: str) -> str:
         ("web:", "Web"),
         ("telegram:", "Telegram"),
         ("tg_user:", "Telegram user account"),
-        ("tg_voice:", "Telegram voice call"),
         ("group:", "Telegram group"),
         ("user:", None),  # shared owner session — label comes from caller
-        ("voice:", "Voice"),
-        ("voip:", "VoIP"),
     ):
         if session_id.startswith(prefix):
             return label or "Shared session"

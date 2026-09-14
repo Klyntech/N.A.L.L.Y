@@ -1,13 +1,13 @@
 """Nally Input Normalizer — single typed entry for all channels (V2).
 
-Converts Telegram/Web/voice/etc. into one typed Input so the Controller,
+Converts Telegram/Web/CLI into one typed Input so the Controller,
 Context Builder, and Output Router share the same identity contract:
 
-    Input{text, audio?, image?, route_key, channel, session_id, wants_voice}
+    Input{text, route_key, channel, session_id}
 
-Channels keep their own transport (bot.py STT, media.py image desc, web SSE)
-but must normalize before calling SessionManager.process(). String passthrough
-remains for backward compat (CLI, tests, queued messages).
+Channels keep their own transport but must normalize before calling
+SessionManager.process(). String passthrough remains for backward compat
+(CLI, tests, queued messages).
 """
 
 from __future__ import annotations
@@ -18,14 +18,12 @@ from typing import Any, Dict, Optional
 
 @dataclass
 class Input:
-    """Typed turn input. `text` is already transcribed/described (STT/image done upstream)."""
+    """Typed turn input. `text` is already transcribed/described upstream."""
 
     text: str
-    channel: str = ""  # e.g. "telegram:123", "web:default", "cli", "tg_voice:456"
+    channel: str = ""  # e.g. "telegram:123", "web:default", "cli"
     route_key: str = ""
     session_id: str = "default"
-    wants_voice: bool = False
-    audio: Optional[bytes] = None  # raw audio when caller defers STT (rare)
     image: Optional[str] = None  # image description/path when multimodal
     meta: Dict[str, Any] = field(default_factory=dict)
 
@@ -34,7 +32,7 @@ class Input:
 
     def is_telegram(self) -> bool:
         ch = (self.channel or "").lower()
-        return "telegram" in ch or "tg_voice" in ch
+        return "telegram" in ch
 
     def is_web(self) -> bool:
         ch = (self.channel or "").lower()
@@ -47,7 +45,6 @@ def normalize_input(
     channel: str = "",
     route_key: str = "",
     session_id: str = "default",
-    wants_voice: bool = False,
 ) -> Input:
     """Normalize str | dict | Input into an Input.
 
@@ -70,7 +67,6 @@ def normalize_input(
             channel=str(raw.get("channel", channel) or ""),
             route_key=str(raw.get("route_key", route_key) or session_id),
             session_id=str(raw.get("session_id", session_id) or "default"),
-            wants_voice=bool(raw.get("wants_voice", wants_voice)),
             image=raw.get("image") or raw.get("media_desc"),
             meta={k: v for k, v in raw.items() if k not in ("text", "message", "caption")},
         )
@@ -80,5 +76,4 @@ def normalize_input(
         channel=channel,
         route_key=route_key or session_id,
         session_id=session_id,
-        wants_voice=wants_voice,
     )

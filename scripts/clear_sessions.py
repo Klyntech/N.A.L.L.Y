@@ -79,17 +79,7 @@ if os.path.exists(gen_dir):
             os.remove(fp)
     print(f"  data/generated: cleared {len(files)} files")
 
-# 6. Clear voice tmp
-voice_dir = "data/voice_tmp"
-if os.path.exists(voice_dir):
-    files = os.listdir(voice_dir)
-    for f in files:
-        fp = os.path.join(voice_dir, f)
-        if os.path.isfile(fp):
-            os.remove(fp)
-    print(f"  data/voice_tmp: cleared {len(files)} files")
-
-# 7. Clear pending approvals
+# 6. Clear pending approvals
 if os.path.exists(db_path):
     conn = sqlite3.connect(db_path)
     try:

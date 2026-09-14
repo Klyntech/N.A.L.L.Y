@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
     parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
-    parser.add_argument("--voice", action="store_true", help="Run in voice mode (push-to-talk)")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     # Render injects PORT=10000 by default — respect it. Docs: https://render.com/docs/web-services#port-binding
     # Bind to 0.0.0.0:$PORT (see run_web). Local default remains 5000 if PORT unset.
@@ -75,8 +74,6 @@ def main():
 
     if args.cli:
         run_cli()
-    elif args.voice:
-        run_voice()
     elif args.telegram_only:
         run_telegram(polling=True)
     else:
@@ -126,13 +123,6 @@ def run_cli():
             break
         except Exception as e:
             print(f"\nError: {e}")
-
-
-def run_voice():
-    """Run Nally in voice mode (push-to-talk)."""
-    from nally.voice.loop import run_voice_loop
-
-    run_voice_loop()
 
 
 def run_web(port=None):
@@ -219,7 +209,6 @@ def run_web(port=None):
     atexit.register(_kill_tg_user)
 
     # Start Telegram user account (Telethon) as a separate process
-    # Voice calls are handled inside user.py (same process, same Telethon client)
     tg_user_proc = None
     from nally.config import DATA_DIR, resolve_telegram_mode
 

@@ -5,12 +5,9 @@ Acceptance conditions:
   2. Blocked result cannot bypass composer
   3. Partial completion uses the canonical response
   4. Telegram and Web consume the same composed result
-  5. Voice remains an output mode rather than becoming part of reasoning
-  6. No production caller bypasses ResponseComposer for final responses
-  7. OutputRouter handles Telegram message splitting
+  5. No production caller bypasses ResponseComposer for final responses
+  6. OutputRouter handles Telegram message splitting
 """
-
-from unittest.mock import patch
 
 from nally.agent.response_composer import ResponseComposer, compose_response, response_composer
 from nally.output.router import OutputRouter, OutputTarget, RoutedOutput, route_output
@@ -152,24 +149,6 @@ def test_router_web_returns_text_only():
     assert routed.text == "Hello world"
 
 
-def test_router_voice_telegram():
-    """OutputRouter routes voice for Telegram."""
-    router = OutputRouter()
-    routed = router.route("Hello world", channel="telegram:123", wants_voice=True)
-    assert routed.target in (OutputTarget.BOTH, OutputTarget.VOICE)
-    assert routed.voice_text is not None
-    assert routed.voice_format == "ogg"
-
-
-def test_router_voice_web_disabled():
-    """OutputRouter blocks web voice when NALLY_WEB_VOICE_ENABLED=false."""
-    router = OutputRouter()
-    with patch.dict("os.environ", {"NALLY_WEB_VOICE_ENABLED": "false"}):
-        routed = router.route("Hello world", channel="web:default", wants_voice=True)
-    assert routed.target == OutputTarget.TEXT
-    assert routed.voice_text is None
-
-
 def test_router_telegram_chunks():
     """OutputRouter produces chunks for long Telegram messages."""
     router = OutputRouter()
@@ -241,39 +220,11 @@ def test_split_telegram_force_split():
     assert chunks[0] == "x" * 4096
 
 
-# ── 5. Voice is output mode, not reasoning ──────────────────
-
-
-def test_router_voice_text_shortened():
-    """OutputRouter shortens voice text for long responses."""
-    router = OutputRouter()
-    long_text = "x" * 1000
-    routed = router.route(long_text, channel="telegram:123", wants_voice=True)
-    assert routed.voice_text is not None
-    assert len(routed.voice_text) <= len(long_text)
-
-
-def test_router_voice_text_not_shortened():
-    """OutputRouter does not shorten short voice text."""
-    router = OutputRouter()
-    short_text = "Hello world"
-    routed = router.route(short_text, channel="telegram:123", wants_voice=True)
-    assert routed.voice_text == short_text
-
-
-def test_router_voice_format_ogg_telegram():
-    """OutputRouter uses ogg format for Telegram voice."""
-    router = OutputRouter()
-    routed = router.route("test", channel="telegram:123", wants_voice=True)
-    assert routed.voice_format == "ogg"
-
-
-# ── 6. No bypass invariant ──────────────────────────────────
+# ── 5. No bypass invariant ──────────────────────────────────
 
 
 def test_core_imports_composer_helpers():
     """core.py imports _strip_emojis and _capitalize_sentences from response_composer."""
-    # Verify the helpers are imported (not defined locally)
     import nally.agent.response_composer as rc
     from nally.agent import core
     assert core._strip_emojis is rc._strip_emojis
@@ -299,7 +250,7 @@ def test_route_output_convenience():
     assert routed.text == "hello"
 
 
-# ── 7. RouteOutput data model ───────────────────────────────
+# ── 6. RouteOutput data model ───────────────────────────────
 
 
 def test_routed_output_fields():
@@ -308,19 +259,13 @@ def test_routed_output_fields():
         target=OutputTarget.TEXT,
         text="hello",
         html="<b>hello</b>",
-        voice_text="hello",
-        voice_format="ogg",
-        attachments=["file.txt"],
         chunks=["<b>hello</b>"],
     )
     assert r.target == OutputTarget.TEXT
     assert r.html == "<b>hello</b>"
     assert r.chunks == ["<b>hello</b>"]
-    assert r.attachments == ["file.txt"]
 
 
 def test_output_target_enum():
-    """OutputTarget has all expected values."""
+    """OutputTarget has only TEXT."""
     assert OutputTarget.TEXT == "text"
-    assert OutputTarget.VOICE == "voice"
-    assert OutputTarget.BOTH == "both"

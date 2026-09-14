@@ -1,7 +1,7 @@
 """Nally Router - Pattern Matching for Instant Responses.
 
 Minimal allowlist of cheap, true, no-LLM-needed handlers (time/date/day/greet).
-Everything else goes to the LLM for one brain, one voice.
+Everything else goes to the LLM for one brain, one response.
 
 Heavy / historical handlers (PC control, volume, brightness, files, weather,
 eval, jokes, etc.) were intentionally removed. They belong behind permission

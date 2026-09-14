@@ -3,7 +3,7 @@
 Canonical mapping:
 
     person  -> session_id = "user:{owner}"   (shared agent brain + history)
-    channel -> route_key  = "telegram:{chat}" | "web:default" | "tg_voice:{id}"
+    channel -> route_key  = "telegram:{chat}" | "web:default"
     group   -> session_id = "telegram:group:{id}"  (kept separate, unchanged)
 
 Invariant: route_key NEVER equals session_id for a multi-channel owner.
@@ -94,39 +94,22 @@ def resolve_session(
 ) -> SessionRef:
     """Map an inbound message to (brain session, routing key, channel label).
 
-    DMs, web chat, voice notes, voice calls and VoIP all land on the owner's
+    DMs, web chat, and Telegram all land on the owner's
     single session so the brain and recent history are shared across platforms.
     Groups keep their existing per-group session ids (preserves group history).
     """
     if channel == "web":
         return SessionRef(owner_session_id(), "web:default", "Web")
 
-    if channel == "voice":
-        sid = owner_session_id()
-        return SessionRef(sid, f"voice:{sid}", "Voice")
-
-    if channel == "voip":
-        who = sender_id or chat_id
-        sid = owner_session_id() if (who is None or _is_owner(who)) else f"user:{who}"
-        return SessionRef(sid, f"voip:{who or 'unknown'}", "VoIP call")
-
     if channel in ("telegram", "tg_user"):
         label = "Telegram" if channel == "telegram" else "Telegram user account"
         if is_group:
             route = f"telegram:group:{chat_id}"
-            # Group session id unchanged from the old scheme — keeps history.
             return SessionRef(route, route, f"{label} group")
         who = sender_id or chat_id
         if who is not None and not _is_owner(who):
             return SessionRef(f"user:{who}", f"{channel}:{who}", label)
         return SessionRef(owner_session_id(), f"{channel}:{chat_id}", label)
-
-    if channel == "tg_voice":
-        who = sender_id or chat_id
-        label = "Telegram voice call"
-        if who is not None and not _is_owner(who):
-            return SessionRef(f"user:{who}", f"tg_voice:{chat_id}", label)
-        return SessionRef(owner_session_id(), f"tg_voice:{chat_id}", label)
 
     # Unknown channel — safest default is the owner brain.
     return SessionRef(owner_session_id(), f"{channel}:default", channel.replace("_", " ").title())
@@ -138,7 +121,7 @@ def resolve_session(
 def migrate_owner_history(limit: Optional[int] = None) -> int:
     """Merge old per-channel owner histories into the unified owner session.
 
-    Sources: web:default + telegram/tg_user/tg_voice rows for the owner id
+    Sources: web:default + telegram/tg_user rows for the owner id
     (when known). Time-sorted merge capped at `limit` messages (default from
     NALLY_HISTORY_MIGRATE_LIMIT env, else 200). Old rows stay in place; the
     merge is skipped entirely once the target session has any history.
@@ -153,7 +136,7 @@ def migrate_owner_history(limit: Optional[int] = None) -> int:
     sources: List[str] = ["web:default"]
     owner = get_owner_id()
     if owner:
-        sources += [f"telegram:{owner}", f"tg_user:{owner}", f"tg_voice:{owner}"]
+        sources += [f"telegram:{owner}", f"tg_user:{owner}"]
 
     from ..memory import memory_store
 

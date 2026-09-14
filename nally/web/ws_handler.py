@@ -18,8 +18,6 @@ Protocol:
     {"type": "response", "text": "final answer"}
     {"type": "error", "text": "..."}
     {"type": "done"}
-
-  Voice: web is text-only. Voice input/output is via Telegram bot voice notes.
 """
 
 import asyncio
@@ -40,7 +38,7 @@ logger = logging.getLogger("nally.ws")
 def _track_connection_task(in_flight: set, coro) -> asyncio.Task:
     """Register a connection-scoped task; auto-remove when done.
 
-    The WebSocket connection owns every agent/voice task it starts. On
+    The WebSocket connection owns every agent task it starts. On
     disconnect the connection finally-block cancels any remaining members.
     """
     task = asyncio.create_task(coro)
@@ -72,7 +70,7 @@ async def _cancel_connection_tasks(
     brain_session_id: str | None = None,
     abort_shared_brain: bool = False,
 ) -> None:
-    """Cancel heartbeat + in-flight agent/voice work for one connection.
+    """Cancel heartbeat + in-flight agent work for one connection.
 
     Always cancels this connection's asyncio children. Cooperative abort of the
     shared brain (``set_abort(session_id)``) runs only when
@@ -234,7 +232,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
         event_bus.subscribe("plan_complete", lambda e: _on_plan_event("plan_complete", e.data)),
     ]
 
-    # Connection-owned work: heartbeat + every agent/voice task started here.
+    # Connection-owned work: heartbeat + every agent task started here.
     in_flight: set[asyncio.Task] = set()
     heartbeat_task: asyncio.Task | None = None
 
@@ -297,14 +295,6 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     {"type": "approval_resolved", "tool_call_id": tool_call_id, "approved": approved},
                 )
 
-            # Voice audio removed — web is text-only. Bot voice notes remain via Telegram.
-            elif msg_type == "voice_audio":
-                await ws_manager.send_json(
-                    cid,
-                    {"type": "error", "text": "Voice input is not available on web — use Telegram voice notes for voice replies."},
-                )
-                continue
-
             # ── Pong from client (heartbeat response) ──
             elif msg_type == "pong":
                 pass  # just keeps the connection alive
@@ -344,16 +334,6 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
 
     rk = route_key or session_id
 
-    # Intercept "call me" on web UI — redirect to Telegram
-    if text.strip().lower() in ("call me", "call nally"):
-        from ..config import NALLY_VOICE_CALLS_ENABLED
-        if NALLY_VOICE_CALLS_ENABLED:
-            await ws_manager.send_json(cid, {
-                "type": "response",
-                "text": 'Voice calls only work on Telegram. Send me "call me" there and I\'ll set up a voice chat for you.',
-            })
-            return
-
     # Check if session is busy — queue the message (per-route)
     if session_manager.is_busy(session_id, route_key=rk):
         pos = session_manager.queue_message(session_id, text, route_key=rk)
@@ -381,10 +361,10 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
         """Run agent in thread pool."""
         try:
             response = session_manager.process(session_id, text, emit=stream_event, route_key=rk)
-            # Output Router (V2) — WS TEXT branch (web voice disabled; explicit gate inside router).
+            # Output Router (V2) — WS TEXT branch.
             try:
                 from ..output.router import route_output as _route_ws
-                _rw = _route_ws(response or "", channel=f"web:{rk}", wants_voice=False)
+                _rw = _route_ws(response or "", channel=f"web:{rk}")
                 response = _rw.text
             except Exception:
                 pass
@@ -454,5 +434,3 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
             )
 
     await ws_manager.send_json(cid, {"type": "done"})
-
-# Voice removed — web is text-only. Bot voice notes remain via Telegram.

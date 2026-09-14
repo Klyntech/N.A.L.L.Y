@@ -70,7 +70,7 @@ class NallyAgent:
     def __init__(self, session_id: Optional[str] = None, channel: Optional[str] = None, route_key: Optional[str] = None):
         self.messages: List[dict] = []
         self._session_id = session_id or SESSION_ID
-        # Human-facing channel label (e.g. "Telegram voice call"). Explicit
+        # Human-facing channel label (e.g. "Telegram", "Web"). Explicit
         # instead of sniffed from the session-id prefix, since one shared
         # session ("user:{owner}") is reached from many channels.
         self._channel = channel
@@ -871,7 +871,7 @@ def get_agent() -> NallyAgent:
     """Get or create the singleton NallyAgent instance (thread-safe).
 
     Defaults to the owner's shared brain session so CLI turns land in the
-    same cross-platform history as web/Telegram/voice (identity, not channel).
+    same cross-platform history as web/Telegram (identity, not channel).
     """
     global _agent_instance
     if _agent_instance is None:

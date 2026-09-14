@@ -126,33 +126,6 @@ NALLY.initWebSocket = function() {
     NALLY.renderServices();
   });
 
-  s.ws.on('voice_transcript', function(data) {
-    NALLY.addChatMsg(data.text, false);
-    NALLY.showTyping();
-    NALLY.think('Thinking...');
-  });
-
-  s.ws.on('tts_audio', function(data) {
-    NALLY.removeTyping();
-    try {
-      var raw = atob(data.audio);
-      var arr = new Uint8Array(raw.length);
-      for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-      var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      audioCtx.decodeAudioData(arr.buffer, function(buffer) {
-        var source = audioCtx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioCtx.destination);
-        source.onended = function() { audioCtx.close(); };
-        source.start(0);
-      }, function(e) {
-        console.warn('[tts] decode failed:', e);
-      });
-    } catch (e) {
-      console.warn('[tts] playback error:', e);
-    }
-  });
-
   s.ws.on('confirmation_required', function(data) {
     NALLY.buildApprovalCard(data);
   });

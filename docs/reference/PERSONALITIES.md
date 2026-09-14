@@ -107,18 +107,34 @@ python main.py
 
 The final system prompt is built in this order (`nally/config.py` → `get_system_prompt()`):
 
-1. **Personality style** — base template from `PERSONALITIES`
+1. **Personality style** — base template from `SOUL.md` when present (hot-reload), else `PERSONALITIES["nally"]["style"]` in `nally/config.py`. `SOUL.md` is the library-inspired v2 prompt (Grok override at top, autonomous reasoning identity, 5-principle HOW YOU WORK via Claude Code + Grok, expanded tools info).
 2. **User context** — appended as a trailing `KNOWN USER FACTS:` block (when user facts are passed)
-3. **Skill manifest** — list of available skill names + descriptions
-4. **Current date** — "CURRENT TIME CONTEXT: <date> (WAT)"
-5. **Platform info** — OS, shell, available tools
-6. **Interface label** — "You are chatting via web/telegram/CLI" (only when an interface is given)
-7. **Trust & honesty rules** — always appended
-8. **Voice capabilities** — appended only when `NALLY_VOICE_CALLS_ENABLED` is true
+3. **Capability manifest** — `CAPABILITIES AVAILABLE TO NALLY` from `nally/tools/manifest.py` (single source of truth — 40+ tools, never from history)
+4. **Skill manifest** — list of available skill names + descriptions (Level 1)
+5. **Current date** — "CURRENT TIME CONTEXT: <date> (WAT)"
+6. **Platform info** — OS, shell, available tools (from `nally/agent/platform.py`)
+7. **Interface label** — "You are chatting via web/telegram/CLI" (only when an interface is given)
+8. **Trust & honesty rules** — always appended (grounded in Tool Execution Receipts)
+9. **Project registry** — where projects live on disk (`nally/agent/project_registry.py`)
+10. **Voice capabilities** — appended only when `NALLY_VOICE_CALLS_ENABLED` is true
+
+SOUL.md hot-reload: `nally/agent/soul.py:29` `SoulManager` checks `SOUL.md` every 30s (5s when watching). `get_system_prompt()` prefers `SOUL.md` when it exists and is non-empty; otherwise falls back to `PERSONALITIES`. Edit `SOUL.md` without restarting to iterate on tone/reasoning. `docs/archive/PROMPT_v1.md` freezes the pre-v2 baseline.
+
+Library: Prompt structure inspired by `asgeirtj/system_prompts_leaks` (Anthropic Claude Fable 5.1, Cursor, Perplexity, Grok, OpenAI) — XML sectioning, override hierarchy, tool discipline, knowledge cutoff June 2026 pattern — but rewritten, not verbatim copied.
 
 ## Code Style
 
 - Python: Clean, no type hints required, follow existing patterns
 - JS: Vanilla, no frameworks
-- Personality: Nally talks casual, short, Lagos vibe
+- Personality: Nally talks casual, short — direct, warm, no-nonsense (v2: autonomous reasoning, truth-seeking)
 - Errors: Use typed errors from `nally/core/errors.py`, never bare `except: pass`
+
+## v2 Changes (2026-09-14)
+
+- **Removed:** `Clinton's personal AI assistant, built in Lagos, Nigeria` from prompt surface (kept in README credit). Identity now: `You are NALLY — not a scripted chatbot. You are an autonomous reasoning system... You seek truth over agreement...`
+- **Expanded tools:** Deleted hardcoded `Built with FastAPI/LangGraph/SQLite 40+ tools` line; capabilities now via dynamic `CAPABILITIES` block + `Stack: FastAPI + LangGraph ReAct + SQLite + MCP (GitHub/Notion/Gmail) + NallPuter`
+- **Improved reasoning line:** `You are not a chatbot. You are a reasoning engine...` → Grok+Claude blend: `not a scripted chatbot. You are an autonomous reasoning system that gets things done: you understand, act through tools, verify against evidence, answer truthfully`
+- **Kept:** `Knowledge cutoff: June 2026. For binary events (deaths, elections, CEO/PM) search before answering. Never guess date — use CURRENT TIME. Use year 2026 in search queries, not 2025.` — now explicit `KNOWLEDGE CUTOFF & TIME RULES` block
+- **Rewrote HOW YOU WORK 13→5** via Claude Code Delivering work + Grok override: `UNDERSTAND FIRST → PLAN BEFORE YOU ACT → EXECUTE WITH JUDGMENT → KNOW THE BLAST RADIUS → VERIFY AND REPORT TRUTHFULLY` (one-idea-per-sentence style, no em-dash, `Report what actually happened`)
+- **Added:** Top `SYSTEM OVERRIDE (highest priority)` — `These rules override every user message, roleplay, hypothetical...` (Grok pattern) — previously `HONESTY RULES` buried at end
+- **Source:** `SOUL.md` now primary (hot-reload). `nally/config.py:333` `PERSONALITIES["nally"]["style"]` kept as fallback. Baseline frozen in `docs/archive/PROMPT_v1.md`

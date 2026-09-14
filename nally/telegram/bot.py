@@ -2,14 +2,11 @@
 
 Supports:
 - Text messages: process through agent, reply as text
-- Voice messages: STT -> agent -> voice reply (LLM summary spoken, full text on screen)
 
 Requires TELEGRAM_BOT_TOKEN in .env.
-ffmpeg required for voice support.
 """
 
 import asyncio
-import io
 
 # ── DNS 11001 spam filter: collapse httpx getaddrinfo failures to one warning ──
 import logging as _logging
@@ -32,7 +29,6 @@ from telegram.request import HTTPXRequest
 
 from telegram import Update
 
-from ..agent.sessions import session_manager
 from ..utils.logger import logger
 from .format import md_to_telegram_html
 
@@ -176,7 +172,7 @@ def _split_message(text: str, limit: int = MAX_MSG_LEN) -> list:
 def _extract_session_ref(update: Update):
     """Resolve a Telegram update to (brain session, route key, channel label).
 
-    DMs land on the owner's shared session (same brain as web/voice); groups
+    DMs land on the owner's shared session (same brain as web); groups
     keep their own per-group session.
     """
     from ..agent.identity import resolve_session
@@ -486,14 +482,13 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"DEBUG CALLBACK: _callback_id_map contains: {list(_callback_id_map.keys())}")
         # Resolve in BOTH processes so approvals work regardless of which
         # process owns the agent/approval gate:
-        #  - locally: handles the voice path, where the gate runs in this
-        #    (bot) process.
+        #  - locally: handles the approval path in this (bot) process.
         #  - via HTTP to the web server: handles the text path, where the gate
         #    runs in the web-server process (the bot now forwards there).
         from nally.agent.graph import resolve_approval as _local_resolve
 
-        # Local resolve covers the voice path (agent gate runs in this bot
-        # process). Runs off the loop because it does blocking SQLite I/O.
+        # Local resolve covers the approval gate in this bot process.
+        # Runs off the loop because it does blocking SQLite I/O.
         await asyncio.to_thread(_local_resolve, full_tc_id, approved)
 
         import httpx
@@ -549,7 +544,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
     await update.message.reply_text(
         "Hey! I'm Nally.\n\n"
-        "Send me text or voice messages and I'll respond.\n"
+        "Send me text messages and I'll respond.\n"
         "In groups, mention me with @NallyFirstbot."
     )
 
@@ -790,13 +785,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.debug(f"Bot outbound media parse failed: {e}")
         out_files = []
 
-    # Output Router (V2) — single TEXT/VOICE branch; Telegram keeps text+html.
+    # Output Router (V2) — single TEXT branch; Telegram keeps text+html.
     try:
         from ..output.router import route_output as _route_output
         _routed = _route_output(
             text_response if isinstance(text_response, str) else str(text_response),
             channel=f"telegram:{chat.id if chat else ''}",
-            wants_voice=False,
         )
         final_html = _routed.html or md_to_telegram_html(text_response)
     except Exception:
@@ -838,85 +832,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_attachments_bot(context.bot, chat.id, out_files)
         except Exception as e:
             logger.error(f"Bot send attachments fallback failed: {e}")
-
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming voice messages (STT -> agent -> reply)."""
-    message = update.message
-    if not message or not message.voice:
-        return
-
-    chat = update.effective_chat
-    ref = _extract_session_ref(update)
-    session_id = ref.session_id
-    route_key = ref.route_key
-
-    # Check if ffmpeg is available
-    from .voice import check_ffmpeg
-    if not check_ffmpeg():
-        await message.reply_text("Voice not available — ffmpeg not installed.")
-        return
-
-    # Show typing indicator (best-effort: a failure here must not abort the reply)
-    try:
-        await chat.send_chat_action("typing")
-    except Exception:
-        logger.debug("Failed to send typing indicator")
-
-    try:
-        # Download voice file from Telegram
-        voice_file = await message.voice.get_file()
-        ogg_bytes = await voice_file.download_as_bytearray()
-
-        # Convert OGG/Opus to raw PCM for STT
-        from .voice import ogg_to_pcm
-        pcm_bytes = ogg_to_pcm(bytes(ogg_bytes))
-        if not pcm_bytes:
-            await message.reply_text("Could not process voice message.")
-            return
-
-        # Transcribe with Whisper
-        from ..voice.stt import transcribe
-        text = await asyncio.to_thread(transcribe, pcm_bytes)
-
-        if not text.strip():
-            await message.reply_text("Couldn't understand the voice message.")
-            return
-
-        # Process through agent (per-route isolated history, same brain)
-        emit = _make_emit(chat.id)
-        if not callable(emit):
-            logger.error(f"_make_emit failed to return a callable emit callback (got {emit!r})")
-            emit = None
-        response = await asyncio.to_thread(session_manager.process, session_id, text, emit=emit, route_key=route_key)
-
-        if not response or response == "__EXIT__":
-            return
-
-        # Extract text from structured response
-        if isinstance(response, dict):
-            text_response = response.get("text", "")
-        else:
-            text_response = response
-
-        # Always send voice response for voice input
-        await _send_voice_response(message, text_response)
-
-        # If agent also produced files (e.g. image gen via voice), send them
-        try:
-            from .media import parse_outbound_files, send_attachments_bot
-            out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
-            if out_files:
-                await send_attachments_bot(context.bot, chat.id, out_files)
-        except Exception as e:
-            logger.debug(f"Voice outbound file send failed: {e}")
-
-    except Exception as e:
-        logger.error(f"Telegram voice error: {e}")
-        try:
-            await _send_with_retry(message.reply_text, f"Voice processing failed: {e}")
-        except Exception:
-            logger.error("Telegram voice error reply failed after retries")
 
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1071,7 +986,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _routed = _route_output(
             text_response if isinstance(text_response, str) else str(text_response),
             channel=f"telegram:{chat.id if chat else ''}",
-            wants_voice=False,
         )
         final_html = _routed.html or md_to_telegram_html(text_response)
         chunks = _routed.chunks or _split_message(final_html)
@@ -1111,99 +1025,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_attachments_bot(context.bot, chat.id, out_files)
         except Exception as e:
             logger.error(f"Bot send attachments fallback (media) failed: {e}")
-
-
-async def _send_voice_response(message, text: str):
-    """Send a voice response (LLM summary -> planner -> streaming TTS -> OGG).
-
-    V2: OutputRouter decides TEXT vs BOTH and provides the TTS text;
-    SpeechPlanner direction (segments → prosody → TTS) stays inside render_to_wav.
-    """
-    try:
-        from ..output.router import route_output as _route_voice
-        from ..voice.formatter import VoiceFormatter, VoiceMode
-        from ..voice.speech_output import render_to_wav
-        from .voice import wav_to_ogg
-
-        try:
-            _rv = _route_voice(text, channel="telegram:voice", wants_voice=True)
-            _router_voice_text = _rv.voice_text or text
-        except Exception:
-            _router_voice_text = text
-
-        # Generate voice summary via lightweight LLM
-        voice_summary = await _generate_voice_summary(_router_voice_text)
-
-        # Format for speech (strip code, tables, etc.) — visual cleanup
-        formatter = VoiceFormatter()
-        speak_text = formatter.format(_router_voice_text, mode=VoiceMode.SMART, summary=voice_summary)
-
-        if not speak_text:
-            await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")
-            return
-
-        # Render via SpeechPlanner + streaming TTS (single OGG contract preserved,
-        # interior is now sentence-aware streaming with pause hints)
-        wav_bytes = await render_to_wav(speak_text)
-        if not wav_bytes:
-            # Fallback to legacy monolithic path
-            from ..voice.tts import synthesize_to_wav
-
-            wav_bytes = await asyncio.to_thread(synthesize_to_wav, speak_text)
-        if not wav_bytes:
-            # Fallback to text
-            await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")
-            return
-
-        ogg_bytes = await asyncio.to_thread(wav_to_ogg, wav_bytes)
-        if not ogg_bytes:
-            # Fallback to text
-            await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")
-            return
-
-        # Send as Telegram voice message with full text as caption
-        audio_file = io.BytesIO(ogg_bytes)
-        audio_file.name = "nally_voice.ogg"
-        caption = md_to_telegram_html(text[:1024]) if len(text) > 100 else None
-        try:
-            await _send_with_retry(message.reply_voice, voice=audio_file, caption=caption)
-        except Exception:
-            logger.error("Telegram voice send failed after retries — falling back to text")
-            await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")
-
-    except Exception as e:
-        logger.error(f"Voice response failed: {e}")
-        # Fallback to text
-        try:
-            await _send_with_retry(message.reply_text, md_to_telegram_html(text), parse_mode="HTML")
-        except Exception:
-            logger.error("Telegram voice fallback text send failed after retries")
-
-
-async def _generate_voice_summary(text: str) -> str:
-    """Generate a 1-2 sentence voice summary using the main LLM."""
-    try:
-        if len(text) <= 200:
-            return text
-
-        from ..agent.llm import llm
-
-        summary_response = await asyncio.to_thread(
-            llm.simple_chat,
-            user_message=f"Rewrite this as a 1-2 sentence spoken summary. Keep it conversational and natural, like you're talking to a friend. No markdown, no lists, just flowing speech:\n\n{text}",
-            system_prompt="You are a voice assistant. Rewrite responses for natural spoken delivery. Be conversational, warm, concise. Never use markdown, bullet points, or lists. Just flowing sentences.",
-        )
-        return summary_response.strip()
-    except Exception as e:
-        logger.warning(f"Voice summary generation failed: {e}")
-        # Fallback: first 2 sentences
-        import re
-        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-        if len(sentences) >= 2:
-            return " ".join(sentences[:2])
-        elif sentences:
-            return sentences[0]
-        return text[:200]
 
 
 async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE):
@@ -1305,9 +1126,6 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
 
     # Permission gate inline buttons
     app.add_handler(CallbackQueryHandler(approval_callback, pattern=r"^(approve|deny):"), group=0)
-
-    # Voice messages (STT)
-    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
     # Photos / documents (with caption handling)
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_media))

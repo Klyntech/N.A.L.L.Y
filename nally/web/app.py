@@ -617,15 +617,6 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
     if not message:
         raise HTTPException(status_code=400, detail="No message provided")
 
-    # Intercept "call me" on web UI — redirect to Telegram
-    if message.lower() in ("call me", "call nally"):
-        from ..config import NALLY_VOICE_CALLS_ENABLED
-        if NALLY_VOICE_CALLS_ENABLED:
-            async def voice_redirect():
-                yield 'data: {"type": "response", "text": "Voice calls only work on Telegram. Send me \\"call me\\" there and I\'ll set up a voice chat for you."}\n\n'
-                yield 'data: {"event": "done"}\n\n'
-            return StreamingResponse(voice_redirect(), media_type="text/event-stream")
-
     # Identity: same brain (user:{owner}) for memory, but per-route history isolation (web:default)
     # Client-supplied session_id is kept only for backward compatibility.
     session_id = request.session_id
@@ -660,10 +651,10 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
         def run_agent():
             try:
                 response = session_manager.process(brain_session, message, emit=stream_event, route_key=route_key)
-                # Output Router (V2) — Web TEXT branch (voice gated; router is auditable no-op for text).
+                # Output Router (V2) — Web TEXT branch.
                 try:
                     from ..output.router import route_output as _route_web
-                    _rw = _route_web(response or "", channel=f"web:{route_key}", wants_voice=False)
+                    _rw = _route_web(response or "", channel=f"web:{route_key}")
                     response = _rw.text
                 except Exception:
                     pass
