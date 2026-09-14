@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Bake ONNX model into image at Docker build time.
 
-Called by Dockerfile after pip install. Produces /app/model/ with
-tokenizer files + model.onnx. No torch required at runtime.
+Downloads pre-exported ONNX from HuggingFace Hub (no torch export needed).
+Xenova/all-MiniLM-L6-v2 has community-maintained ONNX files.
+
+Produces /app/model/ with tokenizer + model.onnx (~90MB float32).
 """
 import os
 import shutil
@@ -11,79 +13,133 @@ import sys
 
 MODEL_NAME = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 MODEL_PATH = os.getenv("EMBED_MODEL_PATH", "/app/model")
-EXPORT_DIR = "/tmp/onnx-export"
+
+# Pre-exported ONNX sources (no torch needed at build time)
+ONNX_SOURCES = [
+    "Xenova/all-MiniLM-L6-v2",
+    "optimum/all-MiniLM-L6-v2",
+]
+
+
+def download_onnx():
+    """Download pre-exported ONNX model from HuggingFace."""
+    from huggingface_hub import snapshot_download
+
+    for source in ONNX_SOURCES:
+        try:
+            print(f"[embed-api bake] Trying pre-exported ONNX from {source} ...")
+            path = snapshot_download(
+                source,
+                allow_patterns=["*.onnx", "*.json", "*.txt", "*.model", "*.tiktoken"],
+                ignore_patterns=["*.bin", "*.safetensors", "*.h5", "*.msgpack", "*.ot"],
+            )
+            print(f"[embed-api bake] Downloaded to {path}")
+            return path
+        except Exception as e:
+            print(f"[embed-api bake] {source} failed: {e}")
+            continue
+    return None
+
+
+def export_onnx_fallback():
+    """Fallback: export via sentence-transformers + torch.onnx.export."""
+    import torch
+    from sentence_transformers import SentenceTransformer
+
+    print(f"[embed-api bake] Fallback: exporting {MODEL_NAME} via torch.onnx.export ...")
+    model = SentenceTransformer(MODEL_NAME)
+
+    # Get the transformer model
+    inner_model = model[0]  # Transformer object
+    tokenizer = inner_model.tokenizer
+
+    # Dummy input
+    dummy = tokenizer("hello world", return_tensors="pt", padding=True, truncation=True, max_length=128)
+
+    class SentenceTransformerWrapper(torch.nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, input_ids, attention_mask=None, token_type_ids=None):
+            out = self.model({"input_ids": input_ids, "attention_mask": attention_mask, "token_type_ids": token_type_ids})
+            # SentenceTransformer outputs: {'token_embeddings': tensor, 'attention_mask': tensor}
+            return out["token_embeddings"]
+
+    wrapper = SentenceTransformerWrapper(inner_model.auto_model)
+    wrapper.eval()
+
+    onnx_path = os.path.join(MODEL_PATH, "model.onnx")
+    torch.onnx.export(
+        wrapper,
+        (dummy["input_ids"], dummy["attention_mask"]),
+        onnx_path,
+        input_names=["input_ids", "attention_mask"],
+        output_names=["token_embeddings"],
+        dynamic_axes={
+            "input_ids": {0: "batch", 1: "seq"},
+            "attention_mask": {0: "batch", 1: "seq"},
+            "token_embeddings": {0: "batch", 1: "seq"},
+        },
+        opset_version=14,
+    )
+
+    # Save tokenizer
+    tokenizer.save_pretrained(MODEL_PATH)
+    print(f"[embed-api bake] ONNX exported to {onnx_path}")
+
+    del model, wrapper, torch
+    import gc
+    gc.collect()
+
+    return True
 
 
 def main():
-    print(f"[embed-api bake] Exporting {MODEL_NAME} to ONNX ...")
+    print(f"[embed-api bake] Baking ONNX model to {MODEL_PATH}")
 
-    # Clean any previous export
-    if os.path.exists(EXPORT_DIR):
-        shutil.rmtree(EXPORT_DIR)
-    os.makedirs(EXPORT_DIR, exist_ok=True)
     os.makedirs(MODEL_PATH, exist_ok=True)
 
-    # Use optimum-cli export — handles external data, quantization, all edge cases
-    cmd = [
-        sys.executable, "-m", "optimum.exporters.onnx",
-        "--model", MODEL_NAME,
-        "--task", "feature-extraction",
-        "--framework", "pt",
-        EXPORT_DIR,
-    ]
-    print(f"[embed-api bake] Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"[embed-api bake] STDOUT:\n{result.stdout}")
-        print(f"[embed-api bake] STDERR:\n{result.stderr}", file=sys.stderr)
-        sys.exit(1)
+    # Try downloading pre-exported ONNX first (fastest, no torch needed)
+    source_path = download_onnx()
 
-    print(f"[embed-api bake] ONNX export done")
-    print(f"[embed-api bake] Export output:\n{result.stdout[-500:]}" if result.stdout else "")
+    if source_path:
+        # Copy ONNX files to MODEL_PATH
+        onnx_copied = False
+        for item in os.listdir(source_path):
+            src = os.path.join(source_path, item)
+            if item.endswith(".onnx") or item.endswith(".json") or item.endswith(".txt") or item.endswith(".model"):
+                dst = os.path.join(MODEL_PATH, item)
+                if os.path.isdir(src):
+                    if os.path.exists(dst):
+                        shutil.rmtree(dst)
+                    shutil.copytree(src, dst)
+                else:
+                    shutil.copy2(src, dst)
+                if item.endswith(".onnx"):
+                    onnx_copied = True
 
-    # Copy everything from export dir to model path
-    for item in os.listdir(EXPORT_DIR):
-        src = os.path.join(EXPORT_DIR, item)
-        dst = os.path.join(MODEL_PATH, item)
-        if os.path.isdir(src):
-            if os.path.exists(dst):
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
+        if onnx_copied:
+            print(f"[embed-api bake] Pre-exported ONNX copied from {source_path}")
         else:
-            shutil.copy2(src, dst)
+            print(f"[embed-api bake] No .onnx files found in {source_path}, falling back to export")
+            source_path = None
+
+    # Fallback: export via torch
+    if not source_path or not onnx_copied:
+        try:
+            export_onnx_fallback()
+        except Exception as e:
+            print(f"[embed-api bake] Export failed: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Report what we have
     print(f"[embed-api bake] Files in {MODEL_PATH}:")
     for f in sorted(os.listdir(MODEL_PATH)):
-        size = os.path.getsize(os.path.join(MODEL_PATH, f))
-        print(f"  {f}: {size / 1024 / 1024:.1f}MB" if size > 1024 * 1024 else f"  {f}: {size / 1024:.0f}KB")
-
-    # Clean up
-    shutil.rmtree(EXPORT_DIR, ignore_errors=True)
-
-    # Try dynamic quantization
-    try:
-        from optimum.onnxruntime import ORTQuantizer
-        from optimum.onnxruntime.configuration import AutoQuantizationConfig
-
-        onnx_file = os.path.join(MODEL_PATH, "model.onnx")
-        if os.path.exists(onnx_file):
-            print(f"[embed-api bake] Quantizing {onnx_file} ...")
-            qconfig = AutoQuantizationConfig.avx512_vnni(
-                is_static=False, per_channel=True,
-                operators_to_quantize=["MatMul", "Add"],
-            )
-            quantizer = ORTQuantizer.from_pretrained(onnx_file)
-            quantizer.quantize(save_dir=MODEL_PATH, quantization_config=qconfig)
-            print("[embed-api bake] Quantized ONNX done")
-
-            # Report final size
-            q_file = os.path.join(MODEL_PATH, "model_quantized.onnx")
-            if os.path.exists(q_file):
-                q_size = os.path.getsize(q_file)
-                print(f"[embed-api bake] Quantized model: {q_size / 1024 / 1024:.1f}MB")
-    except Exception as e:
-        print(f"[embed-api bake] Quantization skipped: {e} (will use float32 ONNX)")
+        fpath = os.path.join(MODEL_PATH, f)
+        if os.path.isfile(fpath):
+            size = os.path.getsize(fpath)
+            print(f"  {f}: {size / 1024 / 1024:.1f}MB" if size > 1024 * 1024 else f"  {f}: {size / 1024:.0f}KB")
 
     print("[embed-api bake] Bake complete")
 
