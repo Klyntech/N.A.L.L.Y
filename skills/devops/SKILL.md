@@ -61,7 +61,6 @@ EXPOSE 80
 
 ### Docker Compose
 ```yaml
-version: '3.8'
 services:
   app:
     build: .

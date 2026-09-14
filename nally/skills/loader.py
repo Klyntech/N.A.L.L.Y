@@ -117,8 +117,9 @@ def validate_skill(name: str, body: str) -> list[str]:
             warnings.append(f"Suspicious URL: {url[:60]}")
 
     # Check for env var reads
-    env_reads = re.findall(r"(?:os\.environ|process\.env|getenv|ENV)\[?[\"'](\w+)", body)
-    for var in env_reads:
+    env_reads = re.findall(r"(?:os\.environ|process\.env|getenv|ENV)[\[.](?:[\"'](\w+)[\"']|(\w+))", body)
+    for bracket_match, dot_match in env_reads:
+        var = bracket_match or dot_match
         if any(s in var.upper() for s in ["SECRET", "KEY", "TOKEN", "PASSWORD", "CRED"]):
             warnings.append(f"Reads sensitive env var: {var}")
 

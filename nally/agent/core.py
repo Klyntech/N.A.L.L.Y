@@ -426,7 +426,6 @@ class NallyAgent:
             "ui",
             "interface",
             "layout",
-            "page",
             "form",
             "dashboard",
             "app",
@@ -438,7 +437,7 @@ class NallyAgent:
 
                 if not skill_registry._loaded:
                     skill_registry.load()
-                for skill_name in ["ui-design", "design-system"]:
+                for skill_name in ["design"]:
                     skill_obj = skill_registry.get(skill_name)
                     if skill_obj and skill_obj.body:
                         self.messages.insert(

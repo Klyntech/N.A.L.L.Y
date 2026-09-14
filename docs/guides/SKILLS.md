@@ -56,7 +56,7 @@ Detailed instructions for the agent...
 Nally matches skills to user messages using:
 
 1. **Keyword overlap**: 3+ words from the skill description appear in the message
-2. **Full name match**: All hyphenated parts of the skill name appear in the message (e.g. "ui-design" requires both "ui" AND "design")
+2. **Full name match**: All hyphenated parts of the skill name appear in the message (e.g. "code-review" requires both "code" AND "review")
 
 Substring matching is intentionally avoided to prevent false positives (e.g. "ui" alone won't match `ui-design`).
 
@@ -87,20 +87,17 @@ The `allowed-tools` field grants `allow` permission for those tools during skill
 | `build` | Autonomous full-project engineering (build/scaffold/generate a project, system, app, CLI, tool, library) | engineering_build |
 | `code-review` | Bug hunting, security audits | read_file, file_ops, run_command |
 | `creative` | Business writing, marketing | web_search, read_file |
-| `data` | Data analysis tasks | read_file |
-| `design-system` | Design tokens, components | read_file, file_ops |
+| `data` | Data analysis tasks | read_file, file_ops, run_command, code_analysis |
+| `design` | UI/UX, tokens, components, accessibility | read_file, file_ops |
 | `devops` | Docker, CI/CD, Terraform | run_command, file_ops |
 | `diagnose` | Bug hunting + security audits | read_file, file_ops, run_command, code_analysis |
 | `docs` | READMEs, API docs, tutorials | read_file, file_ops |
 | `image-gen` | Image generation prompts | generate_image |
 | `plan` | Task decomposition | (no tools — pure reasoning) |
-| `productivity` | Regex, templates, explanations | read_file, file_ops, run_code |
 | `refactor` | Code quality improvement | read_file, file_ops, run_command |
 | `research` | Web research, synthesis | web_search, read_file |
 | `ship` | Git workflow, deployment | run_command, file_ops |
 | `test-writer` | Unit test generation | read_file, file_ops, run_command, run_code |
-| `ui-design` | Layout, color, accessibility | read_file |
-| `video-edit` | Higgsfield AI video editing | MCP Higgsfield tools |
 
 ## Creating a New Skill
 

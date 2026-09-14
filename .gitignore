@@ -34,9 +34,9 @@ coverage.xml
 Thumbs.db
 
 # Project-specific
-data/
+/data/
 *.db
-logs/
+/logs/
 *.log
 test_chat.json
 test_file.txt

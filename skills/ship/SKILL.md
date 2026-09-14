@@ -65,8 +65,7 @@ main          ← production
 
 ### Static Sites (Vercel/Netlify/GitHub Pages)
 ```bash
-npm run build
-npx vercel --prod
+npm run build && npx vercel --prod
 # or
 netlify deploy --prod
 ```
@@ -79,16 +78,12 @@ docker push registry/myapp:latest
 
 ### Node.js (PM2/systemd)
 ```bash
-npm install --production
-pm2 restart myapp
-# or
-sudo systemctl restart myapp
+npm install --production && pm2 restart myapp
 ```
 
 ### Python (systemd/gunicorn)
 ```bash
-pip install -r requirements.txt
-sudo systemctl restart myapp
+pip install -r requirements.txt && sudo systemctl restart myapp
 ```
 
 ## Phase 4: Verify
@@ -103,15 +98,11 @@ After deploy:
 
 If something breaks:
 ```bash
-# Docker
-docker rollback myapp:previous-tag
-
 # PM2
 pm2 deploy myapp revert 1
 
 # Git
-git revert HEAD
-git push
+git revert HEAD && git push
 ```
 
 ## Guidelines

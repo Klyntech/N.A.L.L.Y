@@ -116,6 +116,14 @@ Each step:
 - Include code examples for every concept
 - Use tables for structured info (params, options, etc.)
 - Keep paragraphs short (3-4 sentences max)
+- Target Flesch-Kincaid grade 10-12 for technical readability
+- Inverted pyramid: most important info first, details later
+
+### Anti-Slop
+Avoid AI-cliche filler in documentation:
+- **Banned:** comprehensive, robust, cutting-edge, state-of-the-art, seamless, empower, leverage, delve
+- **Banned patterns:** "In this comprehensive guide...", "Let's dive deep into...", "It's worth noting that..."
+- **Instead:** State what the doc covers in one sentence. Start with the quickstart. Let the code speak.
 
 ### Code Examples
 - Always include imports

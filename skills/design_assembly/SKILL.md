@@ -201,19 +201,8 @@ Most design source sites offer MIT or CC0 licenses. Always check:
 - Hero Patterns: CC BY 4.0
 - obfus.link: Free to use
 
-## Performance Tips
+## Guidelines
 
-1. **Use CSS transforms** for animations (GPU-accelerated)
-2. **Use requestAnimationFrame** for JS animations
-3. **Throttle scroll handlers** (max 60fps)
-4. **Use CSS custom properties** for colors (easy theming)
-5. **Minimize DOM queries** (cache selectors)
-6. **Use will-change** for animated elements
-7. **Prefer CSS animations over JS** when possible
-
-## Emoji Policy
-
-- NEVER use emojis in generated code files (HTML, CSS, JS, etc.)
-- NEVER use emojis in source code comments
-- NEVER use emojis in file names
-- Use text labels, SVG icons, or CSS content instead
+- Follow the `design` skill for performance, accessibility, and emoji policy
+- Fetch components first, assemble second, customize third
+- Always verify fetched components render correctly

@@ -102,6 +102,21 @@ Rules for brainstorming:
 - One idea per paragraph
 - Short sentences (15-20 words max)
 
+## Anti-Slop Guidelines
+
+Avoid AI-cliche language. If you catch yourself writing any of these, rewrite:
+
+**Banned words:** delve, tapestry, leverage, empower, seamlessly, unlock, elevate, harness, vibrant, groundbreaking, cutting-edge, game-changer, world-class, robust, comprehensive, innovative
+
+**Banned patterns:**
+- Dramatic countdowns ("First... Second... Third...") — just list them
+- Negative parallelism ("Not just X, but Y") — state the positive directly
+- Vague superlatives ("incredibly powerful", "truly amazing") — use specifics instead
+- Filler openers ("In today's world...", "It's no secret that...") — start with the point
+- Unnecessary hedging ("It's worth noting that...", "It goes without saying...") — cut it
+
+**Instead:** Use concrete numbers, specific outcomes, plain language. "Saves 3 hours/week" beats "dramatically improves productivity".
+
 ## Guidelines
 - Write for the reader, not yourself
 - Cut every word that doesn't add value
