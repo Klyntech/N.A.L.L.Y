@@ -660,6 +660,20 @@ def resolve_telegram_mode() -> str:
     return "webhook" if TELEGRAM_WEBHOOK_URL else "polling"
 
 
+# ── Embeddings (separate microservice, Free-tier friendly) ────
+# Option 1 (default for Free): separate ONNX MiniLM instance 20MB at NALLY_EMBED_BASE_URL
+# Option 2: remote OpenAI-compatible (set NALLY_EMBED_BASE_URL=https://api.openai.com/v1)
+# NALLY stays lean (<300MB) — embedding model lives on its own instance.
+
+NALLY_EMBED_PROVIDER = os.getenv("NALLY_EMBED_PROVIDER", "none").strip().lower()  # none | embed_api | openai
+NALLY_EMBED_BASE_URL = os.getenv("NALLY_EMBED_BASE_URL", "").strip().rstrip("/")  # e.g. https://your-embed-free.onrender.com/v1
+NALLY_EMBED_MODEL = os.getenv("NALLY_EMBED_MODEL", "all-MiniLM-L6-v2").strip()  # 384d / 1.5KB per memory on Free
+NALLY_EMBED_API_KEY = os.getenv("NALLY_EMBED_API_KEY", "").strip()  # Bearer for embed_api (use NALLY_INTERNAL_TOKEN)
+NALLY_EMBED_DIMS = int(os.getenv("NALLY_EMBED_DIMS", "384"))  # 384 for MiniLM, 768 for Gemma, 1536 for openai-small
+NALLY_EMBED_TIMEOUT = int(os.getenv("NALLY_EMBED_TIMEOUT", "15"))  # seconds per embed request
+NALLY_EMBED_CACHE_TTL = int(os.getenv("NALLY_EMBED_CACHE_TTL", "3600"))  # seconds to cache embeddings in-memory
+
+
 # ── Validation ─────────────────────────────────────────────
 
 
