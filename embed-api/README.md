@@ -6,8 +6,8 @@ NALLY `nally/memory/embeddings.py` calls this via `NALLY_EMBED_BASE_URL` (`POST 
 
 ## Architecture
 
-- **No torch** — pure `onnxruntime` + `transformers` tokenizer at runtime
-- Model baked into image at build via `optimum-cli` ONNX export + dynamic quantization (80MB float32 → 22MB int8)
+- **Multi-stage Docker build** — `optimum` + `torch` only in builder stage (discarded), runtime is `onnxruntime` + `transformers` only (~300MB, no torch)
+- Model baked into image at build via `optimum` ONNX export + dynamic quantization (80MB float32 → 22MB int8)
 - Falls back to deterministic hash 384d if ONNX model can't load (dev/testing)
 
 ## Deploy on Render (Free)
