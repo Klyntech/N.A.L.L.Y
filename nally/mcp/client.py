@@ -32,6 +32,119 @@ def _run_coro_safely(coro):
         return pool.submit(asyncio.run, coro).result()
 
 
+# ── Token refresh for OAuth MCP servers ──────────────────
+
+# Services that support refresh_token grant (GitHub does not — tokens are long-lived)
+_REFRESHABLE_SERVICES = {"notion", "google", "gdrive", "gcalendar", "higgsfield"}
+
+# Google shared refresh (same endpoint for gmail/gdrive/gcalendar)
+_GOOGLE_REFRESH_ENDPOINT = "https://oauth2.googleapis.com/token"
+
+
+async def _try_refresh_token(service: str, storage) -> bool:
+    """Attempt to refresh an expired OAuth token. Returns True if successful.
+
+    Only works for services that issued a refresh_token during initial auth.
+    GitHub tokens are long-lived PATs and cannot be refreshed.
+    """
+    from ..mcp.oauth import OAuthToken
+
+    token = await storage.get_tokens()
+    if not token or not token.refresh_token:
+        return False
+
+    if service not in _REFRESHABLE_SERVICES:
+        return False
+
+    try:
+        import httpx
+
+        if service == "notion":
+            # Notion uses the token endpoint from metadata discovery
+            from ..mcp.oauth import NOTION_TOKEN_ENDPOINT_FALLBACK, discover_notion_metadata
+
+            metadata = await discover_notion_metadata()
+            token_endpoint = metadata.get("token_endpoint", NOTION_TOKEN_ENDPOINT_FALLBACK)
+            # Notion DCR client_id is stored in the state table — read it
+            from ..mcp.oauth import get_oauth_state
+
+            state_data = get_oauth_state(storage.db_path, "notion")
+            client_id = state_data.get("client_id", "") if state_data else ""
+            if not client_id:
+                logger.warning("Cannot refresh Notion token: no client_id in state")
+                return False
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    token_endpoint,
+                    data={
+                        "grant_type": "refresh_token",
+                        "refresh_token": token.refresh_token,
+                        "client_id": client_id,
+                    },
+                    timeout=15.0,
+                )
+        elif service in ("google", "gdrive", "gcalendar"):
+            # Google shared refresh
+            import os
+
+            client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+            client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
+            if not client_id or not client_secret:
+                logger.warning("Cannot refresh Google token: missing GOOGLE_CLIENT_ID/SECRET")
+                return False
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    _GOOGLE_REFRESH_ENDPOINT,
+                    data={
+                        "grant_type": "refresh_token",
+                        "refresh_token": token.refresh_token,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                    timeout=15.0,
+                )
+        elif service == "higgsfield":
+            from ..mcp.oauth import HIGGSFIELD_TOKEN_ENDPOINT, _get_higgsfield_credentials
+
+            creds = _get_higgsfield_credentials()
+            if not creds:
+                logger.warning("Cannot refresh Higgsfield token: missing credentials")
+                return False
+            client_id, client_secret = creds
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    HIGGSFIELD_TOKEN_ENDPOINT,
+                    data={
+                        "grant_type": "refresh_token",
+                        "refresh_token": token.refresh_token,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                    timeout=15.0,
+                )
+        else:
+            return False
+
+        if resp.status_code != 200:
+            logger.warning(f"Token refresh failed for {service}: {resp.status_code}")
+            return False
+
+        data = resp.json()
+        new_token = OAuthToken(
+            access_token=data["access_token"],
+            token_type=data.get("token_type", "bearer"),
+            expires_in=data.get("expires_in"),
+            refresh_token=data.get("refresh_token", token.refresh_token),
+        )
+        await storage.set_tokens(new_token)
+        logger.info(f"Token refreshed successfully for {service}")
+        return True
+
+    except Exception as e:
+        logger.warning(f"Token refresh error for {service}: {type(e).__name__}: {e}")
+        return False
+
+
 class MCPTool(Tool):
     """Wrapper that turns an MCP tool schema into a NALLY Tool."""
 
@@ -109,6 +222,7 @@ class MCPTool(Tool):
         """Call via HTTP transport with stored token as Bearer header.
 
         Tries raw HTTP POST first, falls back to SSE client if that fails.
+        On 401, attempts token refresh and retries once.
         """
 
         import httpx
@@ -118,11 +232,6 @@ class MCPTool(Tool):
         config = self._server_config
         db = str(DATA_DIR / "nally.db")
         storage = SQLiteTokenStorage(db, config["name"])
-        token = await storage.get_tokens()
-
-        headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
-        if token:
-            headers["Authorization"] = f"Bearer {token.access_token}"
 
         tool_name = self.name.removeprefix(f"mcp_{config['name']}_")
         payload = {
@@ -132,16 +241,38 @@ class MCPTool(Tool):
             "params": {"name": tool_name, "arguments": arguments},
         }
 
-        # Try raw HTTP POST first (works for stateless Streamable HTTP servers)
-        try:
+        async def _do_request(token) -> tuple[int, str]:
+            """Make the HTTP request. Returns (status_code, response_text)."""
+            headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+            if token:
+                headers["Authorization"] = f"Bearer {token.access_token}"
             async with httpx.AsyncClient() as client:
                 resp = await client.post(config["url"], headers=headers, json=payload, timeout=30.0)
-                result = _parse_sse_response(resp.text)
-                if result and "result" in result:
-                    content = result["result"].get("content", [])
-                    parts = [b.get("text", "") for b in content if b.get("type") == "text"]
-                    return "\n".join(parts) if parts else "MCP tool returned no content"
-                # If we got an error response, try SSE fallback below
+                return resp.status_code, resp.text
+
+        async def _parse_response(text: str) -> str | None:
+            """Parse MCP JSON-RPC response. Returns content string or None."""
+            result = _parse_sse_response(text)
+            if result and "result" in result:
+                content = result["result"].get("content", [])
+                parts = [b.get("text", "") for b in content if b.get("type") == "text"]
+                return "\n".join(parts) if parts else "MCP tool returned no content"
+            return None
+
+        token = await storage.get_tokens()
+
+        # Try raw HTTP POST first
+        try:
+            status, text = await _do_request(token)
+            if status == 401 and token:
+                # Token expired — attempt refresh
+                refreshed = await _try_refresh_token(config["name"], storage)
+                if refreshed:
+                    token = await storage.get_tokens()
+                    status, text = await _do_request(token)
+            parsed = await _parse_response(text)
+            if parsed is not None:
+                return parsed
         except Exception as e:
             logger.debug(f"Raw HTTP POST failed for {config['name']}: {type(e).__name__}: {e}")
 
@@ -317,11 +448,24 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
             needs_connect.append((server_config, "http", permission))
 
         elif auth_mode == "api_key":
-            env_key = server_config.get("env_key", "")
-            if not env_key or not os.getenv(env_key):
-                instant_results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting API key"})
-                continue
-            needs_connect.append((server_config, "stdio_token", permission))
+            # HTTP API key servers (e.g. Render) store key as token in SQLite
+            if server_config.get("url"):
+                db = str(DATA_DIR / "nally.db")
+                try:
+                    tokens = _get_existing_tokens_sync(name, db)
+                except Exception:
+                    tokens = None
+                if not tokens:
+                    instant_results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting API key"})
+                    continue
+                needs_connect.append((server_config, "http", permission))
+            else:
+                # Stdio API key servers use env var
+                env_key = server_config.get("env_key", "")
+                if not env_key or not os.getenv(env_key):
+                    instant_results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting API key"})
+                    continue
+                needs_connect.append((server_config, "stdio_token", permission))
 
         else:
             # stdio without auth — always attempt connection
@@ -424,23 +568,21 @@ def _get_existing_tokens_sync(service: str, db_path: str):
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS mcp_oauth (
-            service TEXT PRIMARY KEY,
-            tokens TEXT,
-            client_info TEXT,
-            updated_at REAL
-        )
-    """)
-    row = conn.execute("SELECT tokens FROM mcp_oauth WHERE service = ?", (service,)).fetchone()
-    conn.close()
-    if row is None or row["tokens"] is None:
-        return None
     try:
-        decrypted = _decrypt_token(row["tokens"])
-        return OAuthToken.model_validate_json(decrypted)
-    except Exception:
-        return None
+        try:
+            row = conn.execute("SELECT tokens FROM mcp_oauth WHERE service = ?", (service,)).fetchone()
+        except sqlite3.OperationalError:
+            # Table does not exist yet — no tokens stored.
+            return None
+        if row is None or row["tokens"] is None:
+            return None
+        try:
+            decrypted = _decrypt_token(row["tokens"])
+            return OAuthToken.model_validate_json(decrypted)
+        except Exception:
+            return None
+    finally:
+        conn.close()
 
 
 def _run_connect_http(server_config: dict, reg, timeout: float = 10.0) -> int:
@@ -675,15 +817,23 @@ async def _connect_http_stateless(server_config: dict, headers: dict, reg) -> in
 
 def _http_transport_fallback(server_config: dict, headers: dict):
     """Yield (transport_name, context_manager_factory) pairs for HTTP fallback."""
+    from contextlib import asynccontextmanager
+
     import httpx
     from mcp.client.streamable_http import streamable_http_client
 
     url = server_config["url"]
 
-    http_client = httpx.AsyncClient(headers=headers)
+    @asynccontextmanager
+    async def _streamable():
+        # Own the httpx client so it is always closed — fixes permanent leak
+        # where a shared AsyncClient was never closed on failure paths.
+        async with httpx.AsyncClient(headers=headers) as http_client:
+            async with streamable_http_client(url, http_client=http_client) as (read, write, _sid):
+                yield (read, write, _sid)
 
     # 1. Try Streamable HTTP at configured URL
-    yield "streamable-http", lambda: streamable_http_client(url, http_client=http_client)
+    yield "streamable-http", _streamable
 
     # 2. Try SSE at /sse endpoint (for servers like Notion that support both)
     try:

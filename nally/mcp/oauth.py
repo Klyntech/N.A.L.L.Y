@@ -181,6 +181,16 @@ def _decrypt_token(ciphertext: str) -> str:
         )
 
 
+_MCP_OAUTH_DDL = """
+    CREATE TABLE IF NOT EXISTS mcp_oauth (
+        service TEXT PRIMARY KEY,
+        tokens TEXT,
+        client_info TEXT,
+        updated_at REAL
+    )
+"""
+
+
 class SQLiteTokenStorage:
     """SQLite-backed TokenStorage for OAuth tokens and client registrations."""
 
@@ -191,16 +201,11 @@ class SQLiteTokenStorage:
 
     def _ensure_table(self):
         conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS mcp_oauth (
-                service TEXT PRIMARY KEY,
-                tokens TEXT,
-                client_info TEXT,
-                updated_at REAL
-            )
-        """)
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(_MCP_OAUTH_DDL)
+            conn.commit()
+        finally:
+            conn.close()
 
     def _row(self) -> dict | None:
         conn = sqlite3.connect(self.db_path)
@@ -895,7 +900,7 @@ async def exchange_higgsfield_code(code: str, db_path: str) -> bool:
 
 GITHUB_AUTH_ENDPOINT = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"
-GITHUB_REDIRECT_URI = "http://127.0.0.1:5000/api/oauth/github/callback"
+GITHUB_REDIRECT_URI = f"{_base_url()}/api/oauth/github/callback"
 
 
 def _get_github_credentials() -> tuple[str, str] | None:

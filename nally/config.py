@@ -65,6 +65,16 @@ MCP_SERVERS: list[dict] = [
         "auth_mode": "oauth",
         "description": "Gmail — read, search, compose emails",
     },
+    {
+        "name": "render",
+        "url": "https://mcp.render.com/mcp",
+        "transport": "http",
+        "auth_mode": "api_key",
+        "auth_header": "Authorization",
+        "auth_prefix": "Bearer",
+        "description": "Render — manage services, deploys, databases, logs, metrics",
+        "permission": "write",
+    },
 ]
 
 

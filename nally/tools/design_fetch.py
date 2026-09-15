@@ -184,13 +184,6 @@ def _format_gradient(data: dict) -> str:
     return css
 
 
-def _extract_from_obfus_mcp(query: str = None) -> str:
-    """Try to use obfus.link MCP for effects (stub — actual MCP call goes through client)."""
-    # MCP calls happen through the MCP client, not here.
-    # This is a fallback for direct HTTP access.
-    return ""
-
-
 # ── Main extraction pipeline ────────────────────────────
 
 def fetch_from_source(
