@@ -38,10 +38,9 @@ def _load_all_registered():
     global _loaded
     mcp_status = []
 
-    # --- System (2 tools) ---
-    from .system import RunCommand, SystemHealth
+    # --- System (1 tool — run_command removed for OOM/shell hardening) ---
+    from .system import SystemHealth
 
-    registry.register(RunCommand())
     registry.register(SystemHealth())
 
     # --- Thinking (1 tool) ---
@@ -312,9 +311,8 @@ def _load_all_registered():
 
     register_engineering()
 
-    # NOTE: managed-shell sessions are exposed via run_command(action=...);
-    # the former shell_sessions/shell_output/shell_stdin tools were removed.
-    # The ManagedShellManager backend (nally/core/managed_shell) stays internal.
+    # NOTE: managed-shell backend (nally/core/managed_shell) stays internal
+    # but is no longer exposed — run_command removed (shell access / OOM).
 
     # --- Load user plugins ---
     registry.load_plugins()

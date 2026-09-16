@@ -119,7 +119,7 @@ class ToolRegistry:
             except Exception:
                 pass
         if not tool:
-            if name in ("run_code", "run_command", "read_file", "file_ops"):
+            if name in ("run_code", "read_file", "file_ops"):
                 msg = (
                     f"Error: Tool '{name}' not found (registry not yet initialized — "
                     "try again, or check load_all_tools() was called)"
@@ -218,9 +218,7 @@ def _result_is_success(tool_name: str, result: str) -> bool:
     """Decide success from the tool result string.
 
     Contract: a result that begins with "Error" (case-insensitive) is a
-    failure. For run_command we additionally trust the process exit code
-    encoded as a trailing "Exit code: N" line, since commands can emit
-    error-like text on stdout while still succeeding (and vice versa).
+    failure.
 
     This is the authoritative success signal consumed by the agent graph;
     the post-execution validation in graph.py only acts as a defense-in-depth
@@ -234,10 +232,6 @@ def _result_is_success(tool_name: str, result: str) -> bool:
     # ToolError.to_llm_format() starts with "Error: <message>"
     if r.startswith("Error:"):
         return False
-    if tool_name == "run_command":
-        m = re.search(r"Exit code:\s*(\d+)\s*$", r)
-        if m and int(m.group(1)) != 0:
-            return False
     return True
 
 

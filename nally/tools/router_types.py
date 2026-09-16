@@ -60,12 +60,7 @@ BUILTIN_ROUTES: Dict[str, ToolRoute] = {
         capabilities={CapabilityTag.CODE_EXECUTION},
         priority=0,
     ),
-    # System
-    "run_command": ToolRoute(
-        name="run_command",
-        capabilities={CapabilityTag.CODE_EXECUTION, CapabilityTag.SYSTEM},
-        priority=2,
-    ),
+    # System (run_command removed)
     "system_health": ToolRoute(
         name="system_health",
         capabilities={CapabilityTag.SYSTEM},

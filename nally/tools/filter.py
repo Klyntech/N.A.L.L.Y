@@ -15,8 +15,8 @@ _filter_cache: Dict[str, Tuple[float, List[dict]]] = {}
 _FILTER_TTL = 300
 
 # Core built-in tools — always included (small schema footprint)
+# run_command removed — shell OOM hardening
 CORE_TOOLS = {
-    "run_command",
     "system_health",
     "read_file",
     "file_ops",
@@ -33,7 +33,7 @@ CORE_TOOLS = {
 }
 
 # Tools always included in filtered results regardless of query
-ALWAYS_ON = {"system_health", "web_search", "run_command", "read_file", "file_ops"}
+ALWAYS_ON = {"system_health", "web_search", "read_file", "file_ops"}
 
 
 def _tokenize(text: str) -> Set[str]:

@@ -41,7 +41,6 @@ class PermissionDecision(StrEnum):
 
 # Maps tool name → which arg to match against
 _MATCH_KEY = {
-    "run_command": "command",
     "file_ops": "action",
     "run_code": "action",
     "code_analysis": "action",
