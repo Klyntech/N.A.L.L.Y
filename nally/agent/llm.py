@@ -261,6 +261,19 @@ _MODEL_NOT_FOUND_INDICATORS = [
     "unknown model",
 ]
 
+# OpenCode free-tier gate: *-free models under /zen/v1 now return
+# 403 FreeTierError ("can only be used from within OpenCode") for
+# third-party clients. Treat as fallback-eligible so we cycle models
+# then surface an actionable error instead of failing on first try.
+_FREE_TIER_BLOCK_INDICATORS = [
+    "freetiererror",
+    "free_tier",
+    "free-tier",
+    "only be used from within opencode",
+    "missingsessionid",
+    "missing session",
+]
+
 
 def _ssl_context() -> ssl.SSLContext | bool:
     """Build SSL context based on config.
@@ -281,12 +294,12 @@ def _ssl_context() -> ssl.SSLContext | bool:
 def _build_client(api_key: str, base_url: str) -> OpenAI:
     """Build an OpenAI client with proxy/SSL settings.
 
-    OpenCode's free tier ("Console" upstream) only serves requests that
-    look like they come from OpenCode itself: it gates on
-    ``User-Agent: opencode/...`` plus a stable ``x-opencode-session`` id.
-    Without them every ``*-free`` model returns 400 ``MissingSessionID``.
-    So for opencode.ai base URLs we inject those headers (docs:
-    https://opencode.ai/docs/go/). Paid models are unaffected.
+    OpenCode Go docs (https://opencode.ai/docs/go/) require third-party
+    clients to identify with their OWN User-Agent (e.g. ``nally/1.0``)
+    plus a stable ``x-opencode-session`` id for routing/prompt caching.
+    Spoofing ``User-Agent: opencode/...`` now triggers 403 ``FreeTierError``
+    ("can only be used from within OpenCode"), so we send an honest UA.
+    Paid/Go models are unaffected.
     """
     kwargs = {
         "base_url": base_url,
@@ -304,10 +317,13 @@ def _build_client(api_key: str, base_url: str) -> OpenAI:
             _OPENCODE_SESSION_ID
         except NameError:
             _OPENCODE_SESSION_ID = f"nally-{_uuid.uuid4().hex[:12]}"
+        try:
+            from .. import __version__ as _nally_version
+        except Exception:
+            _nally_version = "1.0"
         _opencode_headers = {
-            "User-Agent": "opencode/1.18.16",
+            "User-Agent": f"nally/{_nally_version}",
             "x-opencode-session": _OPENCODE_SESSION_ID,
-            "x-opencode-client": "nally",
         }
         kwargs["default_headers"] = _opencode_headers
     if HTTPS_PROXY or HTTP_PROXY:
@@ -421,6 +437,16 @@ class NallyLLM:
         combined = f"{text} {cause}"
         return any(ind.lower() in combined for ind in _MODEL_NOT_FOUND_INDICATORS)
 
+    def _is_free_tier_blocked(self, exc: Exception) -> bool:
+        """Detect OpenCode 403 FreeTierError / MissingSessionID gate."""
+        text = str(exc).lower()
+        cause = str(getattr(exc, "__cause__", "")).lower()
+        status = str(getattr(exc, "status_code", "")).lower()
+        combined = f"{text} {cause} {status}"
+        if "403" in combined and "opencode" in combined:
+            return True
+        return any(ind.lower() in combined for ind in _FREE_TIER_BLOCK_INDICATORS)
+
     def _next_fallback_model(self, current: str) -> str | None:
         """Return the next healthy model to try after `current` failed.
 
@@ -532,14 +558,21 @@ class NallyLLM:
                 self._failed_models.discard(model)
                 return result
             except Exception as e:
-                # If muse-spark via responses fails with 500 internal, treat as fallback-eligible too
+                # If muse-spark via responses fails with 500 internal, treat as fallback-eligible too.
+                # 403 FreeTierError is also fallback-eligible: cycle *-free models, then
+                # surface an actionable error (Go sub / paid model) instead of raw 403.
                 err_str = str(e).lower()
                 is_internal_500 = "500" in err_str and "internal server error" in err_str
-                if self._is_rate_limit(e) or is_internal_500 or self._is_model_not_found(e):
+                if (
+                    self._is_rate_limit(e)
+                    or is_internal_500
+                    or self._is_model_not_found(e)
+                    or self._is_free_tier_blocked(e)
+                ):
                     next_model = self._next_fallback_model(model)
                     if next_model:
                         logger.warning(
-                            f"Model {model} failed ({type(e).__name__}: {str(e)[:120]}); falling back to {next_model}"
+                            f"Model {model} failed ({type(e).__name__}: {str(e)[:150]}); falling back to {next_model}"
                         )
                         model = next_model
                         kwargs["model"] = model
@@ -548,7 +581,13 @@ class NallyLLM:
                     last_exc = e
                     break
                 raise
-        logger.error(f"All {PROVIDER.upper()} models rate-limited/failed (last: {last_exc})")
+        if last_exc is not None and self._is_free_tier_blocked(last_exc):
+            logger.error(
+                f"All {PROVIDER.upper()} free models blocked by OpenCode free-tier gate (last: {last_exc}). "
+                "Fix: subscribe to OpenCode Go ($10/mo) and use Go model IDs, or switch NALLY_PROVIDER to nim/groq."
+            )
+        else:
+            logger.error(f"All {PROVIDER.upper()} models rate-limited/failed (last: {last_exc})")
         raise last_exc
 
     def chat(self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default", max_tokens: int = 4096) -> dict:

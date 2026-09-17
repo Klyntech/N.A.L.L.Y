@@ -375,15 +375,24 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)
-            # Trigger background reflection on session end
+            # Trigger background reflection on session end.
+            # Never let reflection crash the WS thread (e.g. 403 FreeTierError).
             try:
                 from ..memory.reflector import reflector
 
                 agent = session_manager.get(session_id, route_key=rk)
                 if agent and len(agent.messages) > 4:
+                    _msgs = list(agent.messages)
+                    _sid = session_id
+
+                    def _safe_reflect():
+                        try:
+                            reflector.reflect_on_conversation(_msgs, _sid)
+                        except Exception:
+                            pass
+
                     threading.Thread(
-                        target=reflector.reflect_on_conversation,
-                        args=(agent.messages, session_id),
+                        target=_safe_reflect,
                         daemon=True,
                     ).start()
             except Exception:

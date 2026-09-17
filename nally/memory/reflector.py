@@ -209,67 +209,74 @@ class Reflector:
         if len(messages) < 2:
             return {}
 
-        # Build conversation text (last 20 messages max)
-        recent = messages[-20:]
-        convo_text = "\n".join(f"{m.get('role', 'user')}: {str(m.get('content', ''))[:300]}" for m in recent)
+        try:
+            # Build conversation text (last 20 messages max)
+            recent = messages[-20:]
+            convo_text = "\n".join(f"{m.get('role', 'user')}: {str(m.get('content', ''))[:300]}" for m in recent)
 
-        results = {}
+            results = {}
 
-        # 1. Extract conversation summary
-        summary = self._extract_summary(llm, convo_text)
-        if summary:
-            results["summary"] = summary
+            # 1. Extract conversation summary
+            summary = self._extract_summary(llm, convo_text)
+            if summary:
+                results["summary"] = summary
 
-            # Save conversation summary
-            topics = self._extract_topics(llm, convo_text)
-            memory_store.save_conversation(
-                summary=summary,
-                topics=topics,
-                message_count=len(messages),
+                # Save conversation summary
+                topics = self._extract_topics(llm, convo_text)
+                memory_store.save_conversation(
+                    summary=summary,
+                    topics=topics,
+                    message_count=len(messages),
+                )
+
+            # 2. Extract episode
+            episode = self._extract_episode(llm, convo_text)
+            if episode:
+                results["episode"] = episode
+                memory_store.add_episode(**episode)
+
+            # 3. Extract patterns (Fable relevance gate before write)
+            patterns = self._extract_patterns(llm, convo_text)
+            if patterns:
+                kept = [p for p in patterns if p and self._is_worth_retaining(p, "", "reference")]
+                results["patterns"] = kept
+                for pattern in kept:
+                    try:
+                        memory_store.add_semantic(pattern)
+                    except Exception:
+                        pass
+
+            # 4. Extract user facts (Fable relevance gate before write)
+            facts = self._extract_facts(llm, convo_text)
+            if facts:
+                kept_facts = [
+                    f for f in facts
+                    if self._is_worth_retaining(f.get("key", ""), f.get("value", ""), f.get("category", "auto_fact"))
+                ]
+                results["facts"] = kept_facts
+                for fact in kept_facts:
+                    try:
+                        existing = memory_store.recall(key=fact["key"])
+                        if not existing:
+                            memory_store.remember(
+                                key=fact["key"],
+                                value=fact["value"],
+                                category=fact.get("category", "auto_fact"),
+                                confidence=0.8,
+                            )
+                    except Exception:
+                        pass
+
+            logger.info(
+                f"Conversation reflection: summary={bool(summary)}, episode={bool(episode)}, patterns={len(patterns or [])}, facts={len(facts or [])}"
             )
-
-        # 2. Extract episode
-        episode = self._extract_episode(llm, convo_text)
-        if episode:
-            results["episode"] = episode
-            memory_store.add_episode(**episode)
-
-        # 3. Extract patterns (Fable relevance gate before write)
-        patterns = self._extract_patterns(llm, convo_text)
-        if patterns:
-            kept = [p for p in patterns if p and self._is_worth_retaining(p, "", "reference")]
-            results["patterns"] = kept
-            for pattern in kept:
-                try:
-                    memory_store.add_semantic(pattern)
-                except Exception:
-                    pass
-
-        # 4. Extract user facts (Fable relevance gate before write)
-        facts = self._extract_facts(llm, convo_text)
-        if facts:
-            kept_facts = [
-                f for f in facts
-                if self._is_worth_retaining(f.get("key", ""), f.get("value", ""), f.get("category", "auto_fact"))
-            ]
-            results["facts"] = kept_facts
-            for fact in kept_facts:
-                try:
-                    existing = memory_store.recall(key=fact["key"])
-                    if not existing:
-                        memory_store.remember(
-                            key=fact["key"],
-                            value=fact["value"],
-                            category=fact.get("category", "auto_fact"),
-                            confidence=0.8,
-                        )
-                except Exception:
-                    pass
-
-        logger.info(
-            f"Conversation reflection: summary={bool(summary)}, episode={bool(episode)}, patterns={len(patterns or [])}, facts={len(facts or [])}"
-        )
-        return results
+            return results
+        except Exception as e:
+            # Never crash the background thread (e.g. 403 FreeTierError /
+            # PermissionDeniedError when OpenCode free tier blocks us).
+            # Keep logging as-is so Render logs still show the cause.
+            logger.warning(f"Conversation reflection skipped: {e}")
+            return {}
 
     # ── Private Helpers ────────────────────────────────────
 
@@ -317,6 +324,10 @@ class Reflector:
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Episode extraction failed: {e}")
             return None
+        except Exception as e:
+            # LLM transport failure (e.g. 403 FreeTierError) — skip, don't crash thread.
+            logger.warning(f"Episode extraction skipped: {e}")
+            return None
 
     def _extract_patterns(self, llm, convo_text: str) -> Optional[List[str]]:
         """Extract semantic patterns via LLM."""
@@ -339,6 +350,9 @@ class Reflector:
 
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Pattern extraction failed: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Pattern extraction skipped: {e}")
             return None
 
     def _is_worth_retaining(self, key: str, value: str, category: str = "") -> bool:
@@ -407,6 +421,9 @@ class Reflector:
 
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Fact extraction failed: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Fact extraction skipped: {e}")
             return None
 
 
