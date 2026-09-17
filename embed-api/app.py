@@ -22,23 +22,72 @@ Run:
 Deploy on Render Free: build this Dockerfile as separate Web Service (port 8000), set EMBED_MODEL env.
 """
 
+import asyncio
+import gc
 import os
+import threading
 import time
+from contextlib import asynccontextmanager
 from typing import List, Optional, Union
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+
+try:
+    import resource as _resource  # stdlib, Linux only — RSS logging
+except ImportError:  # Windows local dev
+    _resource = None
+
+
+def _rss_mb() -> float:
+    """Current peak RSS in MB (0.0 when unavailable)."""
+    try:
+        if _resource is None:
+            return 0.0
+        return _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss / 1024.0
+    except Exception:
+        return 0.0
+
 
 MODEL_NAME = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 MODEL_PATH = os.getenv("EMBED_MODEL_PATH", "/app/model")
 EMBED_API_KEY = os.getenv("EMBED_API_KEY", "") or os.getenv("NALLY_INTERNAL_TOKEN", "")
 PORT = int(os.getenv("PORT", "8000"))
 
+# Free-tier batch cap: bounds per-request peak RSS on 512MB. Nally's client
+# chunks to the same value — keep them in sync.
+MAX_BATCH = int(os.getenv("EMBED_MAX_BATCH", "32"))
+
 # Optional: Hugging Face cache inside container (baked at build)
 os.environ.setdefault("HF_HOME", "/app/.cache/hf")
 os.environ.setdefault("TRANSFORMERS_CACHE", "/app/.cache/hf")
 
-app = FastAPI(title="NALLY Embed API", version="2.0.0")
+# Serialize inference: one batch at a time. Overlapping batches multiply peak
+# RSS nondeterministically (the OOM pattern). Requests queue instead of dying.
+_infer_sem: Optional[asyncio.Semaphore] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _infer_sem
+    _infer_sem = asyncio.Semaphore(1)
+
+    # Pre-warm the model in the background AFTER the port is bound, so the
+    # first real request never pays the load spike inside its own timeout.
+    # Render healthchecks hit /health (cheap) while this loads.
+    def _prewarm():
+        try:
+            time.sleep(5)  # let startup/health settle first
+            _load_model()
+            print(f"[embed-api] pre-warm done backend={_model_backend} rss={_rss_mb():.0f}MB")
+        except Exception as e:
+            print(f"[embed-api] pre-warm failed (lazy load on first request): {e}")
+
+    threading.Thread(target=_prewarm, daemon=True, name="prewarm").start()
+    yield
+
+
+app = FastAPI(title="NALLY Embed API", version="2.1.0", lifespan=lifespan)
 
 # Lazy model — load on first request to keep healthcheck fast
 _model = None  # type: tuple | None
@@ -97,7 +146,15 @@ def _load_model():
 
         print(f"[embed-api] Loading ONNX from {onnx_file} ...")
         tok = AutoTokenizer.from_pretrained(MODEL_PATH)
-        sess = ort.InferenceSession(onnx_file, providers=["CPUExecutionProvider"])
+        # Free-tier (512MB) tuning: single-threaded execution + no arena/memory
+        # pattern. Slightly slower per request, but peak RSS stays bounded so
+        # the container stops getting OOM-killed on large batches.
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = 1
+        so.inter_op_num_threads = 1
+        so.enable_mem_pattern = False
+        so.enable_cpu_mem_arena = False
+        sess = ort.InferenceSession(onnx_file, sess_options=so, providers=["CPUExecutionProvider"])
         _model = (tok, sess, "onnx")
         _model_dims = sess.get_inputs()[0].shape[-1] if sess.get_inputs() else 384
         # Dynamic axes return string names (e.g. "sequence_length") — default to 384
@@ -144,12 +201,14 @@ def _encode(texts: List[str]) -> List[List[float]]:
         tok, sess, _ = mdl
         import numpy as np
 
-        # Tokenize (no torch tensors — just numpy)
+        # Tokenize (no torch tensors — just numpy).
+        # max_length=128: memory key/value texts are short; halves activation
+        # memory vs 256 with negligible quality impact on Free tier.
         encoded = tok(
             texts,
             padding=True,
             truncation=True,
-            max_length=256,
+            max_length=128,
             return_tensors="np",
         )
 
@@ -227,16 +286,26 @@ async def create_embeddings(request: Request, authorization: Optional[str] = Hea
     texts: List[str] = [raw_input] if isinstance(raw_input, str) else list(raw_input)
     if not texts:
         raise HTTPException(status_code=400, detail="Empty input")
-    # Cap batch to avoid OOM on Free 512MB
-    if len(texts) > 64:
-        raise HTTPException(status_code=400, detail="Batch max 64, got %d" % len(texts))
+    # Cap batch to avoid OOM on Free 512MB (keep in sync with Nally client)
+    if len(texts) > MAX_BATCH:
+        raise HTTPException(status_code=400, detail="Batch max %d, got %d" % (MAX_BATCH, len(texts)))
     for t in texts:
         if len(t) > 8000:
             raise HTTPException(status_code=400, detail="Text too long (max 8000 chars)")
 
     start = time.time()
-    embeddings = _encode(texts)
+    rss_before = _rss_mb()
+    # Serialize + run off the event loop: _encode is blocking CPU work and
+    # must never stall concurrent requests (health, parallel recalls).
+    sem = _infer_sem or asyncio.Semaphore(1)
+    async with sem:
+        embeddings = await asyncio.to_thread(_encode, texts)
+    try:
+        gc.collect()  # return arena/peak pages promptly on long-lived process
+    except Exception:
+        pass
     elapsed_ms = (time.time() - start) * 1000
+    print(f"[embed-api] batch={len(texts)} elapsed_ms={elapsed_ms:.0f} rss={_rss_mb():.0f}MB (+{_rss_mb()-rss_before:.0f}MB) backend={_model_backend}")
 
     data = [
         {"object": "embedding", "embedding": emb, "index": i}
@@ -260,7 +329,7 @@ async def create_embeddings(request: Request, authorization: Optional[str] = Hea
 def root():
     return {
         "service": "nally-embed-api",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "model": MODEL_NAME,
         "backend": _model_backend,
         "docs": "/docs",

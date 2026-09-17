@@ -133,7 +133,8 @@ class SemanticMemoryEngine:
                 if cand_texts:
                     # Batch query + candidates (embed_api batch cap 64)
                     all_texts = [query] + cand_texts
-                    # Chunk to 64 to respect embed-api batch guard
+                    # embed_texts() chunks to the server batch cap itself;
+                    # this pre-chunk just bounds each call's working set.
                     embs = []
                     chunk = 60  # leave room for query
                     for i in range(0, len(all_texts), chunk):

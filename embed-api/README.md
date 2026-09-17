@@ -48,7 +48,7 @@ docker compose --profile with-embed up -d
 
 - **Sleep:** both NALLY + embed Free sleep after 15m idle → first `remember()` after wake = 8-12s cold start (acceptable, background reflection).
 - **Hours:** 750h/month combined — 2 Free services ≈ 375h each if 24/7; use `profiles: [with-embed]` locally, or let embed sleep and NALLY falls back to keyword FTS when `POST` fails (graceful fallback in `embeddings.py:embed_texts` returns `None`).
-- **Batch cap:** 64 texts per request (OOM guard `app.py`), each `max 8000 chars`.
+- **Batch cap:** 32 texts per request (OOM guard `EMBED_MAX_BATCH` in `app.py`, Nally client chunks to match), each `max 8000 chars`, tokenizer `max_length=128`.
 - **Fallback:** if model can't load at build (no internet), service uses deterministic hash 384d — still returns embeddings so NALLY doesn't break (quality lower, but recall works).
 
 ## Health Response

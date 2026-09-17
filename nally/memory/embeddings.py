@@ -65,8 +65,9 @@ def _cache_set(key: str, emb: List[float]):
             _cache.pop(k, None)
 
 
-# Server-side OOM guard (embed-api/app.py): max 64 texts per request.
-_EMBED_BATCH_CAP = 64
+# Server-side OOM guard (embed-api/app.py EMBED_MAX_BATCH): max 32 texts per
+# request on Free 512MB. Client chunks to the same value — keep in sync.
+_EMBED_BATCH_CAP = 32
 
 # Render Free spins down after ~15m idle; wake + lazy ONNX load can exceed
 # one read timeout. Retry once so the first request wakes the service and
