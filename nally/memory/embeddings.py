@@ -6,7 +6,7 @@ exposed as OpenAI-compatible POST /v1/embeddings.
 
 Env:
   NALLY_EMBED_PROVIDER=none|embed_api|openai  (default none = keyword FTS only)
-  NALLY_EMBED_BASE_URL=https://your-embed-free.onrender.com/v1
+  NALLY_EMBED_BASE_URL=https://your-embed-free.onrender.com  (with or without /v1 suffix — both work)
   NALLY_EMBED_MODEL=all-MiniLM-L6-v2  (384d)
   NALLY_EMBED_API_KEY=...  (Bearer, use NALLY_INTERNAL_TOKEN)
   NALLY_EMBED_TIMEOUT=15
@@ -65,8 +65,98 @@ def _cache_set(key: str, emb: List[float]):
             _cache.pop(k, None)
 
 
+# Server-side OOM guard (embed-api/app.py): max 64 texts per request.
+_EMBED_BATCH_CAP = 64
+
+# Render Free spins down after ~15m idle; wake + lazy ONNX load can exceed
+# one read timeout. Retry once so the first request wakes the service and
+# the second hits it warm. 502/503/504 = Render still booting the container.
+_RETRYABLE_STATUS = (502, 503, 504)
+
+
+def _embeddings_url(base_url: str) -> str:
+    """Normalize base URL to POST .../v1/embeddings.
+
+    Accepts with or without a /v1 suffix (both appear in our docs):
+      https://x.onrender.com      -> https://x.onrender.com/v1/embeddings
+      https://x.onrender.com/v1   -> https://x.onrender.com/v1/embeddings
+    """
+    base = (base_url or "").strip().rstrip("/")
+    if base.lower().endswith("/v1"):
+        base = base[: -len("/v1")]
+    if base.lower().endswith("/v1/embeddings"):
+        return base
+    return base + "/v1/embeddings"
+
+
+def _embed_batch(texts: List[str], model: str, url: str, headers: dict, timeout, expected_dims: int) -> Optional[List[List[float]]]:
+    """POST one batch (<=64 texts). Returns aligned float[] list or None."""
+    import httpx
+
+    payload = {"input": texts, "model": model}
+    try:
+        resp = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+    except httpx.TimeoutException as e:
+        # Cold start (Free sleep + lazy model load) — caller retries once.
+        raise _EmbedTimeout(f"embed request timed out after {timeout}: {e}")
+    except Exception as e:
+        logger.warning(f"Embed API failed: {e}")
+        return None
+    if resp.status_code in _RETRYABLE_STATUS:
+        raise _EmbedRetryable(f"embed service unavailable (HTTP {resp.status_code})")
+    if resp.status_code == 401:
+        logger.warning(
+            "Embed API 401: Bearer token rejected. "
+            "Set NALLY_EMBED_API_KEY to the same value as the embed service EMBED_API_KEY."
+        )
+        return None
+    if resp.status_code != 200:
+        logger.warning(f"Embed API {resp.status_code}: {resp.text[:200]}")
+        return None
+    try:
+        data = resp.json()
+    except Exception as e:
+        logger.warning(f"Embed API bad JSON: {e}")
+        return None
+    # OpenAI shape: {data: [{embedding: [...]}, ...]}
+    items = data.get("data", [])
+    if not items:
+        alt = data.get("embeddings")
+        if alt:
+            return alt
+        return None
+    # Sort by index to preserve input order
+    items_sorted = sorted(items, key=lambda x: x.get("index", 0))
+    embeddings = [it["embedding"] for it in items_sorted]
+
+    # Validate dims match config
+    if embeddings and len(embeddings[0]) != expected_dims:
+        logger.warning(
+            f"Embed API returned dims={len(embeddings[0])}, expected={expected_dims}. "
+            "Set NALLY_EMBED_DIMS to match your model or update your model."
+        )
+
+    if len(embeddings) != len(texts):
+        logger.warning(f"Embed API returned {len(embeddings)} vectors for {len(texts)} texts")
+        return None
+    return embeddings
+
+
+class _EmbedTimeout(Exception):
+    """Read/connect timeout — retryable (cold start)."""
+
+
+class _EmbedRetryable(Exception):
+    """Transient 502/503/504 — retryable (Render booting)."""
+
+
 def _embed_via_api(texts: List[str], model: str, base_url: str, api_key: str, timeout: int) -> Optional[List[List[float]]]:
-    """Call OpenAI-compatible POST /v1/embeddings. Returns list of float[] or None on failure."""
+    """Call OpenAI-compatible POST /v1/embeddings. Returns list of float[] or None on failure.
+
+    Chunks to the server batch cap, and retries once after a short sleep on
+    timeout / 502-504 (Render Free cold start). Returns None so callers fall
+    back to keyword FTS — never a misaligned partial list.
+    """
     if not base_url or not texts:
         return None
     # Lazy import so main app doesn't require httpx if unused
@@ -76,7 +166,7 @@ def _embed_via_api(texts: List[str], model: str, base_url: str, api_key: str, ti
         logger.debug("httpx not available for embeddings")
         return None
 
-    url = base_url.rstrip("/") + "/v1/embeddings"
+    url = _embeddings_url(base_url)
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -88,35 +178,31 @@ def _embed_via_api(texts: List[str], model: str, base_url: str, api_key: str, ti
     except Exception:
         expected_dims = 384
 
-    payload = {"input": texts, "model": model}
+    # Split connect vs read: connect should be fast; read covers cold start.
     try:
-        resp = httpx.post(url, json=payload, headers=headers, timeout=timeout)
-        if resp.status_code != 200:
-            logger.warning(f"Embed API {resp.status_code}: {resp.text[:200]}")
-            return None
-        data = resp.json()
-        # OpenAI shape: {data: [{embedding: [...]}, ...]}
-        items = data.get("data", [])
-        if not items:
-            alt = data.get("embeddings")
-            if alt:
-                return alt
-            return None
-        # Sort by index to preserve input order
-        items_sorted = sorted(items, key=lambda x: x.get("index", 0))
-        embeddings = [it["embedding"] for it in items_sorted]
+        timeout_cfg = httpx.Timeout(connect=10.0, read=float(timeout), write=10.0, pool=10.0)
+    except Exception:
+        timeout_cfg = timeout
 
-        # Validate dims match config
-        if embeddings and len(embeddings[0]) != expected_dims:
-            logger.warning(
-                f"Embed API returned dims={len(embeddings[0])}, expected={expected_dims}. "
-                "Set NALLY_EMBED_DIMS to match your model or update your model."
-            )
-
-        return embeddings
-    except Exception as e:
-        logger.warning(f"Embed API failed: {e}")
-        return None
+    out: List[List[float]] = []
+    chunks = [texts[i : i + _EMBED_BATCH_CAP] for i in range(0, len(texts), _EMBED_BATCH_CAP)]
+    for chunk in chunks:
+        try:
+            got = _embed_batch(chunk, model, url, headers, timeout_cfg, expected_dims)
+        except (_EmbedTimeout, _EmbedRetryable) as e:
+            # One retry after a short grace — first request wakes a sleeping
+            # Free instance / finishes lazy model load, second hits it warm.
+            logger.debug(f"Embed API transient ({e}); retrying once after wake grace")
+            try:
+                time.sleep(2)
+                got = _embed_batch(chunk, model, url, headers, timeout_cfg, expected_dims)
+            except (_EmbedTimeout, _EmbedRetryable) as e2:
+                logger.warning(f"Embed API failed after retry: {e2} — falling back to keyword search")
+                return None
+        if got is None:
+            return None
+        out.extend(got)
+    return out
 
 
 def embed_texts(texts: List[str]) -> Optional[List[List[float]]]:
@@ -165,11 +251,9 @@ def embed_texts(texts: List[str]) -> Optional[List[List[float]]]:
     if uncached_texts:
         fetched = _embed_via_api(uncached_texts, model, base_url, api_key, timeout)
         if fetched is None:
-            # If any batch fails, return None so caller falls back — but preserve cached hits for future
-            # Return partial if we had cached hits, else None
-            if any(r is not None for r in results):
-                # Fill fetched where possible (none)
-                return [r for r in results if r is not None]  # partial not aligned — caller should handle None
+            # Batch failed — return None so callers fall back to keyword FTS.
+            # Cached hits stay in _cache for the next call; never return a
+            # misaligned partial list (callers zip results positionally).
             return None
         for idx, emb in zip(uncached_idx, fetched):
             results[idx] = emb
