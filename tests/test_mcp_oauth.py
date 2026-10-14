@@ -149,6 +149,26 @@ def test_storage_set_get_client_info(storage):
     assert stored.startswith("gAAAA")
 
 
+def test_token_and_client_info_updates_preserve_each_other(storage):
+    token = OAuthToken(access_token="coexisting-token", token_type="bearer")
+    info = OAuthClientInformationFull(
+        client_id="coexisting-client",
+        client_secret="coexisting-secret",
+        redirect_uris=["http://localhost:5000/api/oauth/callback"],
+        client_name="Nally (coexisting)",
+    )
+
+    asyncio.run(storage.set_tokens(token))
+    asyncio.run(storage.set_client_info(info))
+
+    retrieved_token = asyncio.run(storage.get_tokens())
+    retrieved_info = asyncio.run(storage.get_client_info())
+    assert retrieved_token is not None
+    assert retrieved_token.access_token == "coexisting-token"
+    assert retrieved_info is not None
+    assert retrieved_info.client_id == "coexisting-client"
+
+
 def test_storage_service_isolation(tmp_db):
     """Different services have separate token storage."""
     s1 = SQLiteTokenStorage(tmp_db, "service_a")
