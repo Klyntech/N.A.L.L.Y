@@ -84,7 +84,9 @@ def _get_fernet():
     except ImportError as exc:
         if production:
             raise RuntimeError("cryptography is required for production OAuth credential storage") from exc
-        logger.warning("cryptography package not installed; legacy records may be read locally, but new writes are disabled")
+        logger.warning(
+            "cryptography package not installed; legacy records may be read locally, but new writes are disabled"
+        )
         return None
 
     try:
