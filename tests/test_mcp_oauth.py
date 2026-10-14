@@ -168,6 +168,10 @@ def test_token_and_client_info_updates_preserve_each_other(storage):
     assert retrieved_info is not None
     assert retrieved_info.client_id == "coexisting-client"
 
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="updated-token", token_type="bearer")))
+    assert asyncio.run(storage.get_client_info()).client_id == "coexisting-client"
+    assert asyncio.run(storage.get_tokens()).access_token == "updated-token"
+
 
 def test_storage_service_isolation(tmp_db):
     """Different services have separate token storage."""
