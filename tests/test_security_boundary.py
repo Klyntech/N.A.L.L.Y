@@ -119,3 +119,14 @@ def test_sse_endpoint_rejects_missing_token_without_name_error(monkeypatch):
     client = TestClient(web_app.app)
     response = client.get("/api/events")
     assert response.status_code == 401
+
+
+
+def test_notion_oauth_callback_rejects_invalid_state(monkeypatch):
+    from nally.mcp import oauth
+
+    monkeypatch.setattr(oauth, "validate_oauth_state", lambda service, state, db_path: False)
+    client = TestClient(web_app.app)
+    response = client.get("/api/oauth/notion/callback?code=attacker-code&state=attacker-state")
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_oauth_state"
