@@ -101,7 +101,7 @@ class ToolRegistry:
         if not tool:
             # Lazy-load: if tools haven't been loaded yet (e.g., early agent call
             # before web lifespan), try to load now. This prevents the
-            # "Tool 'run_code' not found" race seen in receipts.
+            # "Tool not found" race seen in receipts during early initialization.
             try:
                 from . import _loaded, load_all_tools
 
@@ -112,7 +112,7 @@ class ToolRegistry:
                 pass
         if not tool:
             # Still not found — give a helpful hint for the two core tools
-            if name in ("run_code", "run_command", "read_file", "file_ops"):
+            if name in ("run_command", "read_file", "file_ops"):
                 return f"Error: Tool '{name}' not found (registry not yet initialized — try again, or check load_all_tools() was called)", False
             return f"Error: Tool '{name}' not found", False
 
