@@ -38,6 +38,41 @@ def test_tools_are_not_ready_when_web_search_is_missing(monkeypatch):
     assert result["missing"] == ["web_search"]
 
 
+def test_web_search_health_reports_available_provider_without_exposing_keys(monkeypatch):
+    from nally.tools import websearch
+
+    monkeypatch.setenv("TAVILY_API_KEY", "secret-tavily-key")
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "")
+    monkeypatch.setattr(websearch, "DDGS", None)
+    monkeypatch.setattr("builtins.__import__", __import__)
+    result = health._check_web_search()
+    assert result["status"] == "ok"
+    assert "tavily" in result["providers"]
+    assert "secret-tavily-key" not in str(result)
+    assert result["connectivity"] == "not_probed"
+
+
+def test_web_search_health_errors_when_no_provider_or_fallback_exists(monkeypatch):
+    from nally.tools import websearch
+
+    monkeypatch.setenv("TAVILY_API_KEY", "")
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "")
+    monkeypatch.setattr(websearch, "DDGS", None)
+    import builtins
+
+    real_import = builtins.__import__
+
+    def import_without_bs4(name, *args, **kwargs):
+        if name == "bs4":
+            raise ImportError("simulated missing parser")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_bs4)
+    result = health._check_web_search()
+    assert result["status"] == "error"
+    assert result["providers"] == []
+
+
 def test_readiness_returns_503_until_tools_are_registered(monkeypatch):
     async def database_ok():
         return {"status": "ok", "engine": "sqlite"}
