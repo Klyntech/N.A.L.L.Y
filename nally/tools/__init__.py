@@ -22,6 +22,13 @@ def _load_all_registered():
 
     registry.register(RunCommand())
 
+    # Persistent managed shell sessions (list, output polling, stdin).
+    from .managed import ShellOutput, ShellSessions, ShellStdin
+
+    registry.register(ShellSessions())
+    registry.register(ShellOutput())
+    registry.register(ShellStdin())
+
     # File I/O: read and manage files.
     from .files import FileOps, ReadFile
 
