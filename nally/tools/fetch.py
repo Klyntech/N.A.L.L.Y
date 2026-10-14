@@ -90,7 +90,11 @@ def _validate_public_url(url: str) -> str | None:
         try:
             addresses = [ipaddress.ip_address(hostname)]
         except ValueError:
-            records = socket.getaddrinfo(hostname, port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+            records = socket.getaddrinfo(
+                hostname,
+                port or (443 if parsed.scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
             addresses = [ipaddress.ip_address(record[4][0].split("%", 1)[0]) for record in records]
 
         if not addresses:
