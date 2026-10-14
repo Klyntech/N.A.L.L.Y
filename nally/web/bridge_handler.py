@@ -63,8 +63,8 @@ class BridgeRegistry:
         if expected_device is not None and current is not expected_device:
             return
         self._devices.pop(device_id, None)
-        # Cancel only requests owned by this device. Disconnecting one bridge
-        # must not cancel unrelated work assigned to another connected bridge.
+        # Resolve only requests owned by this device. Disconnecting one bridge
+        # must not disturb unrelated work assigned to another connected bridge.
         for rid, (pending_device_id, fut) in list(self._pending.items()):
             if pending_device_id == device_id:
                 if not fut.done():
