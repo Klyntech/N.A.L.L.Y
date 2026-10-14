@@ -111,3 +111,11 @@ def test_bearer_auth_reads_token_from_current_environment(monkeypatch):
     response = client.get("/api/me", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
     assert response.status_code == 200
     assert response.json()["authenticated"] is True
+
+
+
+def test_sse_endpoint_rejects_missing_token_without_name_error(monkeypatch):
+    monkeypatch.delenv("NALLY_ACCESS_TOKEN", raising=False)
+    client = TestClient(web_app.app)
+    response = client.get("/api/events")
+    assert response.status_code == 401
