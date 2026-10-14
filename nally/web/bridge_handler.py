@@ -44,7 +44,7 @@ class BridgeRegistry:
 
     def __init__(self):
         self._devices: dict[str, BridgeDevice] = {}
-        self._pending: dict[str, tuple[str, asyncio.Future]] = {}  # request_id -> (device_id, Future)
+        self._pending: dict[str, tuple[BridgeDevice, asyncio.Future]] = {}  # request_id -> (device, Future)
 
     @property
     def devices(self) -> dict[str, BridgeDevice]:
@@ -65,8 +65,8 @@ class BridgeRegistry:
         self._devices.pop(device_id, None)
         # Resolve only requests owned by this device. Disconnecting one bridge
         # must not disturb unrelated work assigned to another connected bridge.
-        for rid, (pending_device_id, fut) in list(self._pending.items()):
-            if pending_device_id == device_id:
+        for rid, (pending_device, fut) in list(self._pending.items()):
+            if pending_device is current:
                 if not fut.done():
                     fut.set_result((f"Error: Bridge device disconnected: {device_id}", False))
                 self._pending.pop(rid, None)
@@ -94,7 +94,7 @@ class BridgeRegistry:
 
         request_id = str(uuid.uuid4())[:12]
         future = asyncio.get_event_loop().create_future()
-        self._pending[request_id] = (device_id, future)
+        self._pending[request_id] = (device, future)
 
         try:
             await device.websocket.send_json(
@@ -116,12 +116,12 @@ class BridgeRegistry:
         finally:
             self._pending.pop(request_id, None)
 
-    def resolve_result(self, request_id: str, result: str, success: bool, device_id: str):
-        """Resolve a request only when the result comes from its assigned device."""
+    def resolve_result(self, request_id: str, result: str, success: bool, device: BridgeDevice | None):
+        """Resolve a request only when the result comes from its assigned connection."""
         pending = self._pending.get(request_id)
         if pending:
-            pending_device_id, future = pending
-            if pending_device_id == device_id and not future.done():
+            pending_device, future = pending
+            if pending_device is device and device is not None and not future.done():
                 future.set_result((result, success))
 
 
@@ -180,7 +180,7 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
                 request_id = msg.get("request_id", "")
                 result = msg.get("result", "")
                 success = msg.get("success", False)
-                bridge_registry.resolve_result(request_id, result, success, device_id=device_id)
+                bridge_registry.resolve_result(request_id, result, success, device=device)
 
             elif msg_type == "pong":
                 if device:
