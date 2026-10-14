@@ -151,6 +151,18 @@ def test_web_search_tries_brave_after_tavily_fails():
         ddg.assert_not_called()
 
 
+def test_web_search_uses_bing_when_duckduckgo_fails():
+    tool = WebSearch()
+    with (
+        patch("nally.tools.websearch._search_tavily", return_value=None),
+        patch("nally.tools.websearch._search_brave", return_value=None),
+        patch("nally.tools.websearch._search_duckduckgo", return_value="Error: DDG blocked"),
+        patch("nally.tools.websearch._search_bing_fallback", return_value="Bing results") as bing,
+    ):
+        assert tool.execute(query="latest ABSU news", num_results=3) == "Bing results"
+        bing.assert_called_once_with("latest ABSU news", 3)
+
+
 def test_web_search_clamps_num_results_and_falls_back():
     tool = WebSearch()
     with (
