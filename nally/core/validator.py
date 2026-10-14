@@ -89,7 +89,7 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
     # Warn about missing optional packages so users know what to install.
 
     optional_deps = [
-        ("psutil", "psutil", "system_health tool (CPU/memory/disk monitoring)"),
+        ("psutil", "psutil", "optional system resource metrics"),
         ("duckduckgo_search", "duckduckgo-search", "web search fallback (DuckDuckGo)"),
         ("pytesseract", "pytesseract", "OCR in vision analysis"),
         ("readability", "readability-lxml", "better article extraction in fetch tool"),
