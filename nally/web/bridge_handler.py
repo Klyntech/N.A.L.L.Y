@@ -65,7 +65,7 @@ class BridgeRegistry:
         for rid, (pending_device_id, fut) in list(self._pending.items()):
             if pending_device_id == device_id:
                 if not fut.done():
-                    fut.cancel()
+                    fut.set_result((f"Error: Bridge device disconnected: {device_id}", False))
                 self._pending.pop(rid, None)
         logger.info(f"Bridge unregistered: {device_id}")
 
