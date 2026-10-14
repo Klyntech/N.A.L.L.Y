@@ -600,6 +600,9 @@ async def start_google_oauth(service: str, db_path: str) -> str:
         "state": state,
         "service": service,
     }
+    save_oauth_state(
+        db_path, "google", code_verifier, client_id, state, GOOGLE_TOKEN_ENDPOINT, GOOGLE_AUTH_ENDPOINT
+    )
 
     from urllib.parse import urlencode
 
@@ -620,7 +623,7 @@ async def start_google_oauth(service: str, db_path: str) -> str:
 async def exchange_google_code(code: str, db_path: str, state: str | None = None) -> bool:
     """Exchange Google authorization code for tokens. Returns True on success."""
 
-    state_data = _pending_pkce.get("google")
+    state_data = _pending_pkce.get("google") or load_oauth_state(db_path, "google")
     if not state_data:
         logger.warning("No pending Google OAuth state")
         return False
@@ -666,6 +669,7 @@ async def exchange_google_code(code: str, db_path: str, state: str | None = None
         storage = SQLiteTokenStorage(db_path, svc)
         await storage.set_tokens(token)
 
+    clear_oauth_state(db_path, "google")
     logger.info("Google OAuth successful — token stored for all Workspace services")
     return True
 
