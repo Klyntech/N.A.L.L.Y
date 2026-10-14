@@ -13,13 +13,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import logging
 import threading
 import time
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
+
+# Telegram API imports for group voice chats
+from telethon.tl.functions.channels import CreateChannelRequest
+from telethon.tl.functions.messages import ExportChatInviteRequest
 
 from ..config import (
     BARGEIN_GRACE_MS,
@@ -28,16 +31,13 @@ from ..config import (
 )
 from ..utils.logger import logger
 
-# Telegram API imports for group voice chats
-from telethon.tl.functions.channels import CreateChannelRequest
-from telethon.tl.functions.messages import ExportChatInviteRequest, AddChatUserRequest
-
 # Audio constants — Telegram calls use 48kHz mono
 CALL_SAMPLE_RATE = 48000
 STT_SAMPLE_RATE = 16000
 
 
 # ── Pre-generated greeting cache (zero-latency on call start) ────────
+
 
 class GreetingCache:
     """Cache 3 time-based greetings as raw PCM bytes.
@@ -59,7 +59,6 @@ class GreetingCache:
     async def warm(self):
         """Generate all 3 greetings at startup. Best-effort, non-blocking."""
         import asyncio
-        import struct
         import io
 
         from ..voice.tts import get_backend
@@ -78,6 +77,7 @@ class GreetingCache:
                 # Resample to 48k if needed
                 if sr != CALL_SAMPLE_RATE:
                     from ..voice.tts import _resample_pcm
+
                     pcm = _resample_pcm(pcm, sr, CALL_SAMPLE_RATE)
                 # Normalize to -3dB peak for consistent loudness
                 pcm_arr = np.frombuffer(pcm, dtype=np.int16)
@@ -95,6 +95,7 @@ class GreetingCache:
     def get(self) -> bytes | None:
         """Return cached PCM for the current time of day, or None."""
         from datetime import datetime
+
         hour = datetime.now().hour
         if 5 <= hour < 12:
             period = "morning"
@@ -107,6 +108,8 @@ class GreetingCache:
 
 # Process-lifetime singleton
 import wave
+from datetime import UTC
+
 _greeting_cache = GreetingCache()
 
 
@@ -146,7 +149,6 @@ def _classify_yes_no(text: str) -> bool:
     return False
 
 
-
 def _approval_prompt(data: dict) -> str:
     tool_name = data.get("name", "unknown")
     args = data.get("args", {})
@@ -176,11 +178,13 @@ async def ensure_voice_chat_group(client) -> tuple[int, str]:
         return _voice_chat_group_id, _voice_chat_invite_link
 
     logger.info("Creating voice chat supergroup...")
-    result = await client(CreateChannelRequest(
-        title="Nally Voice",
-        about="Nally AI voice chat session",
-        megagroup=True,
-    ))
+    result = await client(
+        CreateChannelRequest(
+            title="Nally Voice",
+            about="Nally AI voice chat session",
+            megagroup=True,
+        )
+    )
 
     group = result.chats[0]
     _voice_chat_group_id = group.id
@@ -191,10 +195,14 @@ async def ensure_voice_chat_group(client) -> tuple[int, str]:
     except Exception:
         _voice_chat_invite_link = None
 
-    state_file.write_text(json.dumps({
-        "group_id": _voice_chat_group_id,
-        "invite_link": _voice_chat_invite_link,
-    }))
+    state_file.write_text(
+        json.dumps(
+            {
+                "group_id": _voice_chat_group_id,
+                "invite_link": _voice_chat_invite_link,
+            }
+        )
+    )
 
     logger.info(f"Created voice chat group: {_voice_chat_group_id}")
     return _voice_chat_group_id, _voice_chat_invite_link
@@ -241,7 +249,7 @@ async def ensure_private_voice_group(client, user_id: int) -> tuple[int, str]:
 
 async def start_group_voice_chat(tg_call, client, group_id: int):
     """Start a voice chat in the group and join it."""
-    from pytgcalls.types import MediaStream, GroupCallConfig
+    from pytgcalls.types import GroupCallConfig, MediaStream
 
     call_id = group_id
     if not str(group_id).startswith("-"):
@@ -250,6 +258,7 @@ async def start_group_voice_chat(tg_call, client, group_id: int):
     logger.info(f"Starting voice chat in group {group_id} (pytgcalls ID: {call_id})")
 
     from telethon.tl.functions.phone import CreateGroupCallRequest
+
     try:
         # Telethon's rnd_id is not a public method; use random int
         import random
@@ -334,17 +343,15 @@ class VoiceCallSession:
         if event == "confirmation_required":
             self._pending_approval = data
             with contextlib.suppress(RuntimeError):
-                asyncio.run_coroutine_threadsafe(
-                    self._speak(_approval_prompt(data)), self._loop
-                )
+                asyncio.run_coroutine_threadsafe(self._speak(_approval_prompt(data)), self._loop)
 
     # ── Build pipeline ──
 
     def _build_pipeline(self):
         from ..voice import stt as stt_mod
         from ..voice import tts as tts_mod
-        from ..voice.pipeline import VoicePipeline
         from ..voice.bargein import BargeInDetector
+        from ..voice.pipeline import VoicePipeline
 
         deepgram_stt = stt_mod.DeepgramStreamingSTT(DEEPGRAM_API_KEY)
         tts_backend = tts_mod.get_backend()
@@ -383,16 +390,16 @@ class VoiceCallSession:
 
             # pytgcalls calls are stereo; our pipeline is mono → upmix to stereo.
             payload = self._mono_to_stereo(data)
-            await self._tg_call.send_frame(
-                self._caller_id, Device.MICROPHONE, payload, Frame.Info()
-            )
+            await self._tg_call.send_frame(self._caller_id, Device.MICROPHONE, payload, Frame.Info())
         except Exception as e:
             err_str = str(e).lower()
             if "not in a call" in err_str or "notincallerror" in err_str:
                 self._active = False
                 logger.info("call_not_active", extra={"call_id": self._caller_id})
             else:
-                logger.warning("send_frame_failed", extra={"call_id": self._caller_id, "frame_bytes": len(data), "error": str(e)})
+                logger.warning(
+                    "send_frame_failed", extra={"call_id": self._caller_id, "frame_bytes": len(data), "error": str(e)}
+                )
 
     # ── Agent bridge ──
 
@@ -428,13 +435,10 @@ class VoiceCallSession:
             yield "Approved." if approved else "Denied."
             return
 
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
-        ts = (
-            f"[Current time: {now.strftime('%Y-%m-%d %H:%M UTC')} | "
-            f"Day: {now.strftime('%A')}]\n\n"
-        )
+        now = datetime.now(UTC)
+        ts = f"[Current time: {now.strftime('%Y-%m-%d %H:%M UTC')} | Day: {now.strftime('%A')}]\n\n"
         messages = [{"role": "system", "content": self.VOICE_SYSTEM_PROMPT}]
         messages += list(self._voice_history[-8:])
         messages.append({"role": "user", "content": ts + text})
@@ -495,14 +499,14 @@ class VoiceCallSession:
         try:
             from ..agent.sessions import session_manager
 
-            response = await asyncio.to_thread(
-                session_manager.process, self._session_id, text, self._emit
-            )
+            response = await asyncio.to_thread(session_manager.process, self._session_id, text, self._emit)
             response = (response or "").strip()
             if response:
                 yield response
         except Exception as e:
-            logger.error(f"agent_failed: {type(e).__name__}: {e}", extra={"session_id": self._session_id, "error": str(e)})
+            logger.error(
+                f"agent_failed: {type(e).__name__}: {e}", extra={"session_id": self._session_id, "error": str(e)}
+            )
             yield "Sorry, I ran into an error. Please try again."
 
     # ── Shared-brain persistence ──
@@ -541,9 +545,7 @@ class VoiceCallSession:
         """
         try:
             elapsed = time.monotonic() - getattr(self, "_started_at", time.monotonic())
-            user_turns = [
-                m for m in self._voice_history if m.get("role") == "user"
-            ]
+            user_turns = [m for m in self._voice_history if m.get("role") == "user"]
             substance = sum(len(m.get("content", "")) for m in user_turns)
             if elapsed < 30 or not user_turns or substance < 120:
                 return
@@ -565,8 +567,7 @@ class VoiceCallSession:
                             "summary, nothing else.\n\n" + transcript
                         ),
                         system_prompt=(
-                            "You summarize voice calls tersely for long-term "
-                            "memory. Output only the summary."
+                            "You summarize voice calls tersely for long-term memory. Output only the summary."
                         ),
                     )
                     summary = (summary or "").strip()
@@ -610,7 +611,9 @@ class VoiceCallSession:
         try:
             response = await asyncio.to_thread(_process)
         except Exception as e:
-            logger.error(f"agent_failed: {type(e).__name__}: {e}", extra={"session_id": self._session_id, "error": str(e)})
+            logger.error(
+                f"agent_failed: {type(e).__name__}: {e}", extra={"session_id": self._session_id, "error": str(e)}
+            )
             response = "Sorry, I ran into an error. Please try again."
 
         if not response or not response.strip():
@@ -743,7 +746,7 @@ class VoiceCallSession:
             for i in range(0, len(cached), chunk_step):
                 if not self._active:
                     break
-                await self._send_frame(cached[i:i + chunk_step])
+                await self._send_frame(cached[i : i + chunk_step])
         else:
             # Generate a short synthetic tone as fallback greeting.
             # Must use _send_frame (not tg_call.play) to preserve
@@ -756,7 +759,7 @@ class VoiceCallSession:
             for i in range(0, len(tone), chunk_step):
                 if not self._active:
                     break
-                await self._send_frame(tone[i:i + chunk_step].tobytes())
+                await self._send_frame(tone[i : i + chunk_step].tobytes())
 
         # 3. Start heartbeat (2s interval) — replaces all per-frame diagnostics
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -774,8 +777,8 @@ class VoiceCallSession:
         # (Deepgram recv / keepalive share this loop) cause underrun clicks,
         # so we deliberately keep a little headroom and clamp the max lead to
         # avoid overflowing the binding's buffer.
-        LEAD = 0.09       # target buffered lead (s)
-        MAX_LEAD = 0.25   # never buffer more than this (avoid overflow)
+        LEAD = 0.09  # target buffered lead (s)
+        MAX_LEAD = 0.25  # never buffer more than this (avoid overflow)
         deadline = time.monotonic() + LEAD  # virtual playout clock
         secs_per_byte = 1.0 / (CALL_SAMPLE_RATE * 2)
         while self._active:
@@ -821,11 +824,14 @@ class VoiceCallSession:
             else:
                 logger.warning("pipeline_stt_failed", extra={"call_id": self._chat_id})
         except Exception as e:
-            logger.error(f"pipeline_start_error: {type(e).__name__}: {e}", extra={"call_id": self._chat_id, "error": str(e)})
+            logger.error(
+                f"pipeline_start_error: {type(e).__name__}: {e}", extra={"call_id": self._chat_id, "error": str(e)}
+            )
 
     async def _heartbeat_loop(self):
         """Periodic heartbeat: one INFO line every 2s summarizing call health."""
         import time
+
         t0 = time.monotonic()
         while self._active:
             await asyncio.sleep(2.0)

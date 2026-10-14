@@ -9,8 +9,8 @@ This is NOT prompt-level reflection — it's grounded in actual runtime output.
 
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List
 
 logger = logging.getLogger("nally.feedback_loop")
 
@@ -21,6 +21,7 @@ CORRECTION_TIMEOUT = 30  # seconds per execution attempt
 @dataclass
 class ExecutionResult:
     """Result of a code execution attempt."""
+
     success: bool
     output: str
     error: str = ""
@@ -40,6 +41,7 @@ class ExecutionResult:
 @dataclass
 class FeedbackCycle:
     """One iteration of the feedback loop."""
+
     cycle: int
     code: str
     execution: ExecutionResult
@@ -57,6 +59,7 @@ class FeedbackCycle:
 @dataclass
 class FeedbackLoopResult:
     """Final result after all correction cycles."""
+
     final_code: str
     cycles: List[FeedbackCycle]
     success: bool
@@ -120,16 +123,16 @@ class ExecutableFeedbackLoop:
             # Record this cycle
             correction_prompt = ""
             if not execution.success and cycle_num < self._max_cycles:
-                correction_prompt = self._build_correction_prompt(
-                    goal, current_code, execution, cycle_num
-                )
+                correction_prompt = self._build_correction_prompt(goal, current_code, execution, cycle_num)
 
-            cycles.append(FeedbackCycle(
-                cycle=cycle_num,
-                code=current_code,
-                execution=execution,
-                correction_prompt=correction_prompt,
-            ))
+            cycles.append(
+                FeedbackCycle(
+                    cycle=cycle_num,
+                    code=current_code,
+                    execution=execution,
+                    correction_prompt=correction_prompt,
+                )
+            )
 
             # If execution succeeded, we're done
             if execution.success:
@@ -221,9 +224,7 @@ class ExecutableFeedbackLoop:
                 duration_ms=duration,
             )
 
-    def _build_correction_prompt(
-        self, goal: str, code: str, execution: ExecutionResult, cycle: int
-    ) -> str:
+    def _build_correction_prompt(self, goal: str, code: str, execution: ExecutionResult, cycle: int) -> str:
         """Build a prompt that gives the LLM the error context for correction."""
         parts = [
             f"Goal: {goal}",
@@ -238,13 +239,15 @@ class ExecutableFeedbackLoop:
         else:
             parts.append("No output produced (possible crash or hang)")
 
-        parts.extend([
-            "",
-            "The code that was executed:",
-            f"```python\n{code[:2000]}\n```",
-            "",
-            "Fix the error. Output ONLY the corrected code in a code block.",
-        ])
+        parts.extend(
+            [
+                "",
+                "The code that was executed:",
+                f"```python\n{code[:2000]}\n```",
+                "",
+                "Fix the error. Output ONLY the corrected code in a code block.",
+            ]
+        )
 
         return "\n".join(parts)
 

@@ -26,16 +26,14 @@ from langgraph.graph.message import add_messages
 from ..config import (
     ACTIVE_MODEL,
     APPROVAL_TIMEOUT,
-    CONTEXT_MAX_TOKENS,
     DATA_DIR,
     DATABASE_URL,
     DUPLICATE_TOOL_THRESHOLD,
     MAX_AGENT_WALL_TIME,
-    MAX_TOOL_FAILURES_PER_TURN,
     MAX_TOOL_CALLS,
+    MAX_TOOL_FAILURES_PER_TURN,
     RECURSION_LIMIT,
     SESSION_ID,
-    TOKEN_WARN_THRESHOLD,
     TOOL_RETRY_LIMIT,
     ensure_data_dir,
 )
@@ -204,9 +202,9 @@ def _parse_text_tool_calls(text: str) -> tuple:
     # Match wrapper blocks (with or without closing tag)
     # Group 1: the hex ID, Group 2: everything inside the wrapper
     wrapper_re = re.compile(
-        r"<tool_calls:([a-f0-9]+)>"       # opening wrapper
-        r"(.*?)"                            # content inside
-        r"(?:</tool_calls:\1>|(?=\Z))",    # closing wrapper OR end-of-string
+        r"<tool_calls:([a-f0-9]+)>"  # opening wrapper
+        r"(.*?)"  # content inside
+        r"(?:</tool_calls:\1>|(?=\Z))",  # closing wrapper OR end-of-string
         re.DOTALL,
     )
 
@@ -217,9 +215,7 @@ def _parse_text_tool_calls(text: str) -> tuple:
 
             # Find ALL <tool_call:ID>word occurrences in this block
             # Each one is a separate tool call (bare name, possibly with params)
-            all_tool_names = re.findall(
-                r"<tool_call:" + tc_id + r">(\w+)", block
-            )
+            all_tool_names = re.findall(r"<tool_call:" + tc_id + r">(\w+)", block)
 
             for tool_name in all_tool_names:
                 # Skip if this is actually a "parameter" keyword (not a tool)
@@ -229,8 +225,7 @@ def _parse_text_tool_calls(text: str) -> tuple:
                 # Find the params block after this specific tool name occurrence
                 # Match the tool name line and grab everything until the next tool name
                 param_pattern = re.compile(
-                    r'<tool_call:[a-f0-9]+>' + re.escape(tool_name) +
-                    r'(.*?)(?=<tool_call:|</tool_calls:|$)',
+                    r"<tool_call:[a-f0-9]+>" + re.escape(tool_name) + r"(.*?)(?=<tool_call:|</tool_calls:|$)",
                     re.DOTALL,
                 )
                 param_match = param_pattern.search(block)
@@ -325,9 +320,21 @@ _RETRYABLE_CODES = {"500", "502", "503", "429"}
 # so a definitive "file not found" / "permission denied" returns immediately.
 _NON_RETRYABLE_TOOLS = {"run_command"}
 _RETRYABLE_ERROR_HINTS = (
-    "timeout", "timed out", "429", "503", "502", "500",
-    "temporarily", "connection reset", "try again", "rate limit",
-    "overloaded", "socket", "econn", "temporary failure", "gateway",
+    "timeout",
+    "timed out",
+    "429",
+    "503",
+    "502",
+    "500",
+    "temporarily",
+    "connection reset",
+    "try again",
+    "rate limit",
+    "overloaded",
+    "socket",
+    "econn",
+    "temporary failure",
+    "gateway",
 )
 
 
@@ -364,7 +371,7 @@ def _execute_tool_with_retry(tool_name: str, tool_args: dict, tool_id: str) -> t
             f"Tool '{tool_name}' transient failure (attempt {attempt}/{TOOL_RETRY_LIMIT}), retrying: {result[:80]}"
         )
         if attempt < TOOL_RETRY_LIMIT:
-            time.sleep(min(2 ** attempt, 8))
+            time.sleep(min(2**attempt, 8))
 
     if not last_success:
         logger.error(f"Tool '{tool_name}' failed after {TOOL_RETRY_LIMIT} attempts: {last_result[:200]}")
@@ -403,6 +410,7 @@ def _ensure_tracer_store():
 
 def _get_approval_db():
     import sqlite3
+
     db_path = DATA_DIR / "nally.db"
     conn = sqlite3.connect(db_path, timeout=30.0)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -421,10 +429,13 @@ def _save_pending_approval(tool_call_id: str, status: str = "pending"):
     try:
         conn = _get_approval_db()
         now = time.time()
-        conn.execute("""
+        conn.execute(
+            """
             INSERT OR REPLACE INTO pending_approvals (tool_call_id, status, created_at, updated_at)
             VALUES (?, ?, ?, ?)
-        """, (tool_call_id, status, now, now))
+        """,
+            (tool_call_id, status, now, now),
+        )
         conn.commit()
         conn.close()
     except Exception as e:
@@ -491,7 +502,7 @@ def _has_duplicate_tool_calls(messages: list, window: int = 10) -> bool:
                 try:
                     key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=True)}"
                 except Exception:
-                    key = f"{name}:{str(args)}"
+                    key = f"{name}:{args!s}"
                 seen[key] = seen.get(key, 0) + 1
                 if seen[key] >= effective_threshold:
                     return True
@@ -773,8 +784,7 @@ def llm_call(state: AgentState) -> AgentState:
             ]
             response = llm.chat(summary_msgs, tools=None, cache_key=cache_key)
             summary = (
-                response.choices[0].message.content
-                or "I've reached the tool call limit. Here's what I found so far."
+                response.choices[0].message.content or "I've reached the tool call limit. Here's what I found so far."
             )
         except Exception as e:
             logger.warning(f"Circuit breaker summary call failed: {e}")
@@ -809,11 +819,14 @@ def llm_call(state: AgentState) -> AgentState:
 
     model_override = state.get("model_override")
 
-    llm_span = tracer.start_span("llm_call", {
-        "model": model_override or ACTIVE_MODEL,
-        "messages_count": len(openai_messages),
-        "tools_count": len(tools) if tools else 0,
-    })
+    llm_span = tracer.start_span(
+        "llm_call",
+        {
+            "model": model_override or ACTIVE_MODEL,
+            "messages_count": len(openai_messages),
+            "tools_count": len(tools) if tools else 0,
+        },
+    )
 
     try:
         response = _call_llm_with_retry(llm, openai_messages, tools, cache_key, emit, model=model_override)
@@ -832,10 +845,13 @@ def llm_call(state: AgentState) -> AgentState:
     assistant_msg = response.choices[0].message
 
     # End llm_span on success
-    tracer.end_span(llm_span.span_id, output={
-        "content_preview": (assistant_msg.content or "")[:300],
-        "tool_calls": [{"name": tc.function.name} for tc in (assistant_msg.tool_calls or [])],
-    })
+    tracer.end_span(
+        llm_span.span_id,
+        output={
+            "content_preview": (assistant_msg.content or "")[:300],
+            "tool_calls": [{"name": tc.function.name} for tc in (assistant_msg.tool_calls or [])],
+        },
+    )
 
     if not assistant_msg.tool_calls and assistant_msg.content:
         cleaned_text, text_tool_calls = _parse_text_tool_calls(assistant_msg.content)
@@ -883,9 +899,7 @@ def llm_call(state: AgentState) -> AgentState:
                         f"{vresult.contradicted_count} contradicted"
                     )
                     # Feed verification failure back to LLM for self-correction
-                    correction_prompt = (
-                        "VERIFICATION FAILED — your last response contained unsupported claims:\n"
-                    )
+                    correction_prompt = "VERIFICATION FAILED — your last response contained unsupported claims:\n"
                     for f in vresult.findings:
                         if f.verdict.value in ("unsupported", "contradicted"):
                             correction_prompt += f"- [{f.verdict.value}] {f.claim}: {f.evidence}\n"
@@ -896,9 +910,13 @@ def llm_call(state: AgentState) -> AgentState:
                     )
                     try:
                         from .llm import call_llm
+
                         corrected = call_llm(
                             messages=[
-                                {"role": "system", "content": "You are Nally. Fix your previous response based on the verification feedback. Output ONLY the corrected response, no preamble."},
+                                {
+                                    "role": "system",
+                                    "content": "You are Nally. Fix your previous response based on the verification feedback. Output ONLY the corrected response, no preamble.",
+                                },
                                 {"role": "user", "content": correction_prompt},
                             ],
                             temperature=0.1,
@@ -932,21 +950,16 @@ def llm_call(state: AgentState) -> AgentState:
                 _should_block = True
             if _should_block:
                 if failures:
-                    _summary = "\n".join(
-                        f"- {f.get('tool')}: {f.get('error', '')[:160]}" for f in failures[-6:]
-                    )
-                    _reason = (
-                        "The following tool call(s) failed this turn "
-                        "and were not resolved:\n"
-                        + _summary
-                    )
+                    _summary = "\n".join(f"- {f.get('tool')}: {f.get('error', '')[:160]}" for f in failures[-6:])
+                    _reason = "The following tool call(s) failed this turn and were not resolved:\n" + _summary
                 else:
                     _reason = f"Partial completion detected: {partial}"
                 ai_message.content = (
-                    "[TASK NOT COMPLETE] " + _reason
-                    + "\n\nI have not finished. Tell me how you'd like to proceed."
+                    "[TASK NOT COMPLETE] " + _reason + "\n\nI have not finished. Tell me how you'd like to proceed."
                 )
-                logger.warning(f"Completion gate: forcing incomplete status ({len(failures)} failures, partial: {partial or 'none'})")
+                logger.warning(
+                    f"Completion gate: forcing incomplete status ({len(failures)} failures, partial: {partial or 'none'})"
+                )
                 return {
                     "messages": [ai_message],
                     "iteration": iteration + 1,
@@ -961,10 +974,11 @@ def llm_call(state: AgentState) -> AgentState:
     if ai_message.content and not ai_message.tool_calls:
         try:
             from .guardrails import guardrail_engine
+
             output_results = guardrail_engine.check_output(
                 ai_message.content,
                 context={
-                    "receipts": [r for r in (receipt_store.get_recent(limit=20) if 'receipt_store' in dir() else [])],
+                    "receipts": [r for r in (receipt_store.get_recent(limit=20) if "receipt_store" in dir() else [])],
                     "failed_tools": [f.get("tool") for f in state.get("tool_failures", [])],
                 },
             )
@@ -1192,6 +1206,7 @@ def tool_executor(state: AgentState) -> AgentState:
         # ── Tool Guardrails ──
         try:
             from .guardrails import guardrail_engine
+
             tool_results = guardrail_engine.check_tool(tool_name, tool_args)
             if guardrail_engine.should_block(tool_results):
                 blocked_msg = f"Tool '{tool_name}' blocked by guardrail: "
@@ -1257,7 +1272,9 @@ def tool_executor(state: AgentState) -> AgentState:
                     result_approved = True
 
                 if not approved:
-                    logger.info(f"Approval gate: waiting for user confirmation of '{tool_name}' (timeout: {APPROVAL_TIMEOUT}s)")
+                    logger.info(
+                        f"Approval gate: waiting for user confirmation of '{tool_name}' (timeout: {APPROVAL_TIMEOUT}s)"
+                    )
 
                     # Poll SQLite every 2s — no thread blocking, cross-process safe.
                     _poll_interval = 2
@@ -1269,7 +1286,7 @@ def tool_executor(state: AgentState) -> AgentState:
                             return ToolMessage(content="Aborted by user.", tool_call_id=tool_id)
                         status = _get_approval_status(tool_id)
                         if status in ("approved", "denied"):
-                            result_approved = (status == "approved")
+                            result_approved = status == "approved"
                             approved = True
                             break
                         time.sleep(_poll_interval)
@@ -1409,7 +1426,9 @@ def tool_executor(state: AgentState) -> AgentState:
                     if "IMAGE_FILE:" in result_str:
                         result_str = "..." + result_str[-_EMIT_CAP + 3 :]
                     else:
-                        result_str = result_str[:_EMIT_CAP] + f"\n... [truncated {len(str(result))} → {_EMIT_CAP} chars]"
+                        result_str = (
+                            result_str[:_EMIT_CAP] + f"\n... [truncated {len(str(result))} → {_EMIT_CAP} chars]"
+                        )
                 payload = {
                     "tool_call_id": tool_id,
                     "name": tool_name,
@@ -1425,11 +1444,13 @@ def tool_executor(state: AgentState) -> AgentState:
                 pass
 
         if not success:
-            failure_log.append({
-                "tool": tool_name,
-                "args": tool_args if isinstance(tool_args, dict) else {},
-                "error": str(result)[:200],
-            })
+            failure_log.append(
+                {
+                    "tool": tool_name,
+                    "args": tool_args if isinstance(tool_args, dict) else {},
+                    "error": str(result)[:200],
+                }
+            )
             progress_log.append({"tool": tool_name, "status": "failed"})
         else:
             progress_log.append({"tool": tool_name, "status": "success"})
@@ -1459,10 +1480,7 @@ def tool_executor(state: AgentState) -> AgentState:
     with ThreadPoolExecutor(max_workers=min(len(last_ai_msg.tool_calls), 5)) as executor:
         # Each thread gets its own context copy — reusing the same ctx across
         # threads causes "context already entered" errors.
-        futures = {
-            executor.submit(base_ctx.copy().run, _execute_single, tc): tc
-            for tc in last_ai_msg.tool_calls
-        }
+        futures = {executor.submit(base_ctx.copy().run, _execute_single, tc): tc for tc in last_ai_msg.tool_calls}
         for future in as_completed(futures):
             try:
                 tool_messages.append(future.result())
@@ -1480,9 +1498,8 @@ def tool_executor(state: AgentState) -> AgentState:
     return {
         "messages": tool_messages,
         "tool_calls_total": tool_calls_total + len(last_ai_msg.tool_calls),
-        "tool_failures": state.get("tool_failures", []) + [
-            {"tool": f["tool"], "args": f["args"], "error": f["error"]} for f in failure_log
-        ],
+        "tool_failures": state.get("tool_failures", [])
+        + [{"tool": f["tool"], "args": f["args"], "error": f["error"]} for f in failure_log],
         "task_progress": {
             **state.get("task_progress", {}),
             **{p["tool"]: p["status"] for p in progress_log},
@@ -1527,9 +1544,7 @@ def should_continue(state: AgentState) -> str:
         if emit:
             try:
                 _fail_n = len(state.get("tool_failures", []))
-                _notice = (
-                    f"Execution halted: hit my {wall_budget}s time budget for this turn"
-                )
+                _notice = f"Execution halted: hit my {wall_budget}s time budget for this turn"
                 if _fail_n:
                     _notice += (
                         f" — {_fail_n} tool call(s) failed and weren't resolved. Say 'continue' "
@@ -1550,9 +1565,12 @@ def should_continue(state: AgentState) -> str:
         emit = _get_emit()
         if emit:
             try:
-                emit("system_notice", {
-                    "text": f"Execution halted: {MAX_TOOL_FAILURES_PER_TURN}+ tool calls failed this turn and weren't resolved. Tell me how you'd like to proceed."
-                })
+                emit(
+                    "system_notice",
+                    {
+                        "text": f"Execution halted: {MAX_TOOL_FAILURES_PER_TURN}+ tool calls failed this turn and weren't resolved. Tell me how you'd like to proceed."
+                    },
+                )
             except Exception:
                 pass
         _record_exit("tool_failures")
@@ -1563,7 +1581,10 @@ def should_continue(state: AgentState) -> str:
         emit = _get_emit()
         if emit:
             try:
-                emit("system_notice", {"text": "Execution halted: hit my step limit for this turn — say 'continue' to proceed."})
+                emit(
+                    "system_notice",
+                    {"text": "Execution halted: hit my step limit for this turn — say 'continue' to proceed."},
+                )
             except Exception:
                 pass
         _record_exit("max_iterations")
@@ -1575,7 +1596,12 @@ def should_continue(state: AgentState) -> str:
         emit = _get_emit()
         if emit:
             try:
-                emit("system_notice", {"text": "Execution halted: I noticed I was repeating the same action and stopped — let me know how you'd like to proceed."})
+                emit(
+                    "system_notice",
+                    {
+                        "text": "Execution halted: I noticed I was repeating the same action and stopped — let me know how you'd like to proceed."
+                    },
+                )
             except Exception:
                 pass
         _record_exit("doom_loop")
@@ -1637,6 +1663,7 @@ def create_agent_graph():
 
     checkpointer = _create_checkpointer()
     return graph.compile(checkpointer=checkpointer)
+
 
 # Lazy singleton
 _agent_graph = None
@@ -1711,6 +1738,7 @@ def run_agent(
 
     # Wrap emit in typed emitter for projection support
     from .streaming import EventEmitter
+
     _emitter = EventEmitter(emit_fn=emit)
 
     # Use a fresh thread_id per invocation to prevent checkpointer message

@@ -1,6 +1,5 @@
 """Tests for nally.core.checkpoints — Phase 1 rewind harness."""
 
-import tempfile
 from pathlib import Path
 
 from nally.core.checkpoints.checkpointer import Checkpointer

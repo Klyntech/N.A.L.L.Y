@@ -116,7 +116,10 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
                     try:
                         import asyncpg  # noqa: F401
                     except ImportError:
-                        _warning("DATABASE_URL", "PostgreSQL URL set but psycopg not installed. Run: pip install \"psycopg[binary]\"")
+                        _warning(
+                            "DATABASE_URL",
+                            'PostgreSQL URL set but psycopg not installed. Run: pip install "psycopg[binary]"',
+                        )
         elif not os.path.isabs(database_url) and not database_url.startswith("libsql://"):
             _warning("DATABASE_URL", f"Unusual URL format: {database_url[:50]}...")
 
@@ -161,7 +164,9 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
     if telegram_token and telegram_mode != "off":
         internal_token = os.getenv("NALLY_INTERNAL_TOKEN", "")
         if not internal_token:
-            _error("NALLY_INTERNAL_TOKEN", "Required when Telegram is enabled; internal bot-to-web calls must fail closed.")
+            _error(
+                "NALLY_INTERNAL_TOKEN", "Required when Telegram is enabled; internal bot-to-web calls must fail closed."
+            )
         elif len(internal_token) < 32:
             _warning("NALLY_INTERNAL_TOKEN", "Token is shorter than 32 characters. Use a long random value.")
     if telegram_token:

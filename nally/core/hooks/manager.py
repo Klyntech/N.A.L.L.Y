@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import os
 import subprocess
 import threading
 from pathlib import Path
@@ -90,18 +89,26 @@ class HookManager:
                 continue
             if h.tool_pattern:
                 # Check tool input match
-                val = tool_args.get("command") or tool_args.get("action") or " ".join(str(v) for v in tool_args.values() if isinstance(v, str))
+                val = (
+                    tool_args.get("command")
+                    or tool_args.get("action")
+                    or " ".join(str(v) for v in tool_args.values() if isinstance(v, str))
+                )
                 if not _wildcard_match(h.tool_pattern, str(val)):
                     continue
             out.append(h)
         return out
 
-    def run_pre_tool(self, tool_name: str, tool_args: Dict[str, Any], cwd: str | None = None, session_id: str | None = None) -> HookResult:
+    def run_pre_tool(
+        self, tool_name: str, tool_args: Dict[str, Any], cwd: str | None = None, session_id: str | None = None
+    ) -> HookResult:
         """Run PreToolUse hooks. If any deny, return deny (first wins)."""
         hooks = self._matching(HookEvent.PreToolUse, tool_name, tool_args)
         if not hooks:
             return HookResult.passthrough()
-        inv = HookInvocation(event=HookEvent.PreToolUse, tool_name=tool_name, tool_args=tool_args, cwd=cwd, session_id=session_id)
+        inv = HookInvocation(
+            event=HookEvent.PreToolUse, tool_name=tool_name, tool_args=tool_args, cwd=cwd, session_id=session_id
+        )
         for h in hooks:
             res = self._exec(h, inv)
             if res.decision == "deny":
@@ -111,7 +118,13 @@ class HookManager:
         return HookResult.passthrough()
 
     def run_post_tool(
-        self, tool_name: str, tool_args: Dict[str, Any], tool_output: str, tool_success: bool, cwd: str | None = None, session_id: str | None = None
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        tool_output: str,
+        tool_success: bool,
+        cwd: str | None = None,
+        session_id: str | None = None,
     ) -> HookResult:
         """Run PostToolUse hooks. Accumulates additionalContext across all hooks."""
         hooks = self._matching(HookEvent.PostToolUse, tool_name, tool_args)
@@ -135,7 +148,15 @@ class HookManager:
                     uniq.append(h)
             hooks = uniq
 
-        inv = HookInvocation(event=HookEvent.PostToolUse, tool_name=tool_name, tool_args=tool_args, tool_output=tool_output, tool_success=tool_success, cwd=cwd, session_id=session_id)
+        inv = HookInvocation(
+            event=HookEvent.PostToolUse,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            tool_output=tool_output,
+            tool_success=tool_success,
+            cwd=cwd,
+            session_id=session_id,
+        )
         contexts: List[str] = []
         for h in hooks:
             res = self._exec(h, inv)
@@ -166,13 +187,25 @@ class HookManager:
                     stdout, stderr = proc.communicate(timeout=2)
                 except Exception:
                     stdout, stderr = b"", b"timed out"
-                return HookResult(decision="allow", timed_out=True, exit_code=124, stdout=stdout.decode(errors="replace"), stderr=stderr.decode(errors="replace"))
+                return HookResult(
+                    decision="allow",
+                    timed_out=True,
+                    exit_code=124,
+                    stdout=stdout.decode(errors="replace"),
+                    stderr=stderr.decode(errors="replace"),
+                )
             exit_code = proc.returncode if proc.returncode is not None else 0
             out_str = stdout.decode("utf-8", errors="replace").strip()
             err_str = stderr.decode("utf-8", errors="replace").strip()
             # Exit 2 = explicit block (Claude convention)
             if exit_code == 2:
-                return HookResult(decision="deny", reason=err_str or out_str or "Blocked by hook", exit_code=exit_code, stdout=out_str, stderr=err_str)
+                return HookResult(
+                    decision="deny",
+                    reason=err_str or out_str or "Blocked by hook",
+                    exit_code=exit_code,
+                    stdout=out_str,
+                    stderr=err_str,
+                )
             if exit_code != 0 and not out_str:
                 # Non-zero without JSON → non-blocking error unless stdout has decision
                 logger.debug(f"Hook {hook.name} exited {exit_code}: {err_str[:200]}")
@@ -185,7 +218,9 @@ class HookManager:
             except json.JSONDecodeError:
                 # Plain text stdout with no JSON → treat as additionalContext for PostToolUse
                 if hook.event in (HookEvent.PostToolUse, HookEvent.PostToolUseFailure):
-                    return HookResult(decision="allow", additionalContext=out_str, exit_code=exit_code, stdout=out_str, stderr=err_str)
+                    return HookResult(
+                        decision="allow", additionalContext=out_str, exit_code=exit_code, stdout=out_str, stderr=err_str
+                    )
                 return HookResult.passthrough(exit_code=exit_code, stdout=out_str, stderr=err_str)
         except Exception as e:
             logger.warning(f"Hook exec failed {hook.name}: {e}")
@@ -195,6 +230,7 @@ class HookManager:
 # Singleton
 _manager: HookManager | None = None
 _manager_lock = threading.Lock()
+
 
 def get_hook_manager() -> HookManager:
     global _manager

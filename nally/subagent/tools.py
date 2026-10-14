@@ -1,7 +1,7 @@
 """SubAgent Tool - Delegate tasks to autonomous sub-agents"""
 
-from ..tools.registry import Tool, registry
 from ..config import MAX_SUBAGENT_DEPTH
+from ..tools.registry import Tool, registry
 from .pool import pool
 
 
@@ -84,8 +84,10 @@ class Agent(Tool):
                     prefix = ""
                 if not spawned:
                     return prefix + "Error: no sub-agents could be spawned (depth limit)."
-                return prefix + f"Spawned {len(spawned)} sub-agents:\n" + "\n".join(
-                    f"  {i + 1}. {tid}" for i, tid in enumerate(spawned)
+                return (
+                    prefix
+                    + f"Spawned {len(spawned)} sub-agents:\n"
+                    + "\n".join(f"  {i + 1}. {tid}" for i, tid in enumerate(spawned))
                 )
 
             elif action == "collect":

@@ -1,7 +1,5 @@
 """NallyBridge Tool — sends commands to connected bridge devices."""
 
-import os
-
 from .registry import Tool
 
 
@@ -40,6 +38,7 @@ class BridgeTool(Tool):
             args = {}
         elif isinstance(args, str):
             import json
+
             try:
                 args = json.loads(args)
             except (json.JSONDecodeError, TypeError):
@@ -85,9 +84,7 @@ class BridgeTool(Tool):
         import asyncio
 
         try:
-            result, success = asyncio.run(
-                bridge_registry.send_tool_request(device_id, tool, args)
-            )
+            result, success = asyncio.run(bridge_registry.send_tool_request(device_id, tool, args))
         except Exception as e:
             return f"Error communicating with bridge: {e}"
 

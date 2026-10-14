@@ -194,8 +194,9 @@ class DeepgramStreamingSTT:
             try:
                 import importlib
                 import sys
-                import websockets as _ws
                 from contextlib import asynccontextmanager
+
+                import websockets as _ws
 
                 @asynccontextmanager
                 async def _proxy_disabled_connect(url, extra_headers=None, additional_headers=None, **kwargs):
@@ -271,6 +272,7 @@ class DeepgramStreamingSTT:
                         # Sync shim not needed for async STT, but ensure proxy disabled there too.
                         try:
                             import websockets.sync.client as _sync_ws
+
                             _orig_sync = _sync_ws.connect
 
                             def _sync_no_proxy(url, additional_headers=None, **k):
@@ -387,7 +389,7 @@ class DeepgramStreamingSTT:
                     return
 
                 # Backoff: base 3s, doubles with consecutive quick fails, capped at 30s.
-                backoff = min(3 * (2 ** self._consecutive_quick_fails), 30)
+                backoff = min(3 * (2**self._consecutive_quick_fails), 30)
                 if attempt > 1:
                     logger.warning(
                         "deepgram_reconnect",
@@ -425,22 +427,16 @@ class DeepgramStreamingSTT:
         try:
             while self._socket is not None:
                 try:
-                    msg = await asyncio.wait_for(
-                        self._socket.recv(), timeout=self.RECV_TIMEOUT
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"deepgram_recv_timeout: no data for {self.RECV_TIMEOUT}s, reconnecting"
-                    )
+                    msg = await asyncio.wait_for(self._socket.recv(), timeout=self.RECV_TIMEOUT)
+                except TimeoutError:
+                    logger.warning(f"deepgram_recv_timeout: no data for {self.RECV_TIMEOUT}s, reconnecting")
                     break
                 if msg is None:
                     break
                 msg_type = getattr(msg, "type", None)
                 if msg_type != "Results":
                     continue
-                is_final = getattr(msg, "is_final", False) or getattr(
-                    msg, "speech_final", False
-                )
+                is_final = getattr(msg, "is_final", False) or getattr(msg, "speech_final", False)
                 channel = getattr(msg, "channel", None)
                 if channel is None:
                     continue
@@ -491,10 +487,7 @@ class DeepgramStreamingSTT:
         try:
             while self._connected and self._socket is not None:
                 now = time.monotonic()
-                silence_needed = (
-                    self._last_real_audio_ts == 0.0
-                    or (now - self._last_real_audio_ts) > 2.0
-                )
+                silence_needed = self._last_real_audio_ts == 0.0 or (now - self._last_real_audio_ts) > 2.0
                 try:
                     if silence_needed:
                         await self._socket.send_media(silence_100ms)
@@ -536,7 +529,7 @@ class DeepgramStreamingSTT:
         # Only log at DEBUG to avoid spamming, but keep a throttled INFO for empty/silent.
         try:
             await asyncio.wait_for(self._socket.send_media(audio_bytes), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("deepgram_send_timeout: send blocked 5s, marking disconnected")
             self._connected = False
         except Exception as e:
@@ -549,14 +542,14 @@ class DeepgramStreamingSTT:
             if timeout is None:
                 return await self._final_queue.get()
             return await asyncio.wait_for(self._final_queue.get(), timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     async def get_partial_transcript(self, timeout: float = 0.05) -> str | None:
         """Return the latest interim transcript, or None if none available."""
         try:
             return await asyncio.wait_for(self._partial_queue.get(), timeout)
-        except (asyncio.TimeoutError, asyncio.QueueEmpty):
+        except (TimeoutError, asyncio.QueueEmpty):
             return None
 
     @property

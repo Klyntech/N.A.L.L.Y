@@ -10,15 +10,15 @@ Each SOP defines:
     - Output schema (Pydantic model)
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nally.sop")
 
 try:
     from pydantic import BaseModel
+
     HAS_PYDANTIC = True
 except ImportError:
     HAS_PYDANTIC = False
@@ -28,6 +28,7 @@ except ImportError:
 @dataclass
 class SOPStep:
     """A single step in an SOP with typed input/output."""
+
     name: str
     description: str
     tool: str = ""  # Tool to use for this step
@@ -52,6 +53,7 @@ class SOPStep:
 @dataclass
 class SOPDefinition:
     """A Standard Operating Procedure with typed contracts."""
+
     name: str
     description: str
     steps: List[SOPStep]
@@ -73,6 +75,7 @@ class SOPDefinition:
 @dataclass
 class SOPResult:
     """Result of executing an SOP."""
+
     sop_name: str
     success: bool
     step_results: Dict[str, Any] = field(default_factory=dict)
@@ -100,46 +103,52 @@ class SOPEngine:
 
     def _register_defaults(self):
         """Register common personal SOPs."""
-        self.register(SOPDefinition(
-            name="daily_briefing",
-            description="Morning briefing: calendar, news, tasks",
-            steps=[
-                SOPStep(name="fetch_calendar", description="Get today's calendar events", tool="web_search"),
-                SOPStep(name="fetch_news", description="Get top news headlines", tool="web_search"),
-                SOPStep(name="fetch_tasks", description="Get pending tasks from memory", tool="recall"),
-                SOPStep(name="summarize", description="Combine into briefing", tool=""),
-            ],
-            input_schema={"date": "string (YYYY-MM-DD)"},
-            output_schema={"calendar": "list", "news": "list", "tasks": "list", "summary": "string"},
-            trigger_patterns=[r"daily briefing", r"morning briefing", r"what's on today"],
-        ))
+        self.register(
+            SOPDefinition(
+                name="daily_briefing",
+                description="Morning briefing: calendar, news, tasks",
+                steps=[
+                    SOPStep(name="fetch_calendar", description="Get today's calendar events", tool="web_search"),
+                    SOPStep(name="fetch_news", description="Get top news headlines", tool="web_search"),
+                    SOPStep(name="fetch_tasks", description="Get pending tasks from memory", tool="recall"),
+                    SOPStep(name="summarize", description="Combine into briefing", tool=""),
+                ],
+                input_schema={"date": "string (YYYY-MM-DD)"},
+                output_schema={"calendar": "list", "news": "list", "tasks": "list", "summary": "string"},
+                trigger_patterns=[r"daily briefing", r"morning briefing", r"what's on today"],
+            )
+        )
 
-        self.register(SOPDefinition(
-            name="email_draft",
-            description="Draft an email with proper structure",
-            steps=[
-                SOPStep(name="understand_intent", description="Parse recipient, subject, key points", tool=""),
-                SOPStep(name="draft_email", description="Write the email body", tool=""),
-                SOPStep(name="review", description="Check for tone, grammar, completeness", tool=""),
-            ],
-            input_schema={"recipient": "string", "subject": "string", "key_points": "list"},
-            output_schema={"subject": "string", "body": "string", "tone": "string"},
-            trigger_patterns=[r"draft.*email", r"compose.*email", r"write.*email"],
-        ))
+        self.register(
+            SOPDefinition(
+                name="email_draft",
+                description="Draft an email with proper structure",
+                steps=[
+                    SOPStep(name="understand_intent", description="Parse recipient, subject, key points", tool=""),
+                    SOPStep(name="draft_email", description="Write the email body", tool=""),
+                    SOPStep(name="review", description="Check for tone, grammar, completeness", tool=""),
+                ],
+                input_schema={"recipient": "string", "subject": "string", "key_points": "list"},
+                output_schema={"subject": "string", "body": "string", "tone": "string"},
+                trigger_patterns=[r"draft.*email", r"compose.*email", r"write.*email"],
+            )
+        )
 
-        self.register(SOPDefinition(
-            name="expense_report",
-            description="Generate expense report from receipts",
-            steps=[
-                SOPStep(name="gather_receipts", description="Find and parse receipts", tool="read_file"),
-                SOPStep(name="categorize", description="Categorize expenses", tool=""),
-                SOPStep(name="summarize", description="Create summary with totals", tool=""),
-                SOPStep(name="export", description="Format as report", tool=""),
-            ],
-            input_schema={"date_range": "string", "receipt_files": "list"},
-            output_schema={"categories": "dict", "total": "float", "report": "string"},
-            trigger_patterns=[r"expense report", r"receipt.*summary", r"spending.*report"],
-        ))
+        self.register(
+            SOPDefinition(
+                name="expense_report",
+                description="Generate expense report from receipts",
+                steps=[
+                    SOPStep(name="gather_receipts", description="Find and parse receipts", tool="read_file"),
+                    SOPStep(name="categorize", description="Categorize expenses", tool=""),
+                    SOPStep(name="summarize", description="Create summary with totals", tool=""),
+                    SOPStep(name="export", description="Format as report", tool=""),
+                ],
+                input_schema={"date_range": "string", "receipt_files": "list"},
+                output_schema={"categories": "dict", "total": "float", "report": "string"},
+                trigger_patterns=[r"expense report", r"receipt.*summary", r"spending.*report"],
+            )
+        )
 
     def register(self, sop: SOPDefinition):
         """Register an SOP."""
@@ -155,6 +164,7 @@ class SOPEngine:
         for sop in self._sops.values():
             for pattern in sop.trigger_patterns:
                 import re
+
                 if re.search(pattern, text_lower):
                     return sop
         return None
@@ -180,7 +190,7 @@ class SOPEngine:
             f"Goal: {step.description}",
         ]
         if context:
-            parts.append(f"\nContext from previous steps:")
+            parts.append("\nContext from previous steps:")
             for k, v in context.items():
                 parts.append(f"  {k}: {str(v)[:200]}")
         if step.output_fields:

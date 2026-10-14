@@ -2,7 +2,7 @@
 
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Callable, List, Optional
 
 from ..config import CONTEXT_MAX_TOKENS as MAX_CONTEXT_TOKENS
@@ -12,9 +12,10 @@ from ..memory import memory_store
 from ..utils.logger import logger
 
 
-
 class NallyAgent:
-    def __init__(self, session_id: Optional[str] = None, channel: Optional[str] = None, route_key: Optional[str] = None):
+    def __init__(
+        self, session_id: Optional[str] = None, channel: Optional[str] = None, route_key: Optional[str] = None
+    ):
         self.messages: List[dict] = []
         self._session_id = session_id or SESSION_ID
         # Human-facing channel label (e.g. "Telegram voice call"). Explicit
@@ -75,9 +76,7 @@ class NallyAgent:
         except Exception as e:
             logger.debug(f"Failed to load recent episodes: {e}")
 
-        system_content = get_system_prompt(
-            user_context=user_context, interface=self._channel or self._session_id
-        )
+        system_content = get_system_prompt(user_context=user_context, interface=self._channel or self._session_id)
 
         self.messages = [{"role": "system", "content": system_content, "cache_control": {"type": "ephemeral"}}]
 
@@ -133,12 +132,13 @@ class NallyAgent:
         start = time.time()
 
         # Prefix user message with temporal context (no extra messages accumulated)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts_prefix = f"[Current time: {now.strftime('%Y-%m-%d %H:%M UTC')} | Day: {now.strftime('%A')}]\n\n"
 
         # ── Input Guardrails ──
         try:
             from .guardrails import guardrail_engine
+
             input_results = guardrail_engine.check_input(user_input)
             if guardrail_engine.should_block(input_results):
                 blocked_msg = "I can't process that request. It appears to be outside my scope."
@@ -297,7 +297,5 @@ def get_agent() -> NallyAgent:
             if _agent_instance is None:
                 from .identity import owner_session_id
 
-                _agent_instance = NallyAgent(
-                    session_id=owner_session_id(), channel="CLI"
-                )
+                _agent_instance = NallyAgent(session_id=owner_session_id(), channel="CLI")
     return _agent_instance

@@ -9,26 +9,95 @@ import logging
 import math
 import re
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
 logger = logging.getLogger("nally.semantic_memory")
 
 # Simple stopwords for keyword extraction
-_STOPWORDS = frozenset({
-    "the", "is", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "it", "this", "that", "are", "was", "were", "be",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
-    "may", "might", "can", "shall", "not", "no", "if", "then", "than", "so",
-    "just", "about", "what", "when", "where", "how", "who", "which", "there",
-    "here", "now", "also", "very", "too", "my", "your", "its", "our", "their",
-    "me", "him", "her", "us", "them", "you", "he", "she", "we", "they", "i",
-})
+_STOPWORDS = frozenset(
+    {
+        "the",
+        "is",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "it",
+        "this",
+        "that",
+        "are",
+        "was",
+        "were",
+        "be",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "shall",
+        "not",
+        "no",
+        "if",
+        "then",
+        "than",
+        "so",
+        "just",
+        "about",
+        "what",
+        "when",
+        "where",
+        "how",
+        "who",
+        "which",
+        "there",
+        "here",
+        "now",
+        "also",
+        "very",
+        "too",
+        "my",
+        "your",
+        "its",
+        "our",
+        "their",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
+        "you",
+        "he",
+        "she",
+        "we",
+        "they",
+        "i",
+    }
+)
 
 
 @dataclass
 class MemoryEntry:
     """A memory entry with metadata for scoring."""
+
     key: str
     value: str
     category: str
@@ -57,7 +126,7 @@ class SemanticMemoryEngine:
     def __init__(self):
         self._memories: List[MemoryEntry] = []
         self._category_weights = {
-            "project": 1.2,   # Projects are important
+            "project": 1.2,  # Projects are important
             "auto_fact": 1.0,
             "fact": 1.0,
             "episode": 0.8,
@@ -65,14 +134,24 @@ class SemanticMemoryEngine:
         }
         # Importance keywords boost importance score
         self._importance_keywords = {
-            "high": ["password", "secret", "api", "token", "credential", "important",
-                     "critical", "urgent", "deadline", "payment", "invoice"],
+            "high": [
+                "password",
+                "secret",
+                "api",
+                "token",
+                "credential",
+                "important",
+                "critical",
+                "urgent",
+                "deadline",
+                "payment",
+                "invoice",
+            ],
             "medium": ["project", "meeting", "appointment", "task", "todo", "goal"],
             "low": ["weather", "joke", "random", "fun", "entertainment"],
         }
 
-    def add(self, key: str, value: str, category: str = "general",
-            confidence: float = 0.5, importance: float = None):
+    def add(self, key: str, value: str, category: str = "general", confidence: float = 0.5, importance: float = None):
         """Add or update a memory entry."""
         now = time.time()
 
@@ -91,15 +170,17 @@ class SemanticMemoryEngine:
                 mem.mention_count += 1
                 return
 
-        self._memories.append(MemoryEntry(
-            key=key,
-            value=value,
-            category=category,
-            confidence=confidence,
-            created_at=now,
-            last_accessed=now,
-            importance=importance,
-        ))
+        self._memories.append(
+            MemoryEntry(
+                key=key,
+                value=value,
+                category=category,
+                confidence=confidence,
+                created_at=now,
+                last_accessed=now,
+                importance=importance,
+            )
+        )
 
     def recall(self, query: str, limit: int = 12, min_confidence: float = 0.3) -> List[MemoryEntry]:
         """Recall memories ranked by composite score.
@@ -139,12 +220,7 @@ class SemanticMemoryEngine:
             cat_weight = self._category_weights.get(mem.category, 0.5)
 
             # Composite score (weighted)
-            score = (
-                0.35 * similarity +
-                0.25 * recency +
-                0.25 * importance +
-                0.15 * confidence
-            ) * cat_weight
+            score = (0.35 * similarity + 0.25 * recency + 0.25 * importance + 0.15 * confidence) * cat_weight
 
             scored.append((mem, score))
 
@@ -185,10 +261,7 @@ class SemanticMemoryEngine:
 
     def _tokenize(self, text: str) -> set:
         """Tokenize text into meaningful tokens."""
-        return {
-            t for t in re.split(r"[^a-z0-9]+", text.lower())
-            if len(t) > 2 and t not in _STOPWORDS
-        }
+        return {t for t in re.split(r"[^a-z0-9]+", text.lower()) if len(t) > 2 and t not in _STOPWORDS}
 
     def get_stats(self) -> Dict[str, Any]:
         """Get memory statistics."""

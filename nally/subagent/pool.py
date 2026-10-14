@@ -6,9 +6,9 @@ import threading
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
-from .agent import SubAgent
 from ..config import MAX_SUBAGENT_DEPTH
 from ..core.tracing import tracer
+from .agent import SubAgent
 
 logger = logging.getLogger("nally.subagent.pool")
 
@@ -73,7 +73,13 @@ class SubAgentPool:
 
         return agent.id
 
-    def spawn_many(self, tasks: List[Dict], emit: Optional[Callable] = None, model: Optional[str] = None, depth: Optional[int] = None) -> List[Optional[str]]:
+    def spawn_many(
+        self,
+        tasks: List[Dict],
+        emit: Optional[Callable] = None,
+        model: Optional[str] = None,
+        depth: Optional[int] = None,
+    ) -> List[Optional[str]]:
         """Spawn multiple sub-agents in parallel. Each task: {goal, context}"""
         return [
             self.spawn(

@@ -34,6 +34,7 @@ class GuardrailLayer(StrEnum):
 @dataclass
 class GuardrailResult:
     """Result of a single guardrail check."""
+
     guardrail_name: str
     verdict: GuardrailVerdict
     message: str = ""
@@ -53,6 +54,7 @@ class GuardrailResult:
 @dataclass
 class GuardrailCheck:
     """Definition of a guardrail check."""
+
     name: str
     layer: GuardrailLayer
     priority: int = 0  # Higher = runs first
@@ -77,40 +79,50 @@ class GuardrailEngine:
     def _register_defaults(self):
         """Register built-in guardrails."""
         # Input guardrails
-        self.register(GuardrailCheck(
-            name="prompt_injection",
-            layer=GuardrailLayer.INPUT,
-            priority=100,
-            check_fn=_check_prompt_injection,
-        ))
-        self.register(GuardrailCheck(
-            name="scope_check",
-            layer=GuardrailLayer.INPUT,
-            priority=90,
-            check_fn=_check_scope,
-        ))
+        self.register(
+            GuardrailCheck(
+                name="prompt_injection",
+                layer=GuardrailLayer.INPUT,
+                priority=100,
+                check_fn=_check_prompt_injection,
+            )
+        )
+        self.register(
+            GuardrailCheck(
+                name="scope_check",
+                layer=GuardrailLayer.INPUT,
+                priority=90,
+                check_fn=_check_scope,
+            )
+        )
 
         # Output guardrails
-        self.register(GuardrailCheck(
-            name="sensitive_data",
-            layer=GuardrailLayer.OUTPUT,
-            priority=100,
-            check_fn=_check_sensitive_data,
-        ))
-        self.register(GuardrailCheck(
-            name="honesty_check",
-            layer=GuardrailLayer.OUTPUT,
-            priority=90,
-            check_fn=_check_honesty,
-        ))
+        self.register(
+            GuardrailCheck(
+                name="sensitive_data",
+                layer=GuardrailLayer.OUTPUT,
+                priority=100,
+                check_fn=_check_sensitive_data,
+            )
+        )
+        self.register(
+            GuardrailCheck(
+                name="honesty_check",
+                layer=GuardrailLayer.OUTPUT,
+                priority=90,
+                check_fn=_check_honesty,
+            )
+        )
 
         # Tool guardrails
-        self.register(GuardrailCheck(
-            name="destructive_operation",
-            layer=GuardrailLayer.TOOL,
-            priority=100,
-            check_fn=_check_destructive_operation,
-        ))
+        self.register(
+            GuardrailCheck(
+                name="destructive_operation",
+                layer=GuardrailLayer.TOOL,
+                priority=100,
+                check_fn=_check_destructive_operation,
+            )
+        )
 
     def register(self, guardrail: GuardrailCheck):
         """Register a guardrail check."""
@@ -125,7 +137,9 @@ class GuardrailEngine:
         """Run all output guardrails."""
         return self._run_layer(GuardrailLayer.OUTPUT, response, context or {})
 
-    def check_tool(self, tool_name: str, tool_args: dict, tool_result: str = "", context: Dict[str, Any] = None) -> List[GuardrailResult]:
+    def check_tool(
+        self, tool_name: str, tool_args: dict, tool_result: str = "", context: Dict[str, Any] = None
+    ) -> List[GuardrailResult]:
         """Run all tool guardrails."""
         ctx = {**(context or {}), "tool_name": tool_name, "tool_args": tool_args, "tool_result": tool_result}
         return self._run_layer(GuardrailLayer.TOOL, f"{tool_name}({tool_args})", ctx)
@@ -251,9 +265,7 @@ def _check_honesty(text: str, context: Dict) -> Optional[GuardrailResult]:
     failed_tools = context.get("failed_tools", [])
 
     # Agent claims success but tools failed
-    success_claim = any(re.search(p, text_lower) for p in [
-        r"successfully", r"\bdone\b", r"\bcomplete\b", r"\bsuccess"
-    ])
+    success_claim = any(re.search(p, text_lower) for p in [r"successfully", r"\bdone\b", r"\bcomplete\b", r"\bsuccess"])
     if success_claim and failed_tools:
         return GuardrailResult(
             guardrail_name="honesty_check",

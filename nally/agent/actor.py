@@ -7,7 +7,6 @@ messages. One agent crashing doesn't crash others.
 This wraps Nally's existing SubAgent with actor semantics.
 """
 
-import asyncio
 import logging
 import threading
 import uuid
@@ -21,6 +20,7 @@ logger = logging.getLogger("nally.actor")
 @dataclass
 class ActorMessage:
     """A message sent to an actor."""
+
     sender: str
     recipient: str
     content: Any

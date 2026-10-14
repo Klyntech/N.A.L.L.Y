@@ -67,9 +67,8 @@ def init_telemetry(
             return True
 
         try:
-            from opentelemetry import metrics as otel_metrics, trace as otel_trace
-            from opentelemetry.sdk.resources import Resource
             from opentelemetry.sdk.metrics import MeterProvider
+            from opentelemetry.sdk.resources import Resource
             from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
         except Exception as e:  # pragma: no cover - optional dep
             logger.warning(f"OpenTelemetry not installed — metrics disabled: {e}")
@@ -104,10 +103,10 @@ def init_telemetry(
             pass
         if otlp_endpoint:
             try:
-                from opentelemetry.sdk.trace.export import BatchSpanProcessor
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
                     OTLPSpanExporter,
                 )
+                from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
                 exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
                 tracer_provider.add_span_processor(BatchSpanProcessor(exporter))

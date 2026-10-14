@@ -9,6 +9,7 @@ import pathlib
 import py_compile
 import sys
 
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -35,6 +36,7 @@ def main():
         print(json.dumps({"hookSpecificOutput": {"additionalContext": msg}}))
     else:
         print(json.dumps({}))
+
 
 if __name__ == "__main__":
     main()

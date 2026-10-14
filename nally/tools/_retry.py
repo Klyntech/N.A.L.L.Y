@@ -18,10 +18,24 @@ logger = logging.getLogger("nally.tools.retry")
 # Error substrings that indicate a transient (retryable) failure.
 # Matches the same hints used in nally/agent/graph.py for consistency.
 TRANSIENT_HINTS = (
-    "timeout", "timed out", "429", "503", "502", "500",
-    "temporarily", "connection reset", "try again", "rate limit",
-    "overloaded", "socket", "econn", "temporary failure", "gateway",
-    "connection refused", "connection closed", "remote disconnected",
+    "timeout",
+    "timed out",
+    "429",
+    "503",
+    "502",
+    "500",
+    "temporarily",
+    "connection reset",
+    "try again",
+    "rate limit",
+    "overloaded",
+    "socket",
+    "econn",
+    "temporary failure",
+    "gateway",
+    "connection refused",
+    "connection closed",
+    "remote disconnected",
 )
 
 
@@ -64,7 +78,10 @@ def retry_transient(
             delay = min(backoff_base * (2 ** (attempt - 1)), backoff_max)
             log.warning(
                 "Transient failure (attempt %d/%d), retrying in %.1fs: %s",
-                attempt, max_attempts, delay, str(exc)[:120],
+                attempt,
+                max_attempts,
+                delay,
+                str(exc)[:120],
             )
             time.sleep(delay)
 
@@ -91,6 +108,7 @@ def retry_transient_async(
         (result, None) on success, (None, last_exception) on failure.
     """
     import asyncio
+
     log = logging.getLogger(logger_name)
     last_exc: Optional[Exception] = None
 
@@ -100,6 +118,7 @@ def retry_transient_async(
             # Support both sync and async callables
             if hasattr(result, "__await__"):
                 import asyncio
+
                 result = asyncio.get_event_loop().run_until_complete(result)
             return result, None
         except Exception as exc:
@@ -110,7 +129,10 @@ def retry_transient_async(
             delay = min(backoff_base * (2 ** (attempt - 1)), backoff_max)
             log.warning(
                 "Transient failure (attempt %d/%d), retrying in %.1fs: %s",
-                attempt, max_attempts, delay, str(exc)[:120],
+                attempt,
+                max_attempts,
+                delay,
+                str(exc)[:120],
             )
             time.sleep(delay)
 

@@ -1,8 +1,8 @@
 """Tests for nally.tools._retry — shared retry utility."""
 
 import time
-import pytest
-from nally.tools._retry import retry_transient, _is_transient, TRANSIENT_HINTS
+
+from nally.tools._retry import _is_transient, retry_transient
 
 
 class TestIsTransient:
@@ -32,6 +32,7 @@ class TestIsTransient:
 class TestRetryTransient:
     def test_success_on_first_attempt(self):
         call_count = [0]
+
         def func():
             call_count[0] += 1
             return "ok"
@@ -43,6 +44,7 @@ class TestRetryTransient:
 
     def test_retries_on_transient_error(self):
         call_count = [0]
+
         def func():
             call_count[0] += 1
             if call_count[0] < 3:
@@ -65,6 +67,7 @@ class TestRetryTransient:
 
     def test_no_retry_on_permanent_error(self):
         call_count = [0]
+
         def func():
             call_count[0] += 1
             raise Exception("File not found")
@@ -75,6 +78,7 @@ class TestRetryTransient:
 
     def test_backoff_timing(self):
         call_count = [0]
+
         def func():
             call_count[0] += 1
             if call_count[0] < 3:
@@ -91,6 +95,7 @@ class TestRetryTransient:
 
     def test_max_attempts_1_no_retry(self):
         call_count = [0]
+
         def func():
             call_count[0] += 1
             raise Exception("timeout")
@@ -101,6 +106,7 @@ class TestRetryTransient:
 
     def test_result_is_none_not_string(self):
         """Ensure None results are handled (not confused with falsy strings)."""
+
         def func():
             return None
 

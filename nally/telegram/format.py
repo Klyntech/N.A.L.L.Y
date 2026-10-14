@@ -85,6 +85,7 @@ def md_to_telegram_html(text: str) -> str:
     #    the end. Telegram's HTML parser rejects attributes on tags other than
     #    <a>, so we must NOT emit class="language-...".
     code_blocks = []
+
     def _capture_code(m):
         lang = m.group(1)
         body = m.group(2).strip("\n")
@@ -98,6 +99,7 @@ def md_to_telegram_html(text: str) -> str:
     # 3. Inline code (`...`) — also stash with placeholders so bold/italic
     #    regexes don't match * or ** inside inline code.
     inline_codes = []
+
     def _capture_inline(m):
         inline_codes.append(m.group(1))
         return f"\x00INLINE{len(inline_codes) - 1}\x00"

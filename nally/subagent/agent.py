@@ -5,14 +5,15 @@ import uuid
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
+from ..core.tracing import tracer
 from ..tools.registry import registry
 from ..utils.logger import logger
-from ..core.tracing import tracer
 
 
 def _get_available_tools() -> List[Dict]:
     """Expose all registered tools so the model can choose from real capabilities."""
     return [tool.to_openai_schema() for tool in registry.tools.values()]
+
 
 class SubAgent:
     """An autonomous sub-agent that can think, use tools, and return results"""
@@ -49,6 +50,7 @@ class SubAgent:
         if self._conversation_messages or self._raw_context:
             try:
                 from ..agent.handoff import rewrite_context
+
                 self.context = rewrite_context(
                     goal=self.goal,
                     full_context=self._raw_context,

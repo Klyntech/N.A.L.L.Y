@@ -56,7 +56,7 @@ Add a new entry to `PERSONALITIES`:
 
 ```python
 PERSONALITIES = {
-    "nally": { ... },  # existing
+    "nally": {...},  # existing
     "jarvis": {
         "name": "J.A.R.V.I.S",
         "tone": "formal, precise, British, witty",

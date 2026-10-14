@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from .models import EngineeringError, EngineeringStage
 
@@ -38,7 +38,7 @@ class EngineeringWorkspace:
         self.manifest: Dict[str, Any] = {
             "task": task,
             "slug": self.slug,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "stages": [],
         }
 

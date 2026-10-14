@@ -1,8 +1,7 @@
 """Tests for nally.tools.registry — ToolError handling and success detection."""
 
-import pytest
 from nally.core.errors import ToolError
-from nally.tools.registry import ToolRegistry, Tool, _result_is_success
+from nally.tools.registry import Tool, ToolRegistry, _result_is_success
 
 
 class TestResultIsSuccess:
@@ -52,6 +51,7 @@ class TestToolRegistryExecute:
         class FailingTool(Tool):
             def __init__(self):
                 super().__init__(name="failing_tool", description="fails")
+
             def execute(self, **kwargs):
                 raise ToolError.failed("failing_tool", "intentional failure")
 
@@ -68,6 +68,7 @@ class TestToolRegistryExecute:
         class CrashTool(Tool):
             def __init__(self):
                 super().__init__(name="crash_tool", description="crashes")
+
             def execute(self, **kwargs):
                 raise RuntimeError("boom")
 
@@ -83,6 +84,7 @@ class TestToolRegistryExecute:
         class OkTool(Tool):
             def __init__(self):
                 super().__init__(name="ok_tool", description="works")
+
             def execute(self, **kwargs):
                 return "All good"
 

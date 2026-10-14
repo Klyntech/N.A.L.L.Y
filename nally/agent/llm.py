@@ -30,8 +30,10 @@ OPENCODE_FREE_MODELS = [
     "laguna-s-2.1-free",
 ]
 
+
 def _is_muse_spark(model: str) -> bool:
     return "muse-spark" in (model or "").lower()
+
 
 # NIM models in fallback order for rate-limit rotation
 NIM_MODELS_LIST = [
@@ -79,7 +81,7 @@ def _openai_messages_to_responses(messages: list) -> tuple[str | None, list]:
         if role == "system":
             if isinstance(content, list):
                 # multimodal system? join texts
-                txt = " ".join(c.get("text","") for c in content if isinstance(c, dict))
+                txt = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
                 instructions_parts.append(txt)
             elif content:
                 instructions_parts.append(str(content))
@@ -108,7 +110,7 @@ def _openai_messages_to_responses(messages: list) -> tuple[str | None, list]:
                         if img_url:
                             converted.append({"type": "input_image", "image_url": img_url})
                     elif part.get("text"):
-                        converted.append({"type": "input_text", "text": part.get("text","")})
+                        converted.append({"type": "input_text", "text": part.get("text", "")})
                 # If conversion produced nothing, fallback to string
                 if converted:
                     input_list.append({"role": "user", "content": converted})
@@ -146,21 +148,25 @@ def _openai_messages_to_responses(messages: list) -> tuple[str | None, list]:
                         if isinstance(tc_args, dict):
                             tc_args = json.dumps(tc_args)
                     if tc_name:
-                        input_list.append({
-                            "type": "function_call",
-                            "call_id": tc_id,
-                            "name": tc_name,
-                            "arguments": tc_args if isinstance(tc_args, str) else json.dumps(tc_args),
-                        })
+                        input_list.append(
+                            {
+                                "type": "function_call",
+                                "call_id": tc_id,
+                                "name": tc_name,
+                                "arguments": tc_args if isinstance(tc_args, str) else json.dumps(tc_args),
+                            }
+                        )
         elif role == "tool":
             # Tool output -> function_call_output
             tool_call_id = m.get("tool_call_id", "")
             # responses expects call_id
-            input_list.append({
-                "type": "function_call_output",
-                "call_id": tool_call_id,
-                "output": str(content) if content is not None else "",
-            })
+            input_list.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": tool_call_id,
+                    "output": str(content) if content is not None else "",
+                }
+            )
         else:
             # Fallback: treat as user
             input_list.append({"role": role, "content": str(content) if content is not None else ""})
@@ -234,6 +240,7 @@ def _responses_to_chat_completion(resp):
         # Create a simple object with prompt_tokens/completion_tokens for context_manager
         class _Usage:
             pass
+
         u = _Usage()
         u.prompt_tokens = getattr(usage, "input_tokens", 0) or 0
         u.completion_tokens = getattr(usage, "output_tokens", 0) or 0
@@ -334,10 +341,7 @@ class NallyLLM:
         self._clients = [_build_client(k, BASE_URL) for k in self._keys]
         self._active_idx = 0
         self._initialized = True
-        logger.info(
-            f"Connected to {PROVIDER.upper()} ({self.model}) "
-            f"with {len(self._keys)} key(s)"
-        )
+        logger.info(f"Connected to {PROVIDER.upper()} ({self.model}) with {len(self._keys)} key(s)")
 
     def _get_active_client(self) -> OpenAI:
         """Return the current active client (thread-safe index read)."""
@@ -366,7 +370,9 @@ class NallyLLM:
         # If the selected model is known-failed (rate-limited) and we have
         # alternatives, jump straight to the first healthy fallback model.
         if model in self._failed_models:
-            fallback_list = NIM_MODELS_LIST if PROVIDER == "nim" else (OPENCODE_FREE_MODELS if PROVIDER == "opencode" else [])
+            fallback_list = (
+                NIM_MODELS_LIST if PROVIDER == "nim" else (OPENCODE_FREE_MODELS if PROVIDER == "opencode" else [])
+            )
             for m in fallback_list:
                 if m not in self._failed_models:
                     logger.debug(f"Skipping failed model {model}; using {m}")
@@ -439,7 +445,8 @@ class NallyLLM:
         try:
             has_image = any(
                 isinstance(item.get("content"), list) and any(p.get("type") == "input_image" for p in item["content"])
-                for item in input_list if isinstance(item, dict)
+                for item in input_list
+                if isinstance(item, dict)
             )
             if has_image:
                 max_out = max(max_out, 2500)
@@ -518,7 +525,14 @@ class NallyLLM:
         logger.error(f"All {PROVIDER.upper()} models rate-limited/failed (last: {last_exc})")
         raise last_exc
 
-    def chat(self, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default", max_tokens: int = 4096) -> dict:
+    def chat(
+        self,
+        messages: list,
+        tools: list = None,
+        temperature: float = 0.7,
+        cache_key: str = "default",
+        max_tokens: int = 4096,
+    ) -> dict:
         client = self._get_active_client()
 
         # Route to best model for this task
@@ -564,7 +578,7 @@ class NallyLLM:
             if text:
                 # Split into ~50 char chunks
                 for i in range(0, len(text), 80):
-                    yield text[i:i+80]
+                    yield text[i : i + 80]
             return
 
         response = self._create_completion(
@@ -597,7 +611,9 @@ class NallyLLM:
         model = self._select_model(messages, tools)
         # Muse Spark via responses doesn't support chat streaming — emulate
         if _is_muse_spark(model):
-            resp = self.chat(messages, tools=tools, temperature=temperature, cache_key=cache_key, max_tokens=16384 if tools else 4096)
+            resp = self.chat(
+                messages, tools=tools, temperature=temperature, cache_key=cache_key, max_tokens=16384 if tools else 4096
+            )
             msg = resp.choices[0].message
             if msg.content:
                 yield {"type": "content", "text": msg.content}
@@ -690,7 +706,13 @@ class NallyLLM:
         return self.stream_chat(messages)
 
     def chat_with_model(
-        self, model: str, messages: list, tools: list = None, temperature: float = 0.7, cache_key: str = "default", max_tokens: int = 2048
+        self,
+        model: str,
+        messages: list,
+        tools: list = None,
+        temperature: float = 0.7,
+        cache_key: str = "default",
+        max_tokens: int = 2048,
     ) -> dict:
         """Chat with a specific model (bypasses routing)"""
         # Muse Spark requires responses API

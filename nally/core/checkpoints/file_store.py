@@ -6,7 +6,6 @@ Mirrors vibe/core/checkpoints/file_store.py.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Dict
 
 from .fs import DiskFilesystem, Filesystem

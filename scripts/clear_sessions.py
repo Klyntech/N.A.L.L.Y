@@ -1,7 +1,5 @@
-import sqlite3
 import os
-import shutil
-import time
+import sqlite3
 
 print("=" * 60)
 print("CLEARING ALL NALLY SESSIONS")

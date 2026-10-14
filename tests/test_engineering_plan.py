@@ -58,12 +58,7 @@ def test_parse_test_plan():
 
 
 def test_parse_implementation_files_array():
-    text = (
-        '{"files":['
-        '{"path":"main.py","content":"print(1)\\n"},'
-        '{"path":"README.md","content":"# hi"}'
-        ']}'
-    )
+    text = '{"files":[{"path":"main.py","content":"print(1)\\n"},{"path":"README.md","content":"# hi"}]}'
     files = parse_implementation(text)
     assert files["main.py"] == "print(1)\n"
     assert files["README.md"] == "# hi"

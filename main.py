@@ -23,7 +23,12 @@ def main():
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     # Render injects PORT=10000 by default — respect it. Docs: https://render.com/docs/web-services#port-binding
     # Bind to 0.0.0.0:$PORT (see run_web). Local default remains 5000 if PORT unset.
-    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", os.getenv("NALLY_PORT", "5000"))), help="Web server port (default: $PORT or 5000; Render uses 10000)")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("PORT", os.getenv("NALLY_PORT", "5000"))),
+        help="Web server port (default: $PORT or 5000; Render uses 10000)",
+    )
     parser.add_argument("--provider", choices=["groq", "opencode", "nim"], help="Override LLM provider")
     parser.add_argument("--verbose", action="store_true", help="Show full MCP server tree during startup")
     parser.add_argument(
@@ -165,7 +170,10 @@ def run_web(port=None):
 
     for name in ("uvicorn.access",):
         logging.getLogger(name).addFilter(_UvicornFilter())
-    print(f"[nally] Binding to 0.0.0.0:{port} (PORT env={os.getenv('PORT')}, NALLY_PORT env={os.getenv('NALLY_PORT')})", flush=True)
+    print(
+        f"[nally] Binding to 0.0.0.0:{port} (PORT env={os.getenv('PORT')}, NALLY_PORT env={os.getenv('NALLY_PORT')})",
+        flush=True,
+    )
 
     # Auto-open browser
     def _open():
@@ -184,7 +192,7 @@ def run_web(port=None):
     # via its own Application (started in the FastAPI lifespan), so spawning a
     # second poller here would cause a Telegram 409 conflict on the same token.
     bot_proc = None
-    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID
+    from nally.config import TELEGRAM_USER_ID, resolve_telegram_mode
 
     telegram_mode = resolve_telegram_mode()
     if telegram_mode == "polling":
@@ -196,8 +204,10 @@ def run_web(port=None):
     elif telegram_mode == "webhook":
         print("Telegram bot owned by web server (webhook mode) — no separate poller spawned.")
     else:
-        print("[warn] TELEGRAM_BOT_TOKEN not set or TELEGRAM_MODE=off — Telegram bot not started "
-              "(web server is still running).")
+        print(
+            "[warn] TELEGRAM_BOT_TOKEN not set or TELEGRAM_MODE=off — Telegram bot not started "
+            "(web server is still running)."
+        )
 
     def _kill_bot():
         if bot_proc is not None and bot_proc.poll() is None:
@@ -221,7 +231,7 @@ def run_web(port=None):
     # Start Telegram user account (Telethon) as a separate process
     # Voice calls are handled inside user.py (same process, same Telethon client)
     tg_user_proc = None
-    from nally.config import resolve_telegram_mode, TELEGRAM_USER_ID, DATA_DIR
+    from nally.config import DATA_DIR, resolve_telegram_mode
 
     _tg_session = DATA_DIR / "telegram_user" / "nally_user.session"
 
@@ -239,6 +249,7 @@ def run_web(port=None):
         print("[warn] TELEGRAM_USER_ID not set — Telegram user account not started.")
 
     import signal
+
     import uvicorn
 
     from nally.web.app import app

@@ -22,6 +22,7 @@ _REQUEST_TIMEOUT = 15  # seconds
 @dataclass
 class FeedItem:
     """A single item from a feed source."""
+
     title: str = ""
     url: str = ""
     source: str = ""
@@ -62,14 +63,16 @@ def fetch_hacker_news(limit: int = 20) -> List[FeedItem]:
             ).json()
             if not story or story.get("type") != "story":
                 continue
-            items.append(FeedItem(
-                title=story.get("title", ""),
-                url=story.get("url", f"https://news.ycombinator.com/item?id={sid}"),
-                source="hacker_news",
-                tags=_extract_tags(story.get("title", "")),
-                score=float(story.get("score", 0)),
-                published=float(story.get("time", 0)),
-            ))
+            items.append(
+                FeedItem(
+                    title=story.get("title", ""),
+                    url=story.get("url", f"https://news.ycombinator.com/item?id={sid}"),
+                    source="hacker_news",
+                    tags=_extract_tags(story.get("title", "")),
+                    score=float(story.get("score", 0)),
+                    published=float(story.get("time", 0)),
+                )
+            )
         except Exception:
             continue
 
@@ -84,10 +87,14 @@ def fetch_github_trending(language: str = "", since: str = "daily", limit: int =
     url += f"?since={since}"
 
     try:
-        resp = requests.get(url, timeout=_REQUEST_TIMEOUT, headers={
-            "User-Agent": "Nally-Curiosity/1.0",
-            "Accept": "text/html",
-        })
+        resp = requests.get(
+            url,
+            timeout=_REQUEST_TIMEOUT,
+            headers={
+                "User-Agent": "Nally-Curiosity/1.0",
+                "Accept": "text/html",
+            },
+        )
         resp.raise_for_status()
     except Exception as e:
         logger.warning(f"GitHub trending failed: {e}")
@@ -103,19 +110,22 @@ def fetch_github_trending(language: str = "", since: str = "daily", limit: int =
             for j in range(max(0, i - 5), min(len(lines), i + 10)):
                 if "/<a" in lines[j] or "href=/" in lines[j]:
                     import re
+
                     match = re.search(r'href="(/[^"]+)"', lines[j])
                     if match:
                         repo_path = match.group(1).strip("/")
                         parts = repo_path.split("/")
                         if len(parts) == 2:
-                            items.append(FeedItem(
-                                title=repo_path,
-                                url=f"https://github.com/{repo_path}",
-                                source="github_trending",
-                                tags=_extract_tags(repo_path),
-                                score=0.0,
-                                published=time.time(),
-                            ))
+                            items.append(
+                                FeedItem(
+                                    title=repo_path,
+                                    url=f"https://github.com/{repo_path}",
+                                    source="github_trending",
+                                    tags=_extract_tags(repo_path),
+                                    score=0.0,
+                                    published=time.time(),
+                                )
+                            )
                             repo_count += 1
                             if repo_count >= limit:
                                 return items
@@ -148,16 +158,19 @@ def fetch_devto(tag: str = "", limit: int = 20) -> List[FeedItem]:
         published = 0
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             import calendar
+
             published = calendar.timegm(entry.published_parsed)
 
-        items.append(FeedItem(
-            title=entry.get("title", ""),
-            url=entry.get("link", ""),
-            source="devto",
-            tags=tags or _extract_tags(entry.get("title", "")),
-            score=0.0,
-            published=published,
-        ))
+        items.append(
+            FeedItem(
+                title=entry.get("title", ""),
+                url=entry.get("link", ""),
+                source="devto",
+                tags=tags or _extract_tags(entry.get("title", "")),
+                score=0.0,
+                published=published,
+            )
+        )
 
     return items
 
@@ -165,9 +178,35 @@ def fetch_devto(tag: str = "", limit: int = 20) -> List[FeedItem]:
 def _extract_tags(text: str) -> List[str]:
     """Extract potential tags/keywords from text."""
     import re
-    words = re.findall(r'[a-zA-Z][a-zA-Z0-9+#_.-]+', text.lower())
+
+    words = re.findall(r"[a-zA-Z][a-zA-Z0-9+#_.-]+", text.lower())
     # Keep words that look like tech terms
-    stop = {"the", "and", "for", "with", "from", "that", "this", "are", "was", "not", "but", "how", "why", "what", "when", "where", "new", "your", "has", "have", "its", "can", "will", "all"}
+    stop = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "that",
+        "this",
+        "are",
+        "was",
+        "not",
+        "but",
+        "how",
+        "why",
+        "what",
+        "when",
+        "where",
+        "new",
+        "your",
+        "has",
+        "have",
+        "its",
+        "can",
+        "will",
+        "all",
+    }
     return [w for w in words if w not in stop and len(w) >= 2][:8]
 
 

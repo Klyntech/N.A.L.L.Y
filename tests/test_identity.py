@@ -3,7 +3,7 @@
 import pytest
 
 from nally.agent import identity
-from nally.agent.identity import SessionRef, resolve_session
+from nally.agent.identity import resolve_session
 
 
 @pytest.fixture(autouse=True)
@@ -111,7 +111,9 @@ def test_note_owner_respects_configured(monkeypatch):
 def test_single_user_mode_treats_anyone_as_owner(monkeypatch):
     monkeypatch.setattr(identity, "configured_owner_id", lambda: None)
     identity._detected_owner = None
-    assert resolve_session("telegram", chat_id=321).session_id == "user:owner"# ── History migration ─────────────────────────────────────
+    assert (
+        resolve_session("telegram", chat_id=321).session_id == "user:owner"
+    )  # ── History migration ─────────────────────────────────────
 
 
 def test_merge_sessions_into_copies_and_caps(tmp_path):
@@ -125,9 +127,7 @@ def test_merge_sessions_into_copies_and_caps(tmp_path):
     store.save_messages([{"role": "user", "content": "t1"}], session_id="telegram:111")
     store.save_messages([{"role": "user", "content": "u1"}], session_id="tg_user:111")
 
-    copied = store.merge_sessions_into(
-        ["web:default", "telegram:111", "tg_user:111"], "user:111", limit=200
-    )
+    copied = store.merge_sessions_into(["web:default", "telegram:111", "tg_user:111"], "user:111", limit=200)
     assert copied == 4
     merged = store.load_messages("user:111")
     assert [m["content"] for m in merged] == ["w1", "w2", "t1", "u1"]

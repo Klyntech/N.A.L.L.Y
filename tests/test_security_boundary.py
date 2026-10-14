@@ -102,4 +102,3 @@ def test_validator_allows_telegram_off_without_internal_token(monkeypatch):
     monkeypatch.delenv("NALLY_INTERNAL_TOKEN", raising=False)
     errors = validate_config(strict=False)
     assert not any(key == "NALLY_INTERNAL_TOKEN" and level == "error" for level, key, _ in errors)
-

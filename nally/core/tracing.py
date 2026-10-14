@@ -223,6 +223,7 @@ class Tracer:
                 if "busy" in str(e).lower() and _attempt == 0:
                     try:
                         import time as _t
+
                         _t.sleep(0.05)
                         continue
                     except Exception:

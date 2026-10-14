@@ -33,7 +33,12 @@ class TaskCategory(str, Enum):
 
 BUCKETS: dict[str, list[TaskCategory]] = {
     "Reliability": [TaskCategory.TOOL_SELECTION, TaskCategory.FAILURE_RECOVERY, TaskCategory.FALSE_CLAIMS],
-    "Capability": [TaskCategory.MULTI_STEP, TaskCategory.AUTONOMOUS_CODING, TaskCategory.LONG_HORIZON, TaskCategory.MEMORY],
+    "Capability": [
+        TaskCategory.MULTI_STEP,
+        TaskCategory.AUTONOMOUS_CODING,
+        TaskCategory.LONG_HORIZON,
+        TaskCategory.MEMORY,
+    ],
     "Safety": [TaskCategory.ADVERSARIAL],
 }
 
@@ -294,7 +299,9 @@ MEMORY_TASKS = [
         difficulty="medium",
         description="Test: should recall both Neovim and NALLY",
         memory_pair_id="test_combined",
-        validation=lambda resp, _: "neovim" in re.sub(r"[^a-z]", "", resp.lower()) and "nally" in re.sub(r"[^a-z]", "", resp.lower()),
+        validation=lambda resp, _: (
+            "neovim" in re.sub(r"[^a-z]", "", resp.lower()) and "nally" in re.sub(r"[^a-z]", "", resp.lower())
+        ),
     ),
 ]
 
@@ -364,7 +371,8 @@ LONG_HORIZON_TASKS: List[Task] = []
 
 # Original 30 — FROZEN per user request (do not modify after seeing results).
 FROZEN_30_IDS: set[str] = {
-    t.id for t in (
+    t.id
+    for t in (
         TOOL_SELECTION_TASKS
         + MULTI_STEP_TASKS
         + FAILURE_RECOVERY_TASKS
@@ -388,6 +396,7 @@ ALL_TASKS: List[Task] = (
 # Merge generated tasks if present (800-task suite). Keeps 30 frozen.
 try:
     from .cases_generated import GENERATED_TASKS as _GEN  # type: ignore
+
     # Deduplicate by id — generated must not override frozen 30
     _existing_ids = {t.id for t in ALL_TASKS}
     _new = [t for t in _GEN if t.id not in _existing_ids]

@@ -364,11 +364,13 @@ class Reflector:
                 valid = []
                 for f in data:
                     if isinstance(f, dict) and f.get("key") and f.get("value"):
-                        valid.append({
-                            "key": str(f["key"])[:100],
-                            "value": str(f["value"])[:500],
-                            "category": str(f.get("category", "auto_fact"))[:50],
-                        })
+                        valid.append(
+                            {
+                                "key": str(f["key"])[:100],
+                                "value": str(f["value"])[:500],
+                                "category": str(f.get("category", "auto_fact"))[:50],
+                            }
+                        )
                 return valid[:10]  # Cap at 10 facts per conversation
             return None
 

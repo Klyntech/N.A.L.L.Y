@@ -1,8 +1,9 @@
 """Tests for nally.tools.system — RunCommand."""
 
-import platform
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from nally.tools.system import RunCommand, _get_shell, _normalize_powershell
 
 
@@ -62,4 +63,3 @@ class TestRunCommand:
     def test_invalid_command(self, run_command):
         result = run_command.execute(command="nonexistent_command_xyz")
         assert "Error" in result or "Exit code" in result
-

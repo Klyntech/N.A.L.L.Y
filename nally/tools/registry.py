@@ -112,7 +112,10 @@ class ToolRegistry:
         if not tool:
             # Still not found — give a helpful hint for the two core tools
             if name in ("run_command", "read_file", "file_ops"):
-                return f"Error: Tool '{name}' not found (registry not yet initialized — try again, or check load_all_tools() was called)", False
+                return (
+                    f"Error: Tool '{name}' not found (registry not yet initialized — try again, or check load_all_tools() was called)",
+                    False,
+                )
             return f"Error: Tool '{name}' not found", False
 
         try:

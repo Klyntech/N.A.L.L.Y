@@ -9,10 +9,9 @@ agent, critic agent iterate together.
 """
 
 import logging
-import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 logger = logging.getLogger("nally.group_chat")
 
@@ -20,6 +19,7 @@ logger = logging.getLogger("nally.group_chat")
 @dataclass
 class ChatMessage:
     """A message in the group chat."""
+
     speaker: str
     content: str
     round_num: int = 0
@@ -37,6 +37,7 @@ class ChatMessage:
 @dataclass
 class GroupChatResult:
     """Result of a group chat session."""
+
     topic: str
     messages: List[ChatMessage]
     synthesis: str

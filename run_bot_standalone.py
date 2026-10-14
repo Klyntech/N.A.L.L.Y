@@ -9,6 +9,7 @@ Single-owner enforcement (Path B): this standalone poller is ONLY for polling
 mode. If the resolved Telegram mode is webhook or off, the bot exits cleanly
 so it never competes with the web server's own Application on the same token.
 """
+
 import os
 import sys
 
@@ -25,8 +26,7 @@ from nally.telegram.bot import run_telegram_bot
 if __name__ == "__main__":
     if resolve_telegram_mode() != "polling":
         print(
-            "Telegram mode is not 'polling' — the standalone poller is not the owner. "
-            "Exiting without starting the bot."
+            "Telegram mode is not 'polling' — the standalone poller is not the owner. Exiting without starting the bot."
         )
         sys.exit(0)
     run_telegram_bot(polling=True)

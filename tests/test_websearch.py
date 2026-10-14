@@ -103,9 +103,7 @@ def test_brave_http_error_returns_none():
 
 
 def test_duckduckgo_formats_results():
-    mock_result = [
-        {"title": "DDG Result", "href": "https://ddg.example", "body": "DuckDuckGo snippet"}
-    ]
+    mock_result = [{"title": "DDG Result", "href": "https://ddg.example", "body": "DuckDuckGo snippet"}]
     with patch("nally.tools.websearch.DDGS") as mock_ddgs:
         instance = MagicMock()
         instance.text.return_value = mock_result

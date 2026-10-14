@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .loader import SKILLS_DIR, Skill, get_skill_manifest, load_skills, clear_cache
+from .loader import SKILLS_DIR, Skill, clear_cache, load_skills
 
 logger = logging.getLogger("nally.skills")
 
@@ -84,9 +84,7 @@ class SkillRegistry:
             overlap = desc_words & msg_words
             # Require 3+ word overlap, OR full skill name in message (not partial segments)
             name_words = name.split("-")
-            full_name_in_msg = len(name_words) >= 2 and all(
-                kw in message_lower for kw in name_words
-            )
+            full_name_in_msg = len(name_words) >= 2 and all(kw in message_lower for kw in name_words)
             if len(overlap) >= 3 or full_name_in_msg:
                 matches.append((name, len(overlap)))
 

@@ -16,14 +16,8 @@ from nally.engineering.protocol import FakeLLMBackend
 from nally.engineering.toolbox import FakeToolbox
 from nally.engineering.workspace import EngineeringWorkspace
 
-MAIN_OK = (
-    "def organize_by_extension(folder):\n"
-    "    return {}\n"
-)
-TEST_OK = (
-    "def test_x():\n"
-    "    assert organize_by_extension('x') == {}\n"
-)
+MAIN_OK = "def organize_by_extension(folder):\n    return {}\n"
+TEST_OK = "def test_x():\n    assert organize_by_extension('x') == {}\n"
 
 
 def _brainstorm():

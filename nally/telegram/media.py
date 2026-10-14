@@ -22,13 +22,29 @@ MAX_FILE_SIZE = 15 * 1024 * 1024  # 15 MB cap for downloads
 MAX_TEXT_EXTRACT = 100 * 1024  # 100 KB cap for inline text
 INBOX_ROOT = DATA_DIR / "telegram_inbox"
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
-TEXT_EXTS = {".txt", ".md", ".csv", ".json", ".py", ".js", ".html", ".css", ".yaml", ".yml", ".toml", ".cfg", ".log", ".sql"}
+TEXT_EXTS = {
+    ".txt",
+    ".md",
+    ".csv",
+    ".json",
+    ".py",
+    ".js",
+    ".html",
+    ".css",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".cfg",
+    ".log",
+    ".sql",
+}
 PDF_EXT = ".pdf"
 
 # ── Regex for outbound markers ──
 IMAGE_FILE_RE = re.compile(r"IMAGE_FILE:\s*([^\n]+)")
 IMAGE_URL_RE = re.compile(r"IMAGE_URL:\s*([^\n]+)")
 SEND_FILE_RE = re.compile(r"SEND_FILE:\s*([^\n]+)")
+
 
 def _get_inbox_dir(session_id: str) -> Path:
     # sanitize session_id for filesystem — Windows forbids : < > " / \ | ? * in folder names
@@ -42,8 +58,10 @@ def _get_inbox_dir(session_id: str) -> Path:
     p.mkdir(parents=True, exist_ok=True)
     return p
 
+
 def _is_image_path(path: Path) -> bool:
     return path.suffix.lower() in IMAGE_EXTS
+
 
 def _extract_text_file(path: Path) -> Optional[str]:
     """Try to read text file up to MAX_TEXT_EXTRACT. Returns None if not text."""
@@ -70,6 +88,7 @@ def _extract_text_file(path: Path) -> Optional[str]:
     except Exception as e:
         logger.debug(f"extract_text_file failed for {path}: {e}")
         return None
+
 
 def _extract_pdf_text(path: Path, max_pages: int = 3) -> Optional[str]:
     """Extract text from PDF via pypdf if available. Returns None if unavailable or empty."""
@@ -98,6 +117,7 @@ def _extract_pdf_text(path: Path, max_pages: int = 3) -> Optional[str]:
         logger.debug(f"PDF extract failed {path}: {e}")
         return None
 
+
 def parse_outbound_files(text: str) -> list[Path]:
     """Find IMAGE_FILE:, IMAGE_URL:, and SEND_FILE: markers in agent response."""
     paths: list[Path] = []
@@ -113,6 +133,7 @@ def parse_outbound_files(text: str) -> list[Path]:
             # Download URL to temp file for Telegram send
             try:
                 import httpx
+
                 resp = httpx.get(url, timeout=30.0, follow_redirects=True)
                 resp.raise_for_status()
                 ext = ".jpg"
@@ -143,6 +164,7 @@ def parse_outbound_files(text: str) -> list[Path]:
             uniq.append(p)
     return uniq
 
+
 def strip_file_markers(text: str) -> str:
     """Remove IMAGE_FILE:/IMAGE_URL:/SEND_FILE: lines from text after sending."""
     text = IMAGE_FILE_RE.sub("", text)
@@ -151,6 +173,7 @@ def strip_file_markers(text: str) -> str:
     # collapse multiple blank lines
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text
+
 
 def describe_inbound_file(path: Path, extract_text: bool = True) -> str:
     """Build a human-readable description for agent context."""
@@ -181,7 +204,9 @@ def describe_inbound_file(path: Path, extract_text: bool = True) -> str:
         desc += " (binary/other — describe what to do with it)"
     return desc
 
+
 # ── Inbound — Telethon ──
+
 
 async def save_telethon_media(client, message, session_id: str) -> tuple[Optional[Path], str]:
     """Download Telethon message media to inbox.
@@ -196,7 +221,7 @@ async def save_telethon_media(client, message, session_id: str) -> tuple[Optiona
         try:
             fsize = getattr(message.file, "size", None) if getattr(message, "file", None) else None
             if fsize and fsize > MAX_FILE_SIZE:
-                return None, f"[User sent file too large: {fsize/1024/1024:.1f}MB > 15MB — ignored]"
+                return None, f"[User sent file too large: {fsize / 1024 / 1024:.1f}MB > 15MB — ignored]"
         except Exception:
             pass
 
@@ -230,7 +255,7 @@ async def save_telethon_media(client, message, session_id: str) -> tuple[Optiona
         if not data:
             return None, "[User sent file but download returned empty]"
         if len(data) > MAX_FILE_SIZE:
-            return None, f"[User sent file too large: {len(data)/1024/1024:.1f}MB > 15MB — ignored]"
+            return None, f"[User sent file too large: {len(data) / 1024 / 1024:.1f}MB > 15MB — ignored]"
 
         dest.write_bytes(data)
         logger.info(f"Saved inbound Telethon media: {dest} ({len(data)} bytes)")
@@ -239,6 +264,7 @@ async def save_telethon_media(client, message, session_id: str) -> tuple[Optiona
     except Exception as e:
         logger.error(f"save_telethon_media failed: {e}")
         return None, f"[Failed to save inbound file: {e}]"
+
 
 def build_agent_input(caption: str, media_desc: str) -> str:
     """Combine caption + media description into agent prompt."""
@@ -253,7 +279,9 @@ def build_agent_input(caption: str, media_desc: str) -> str:
     else:
         return ""
 
+
 # ── Inbound — Bot (python-telegram-bot) ──
+
 
 async def save_bot_media(bot, message, session_id: str) -> tuple[Optional[Path], str]:
     """Download PTB message media (photo/document) to inbox."""
@@ -272,7 +300,7 @@ async def save_bot_media(bot, message, session_id: str) -> tuple[Optional[Path],
         elif message.document:
             doc = message.document
             if doc.file_size and doc.file_size > MAX_FILE_SIZE:
-                return None, f"[User sent file too large: {doc.file_size/1024/1024:.1f}MB > 15MB — ignored]"
+                return None, f"[User sent file too large: {doc.file_size / 1024 / 1024:.1f}MB > 15MB — ignored]"
             file_obj = await doc.get_file()
             name = doc.file_name or f"file_{int(time.time())}.bin"
             if "." in name:
@@ -293,7 +321,7 @@ async def save_bot_media(bot, message, session_id: str) -> tuple[Optional[Path],
         data = await file_obj.download_as_bytearray()
         b = bytes(data)
         if len(b) > MAX_FILE_SIZE:
-            return None, f"[User sent file too large: {len(b)/1024/1024:.1f}MB > 15MB — ignored]"
+            return None, f"[User sent file too large: {len(b) / 1024 / 1024:.1f}MB > 15MB — ignored]"
         if not b:
             return None, "[Downloaded file was empty]"
         dest.write_bytes(b)
@@ -304,7 +332,9 @@ async def save_bot_media(bot, message, session_id: str) -> tuple[Optional[Path],
         logger.error(f"save_bot_media failed: {e}")
         return None, f"[Failed to save inbound file: {e}]"
 
+
 # ── Outbound — Telethon ──
+
 
 async def send_attachments_telethon(client, peer, paths: list[Path], caption: str = ""):
     """Send files via Telethon client."""
@@ -329,7 +359,9 @@ async def send_attachments_telethon(client, peer, paths: list[Path], caption: st
             except Exception:
                 pass
 
+
 # ── Outbound — Bot (PTB) ──
+
 
 async def send_attachments_bot(bot, chat_id: int, paths: list[Path], caption: str = ""):
     """Send files via PTB Bot."""
@@ -352,12 +384,15 @@ async def send_attachments_bot(bot, chat_id: int, paths: list[Path], caption: st
             except Exception:
                 pass
 
+
 # ── Vision helper (optional) ──
+
 
 def _should_use_vision() -> bool:
     """Check if current LLM likely supports vision (cheap heuristic)."""
     try:
         from ..config import ACTIVE_MODEL
+
         m = ACTIVE_MODEL.lower()
         vision_keywords = ("vision", "gpt-4", "claude", "gemini", "llava", "image", "muse-spark", "spark")
         if any(k in m for k in vision_keywords):
@@ -373,8 +408,8 @@ def _should_use_vision() -> bool:
 def _try_ocr(image_path: Path) -> Optional[str]:
     """Try local OCR via pytesseract if installed. Returns extracted text or None."""
     try:
-        from PIL import Image
         import pytesseract  # type: ignore
+        from PIL import Image
 
         # quick check: tesseract binary must be available
         try:
@@ -386,7 +421,7 @@ def _try_ocr(image_path: Path) -> Optional[str]:
         img = Image.open(image_path).convert("L")
         # Simple contrast stretch for dark images
         try:
-            from PIL import ImageOps, ImageEnhance
+            from PIL import ImageEnhance, ImageOps
 
             # Autocontrast + slight upscale for small UI text
             img = ImageOps.autocontrast(img, cutoff=2)
@@ -415,12 +450,15 @@ def _try_ocr(image_path: Path) -> Optional[str]:
         return None
 
 
-async def describe_image_vision(image_path: Path, prompt: str = "Describe this image for the assistant in 2-3 sentences. What is shown?") -> Optional[str]:
+async def describe_image_vision(
+    image_path: Path, prompt: str = "Describe this image for the assistant in 2-3 sentences. What is shown?"
+) -> Optional[str]:
     """Try to get a vision description via LLM. Returns None on failure / no vision."""
     if not _should_use_vision():
         return None
     try:
         import base64
+
         from ..agent.llm import llm as nally_llm
 
         b64 = base64.b64encode(image_path.read_bytes()).decode("utf-8")
@@ -478,7 +516,9 @@ async def analyze_image(image_path: Path, user_question: str = "") -> str:
     q_lower = q.lower()
 
     # Choose prompt based on question intent
-    is_gun_game = any(k in q_lower for k in ("gun", "weapon", "game", "m416", "ak", "rifle", "pistol", "shotgun", "sniper"))
+    is_gun_game = any(
+        k in q_lower for k in ("gun", "weapon", "game", "m416", "ak", "rifle", "pistol", "shotgun", "sniper")
+    )
     if is_gun_game or not q:
         vision_prompt = (
             "You are a game and image expert. Look at this screenshot/image and answer the user's question.\n"
@@ -531,6 +571,7 @@ async def fetch_image_from_url(url: str, session_id: str = "web:default") -> tup
     """Fetch an image from a URL to inbox for analysis. Returns (path, desc)."""
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
@@ -540,7 +581,7 @@ async def fetch_image_from_url(url: str, session_id: str = "web:default") -> tup
                 pass
             data = resp.content
             if len(data) > MAX_FILE_SIZE:
-                return None, f"[Image URL too large: {len(data)/1024/1024:.1f}MB]"
+                return None, f"[Image URL too large: {len(data) / 1024 / 1024:.1f}MB]"
             if len(data) < 100:
                 return None, "[Image URL returned empty]"
             # Determine ext from content-type or url

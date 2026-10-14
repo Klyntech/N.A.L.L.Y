@@ -70,17 +70,13 @@ class NallyLLMBackend:
         try:
             from ..agent.llm import llm as _llm
         except Exception as exc:  # pragma: no cover - import guard
-            raise EngineeringError(
-                "Nally LLM client unavailable: " + str(exc)
-            ) from exc
+            raise EngineeringError("Nally LLM client unavailable: " + str(exc)) from exc
         # Touching llm triggers client construction which raises a clear error
         # when no API key is configured. Surface it as an EngineeringError.
         try:
             _llm._ensure_client()
         except Exception as exc:
-            raise EngineeringError(
-                "LLM backend not configured (no API key?). " + str(exc)
-            ) from exc
+            raise EngineeringError("LLM backend not configured (no API key?). " + str(exc)) from exc
         self._client = _llm
         return self._client
 

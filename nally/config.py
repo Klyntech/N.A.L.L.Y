@@ -90,10 +90,10 @@ GROQ_MODELS = {
 NIM_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NIM_MODELS = {
-    "fast": "nvidia/nemotron-3-super-120b-a12b",       # Nally v3 primary NIM model
-    "balanced": "nvidia/nemotron-3-super-120b-a12b",    # 2.44s TTFT, 81% LiveCodeBench, agentic
+    "fast": "nvidia/nemotron-3-super-120b-a12b",  # Nally v3 primary NIM model
+    "balanced": "nvidia/nemotron-3-super-120b-a12b",  # 2.44s TTFT, 81% LiveCodeBench, agentic
     "powerful": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # 2.48s TTFT, reasoning mode
-    "frontier": "nvidia/nemotron-3-super-120b-a12b",    # same as balanced — best available
+    "frontier": "nvidia/nemotron-3-super-120b-a12b",  # same as balanced — best available
 }
 
 # OpenCode — supports comma-separated multiple keys for rotation on rate limits
@@ -243,6 +243,7 @@ def memory_backend() -> str:
         return "turso"
     return "sqlite"
 
+
 # Layerbase (PostgreSQL + Redis)
 LAYERBASE_API_KEY = os.getenv("LAYERBASE_API_KEY", "")  # sk_... key
 LAYERBASE_DB_ID = os.getenv("LAYERBASE_DB_ID", "")  # PostgreSQL database ID
@@ -345,6 +346,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     # Render/bridge architecture — enforce the split
     try:
         import os as _os
+
         is_render = bool(_os.getenv("RENDER")) or "onrender.com" in _os.getenv("NALLY_BASE_URL", "")
         if is_render:
             prompt += (
@@ -397,6 +399,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     # Voice chat capability — only inject if enabled
     try:
         from nally.config import NALLY_VOICE_CALLS_ENABLED
+
         if NALLY_VOICE_CALLS_ENABLED:
             prompt += (
                 "\n\nVOICE CHAT:"
@@ -484,7 +487,6 @@ NALLY_VOICE_CALLS_ENABLED = os.getenv("NALLY_VOICE_CALLS_ENABLED", "false").lowe
 
 # Telethon auto-approve: owner-only user account auto-approves gated tools (no inline buttons on Telethon)
 TELEGRAM_USER_AUTO_APPROVE = os.getenv("TELEGRAM_USER_AUTO_APPROVE", "true").lower() == "true"
-
 
 
 def resolve_telegram_mode() -> str:

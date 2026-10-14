@@ -8,17 +8,18 @@ Run:
 
 Env: NALLY_VOICE_CALLS_ENABLED=true, TELEGRAM_USER_* credentials
 """
+
 import asyncio
 import contextlib
 import logging
 import signal
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from nally.tools import load_all_tools
+
 load_all_tools()
 
 logging.basicConfig(
@@ -31,11 +32,10 @@ logger = logging.getLogger("run_tg_call")
 
 async def main():
     from nally.config import (
-        TELEGRAM_USER_API_ID,
-        TELEGRAM_USER_API_HASH,
-        TELEGRAM_USER_PHONE,
-        TELEGRAM_USER_ID,
         NALLY_VOICE_CALLS_ENABLED,
+        TELEGRAM_USER_API_HASH,
+        TELEGRAM_USER_API_ID,
+        TELEGRAM_USER_PHONE,
     )
 
     if not NALLY_VOICE_CALLS_ENABLED:
@@ -47,7 +47,7 @@ async def main():
         return
 
     # ── Observability (OpenTelemetry / Prometheus / OTLP) ──
-    from nally.config import OTEL_METRICS_PORT, OTEL_EXPORTER_OTLP_ENDPOINT
+    from nally.config import OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_METRICS_PORT
     from nally.voice.metrics import init_telemetry
 
     init_telemetry(
@@ -58,6 +58,7 @@ async def main():
 
     # ── Telethon client (SEPARATE session from user.py to avoid SQLite lock) ──
     from telethon import TelegramClient, events
+
     from nally.telegram.user import SESSION_DIR
 
     SESSION_DIR.mkdir(parents=True, exist_ok=True)
@@ -78,20 +79,18 @@ async def main():
     try:
         from pytgcalls import PyTgCalls
         from pytgcalls.types import (
-            MediaStream,
-            ExternalMedia,
-            StreamFrames,
-            StreamEnded,
             ChatUpdate,
-            Direction,
             Device,
+            Direction,
+            ExternalMedia,
+            MediaStream,
             RecordStream,
+            StreamEnded,
+            StreamFrames,
         )
         from pytgcalls.types.raw import AudioParameters
     except ImportError:
-        logger.error(
-            "py-tgcalls not installed. Run: pip install 'py-tgcalls[telethon]'"
-        )
+        logger.error("py-tgcalls not installed. Run: pip install 'py-tgcalls[telethon]'")
         return
 
     tg_call = PyTgCalls(telethon_client)
@@ -106,6 +105,7 @@ async def main():
     logger.info("preloading_silero_vad")
     try:
         import nally.voice.pipeline as _pipe_mod
+
         if not getattr(_pipe_mod, "_vad_loaded", False):
             from silero_vad import load_silero_vad
 
@@ -120,11 +120,13 @@ async def main():
 
     # ── Pre-warm greeting cache (zero-latency on call start) ──
     from nally.telegram.voice_call import _greeting_cache
+
     logger.info("warming_greeting_cache")
     await _greeting_cache.warm()
 
     # ── Pre-warm TTS WebSocket (STT is per-call with immediate silence, so no prewarm needed) ──
     from nally.config import ELEVENLABS_API_KEY
+
     async def _warm_connections():
         # Deepgram is now connected per-call with immediate 100ms binary silence
         # (see stt.py) and Silero is preloaded above, so no Deepgram prewarm
@@ -134,9 +136,12 @@ async def main():
         # ElevenLabs — test WebSocket connectivity
         if ELEVENLABS_API_KEY:
             try:
-                import websockets
                 import json as _json
-                from nally.config import ELEVENLABS_VOICE_ID, ELEVENLABS_MODEL
+
+                import websockets
+
+                from nally.config import ELEVENLABS_MODEL, ELEVENLABS_VOICE_ID
+
                 voice_id = ELEVENLABS_VOICE_ID or "Jkfq779A6b949pWiEfQv"
                 uri = f"wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input?model_id={ELEVENLABS_MODEL}&output_format=pcm_44100"
                 async with websockets.connect(
@@ -145,7 +150,9 @@ async def main():
                     open_timeout=5,
                     close_timeout=3,
                 ) as ws:
-                    await ws.send(_json.dumps({"text": " ", "voice_settings": {"stability": 0.65, "similarity_boost": 0.80}}))
+                    await ws.send(
+                        _json.dumps({"text": " ", "voice_settings": {"stability": 0.65, "similarity_boost": 0.80}})
+                    )
                     logger.info("elevenlabs_prewarmed")
             except Exception as e:
                 logger.warning("elevenlabs_prewarm_error", extra={"error": str(e)})
@@ -217,8 +224,6 @@ async def main():
                         await tg_call.leave_call(chat_id)
                     # Discard the P2P call if possible (best-effort)
                     with contextlib.suppress(Exception):
-                        from telethon.tl.functions.phone import DiscardCallRequest
-                        from telethon.tl.types import InputPhoneCall
                         # We don't have the call ID here, so just notify user
                         pass
                     await telethon_client.send_message(
@@ -228,9 +233,11 @@ async def main():
                     )
                     # Create / reuse PRIVATE group for this user (1:1 isolation for beta)
                     from nally.telegram.voice_call import (
+                        VoiceCallSession as GroupSession,
+                    )
+                    from nally.telegram.voice_call import (
                         ensure_private_voice_group,
                         start_group_voice_chat,
-                        VoiceCallSession as GroupSession,
                     )
 
                     group_id, invite_link = await ensure_private_voice_group(telethon_client, chat_id)
@@ -273,7 +280,9 @@ async def main():
                     logger.info("private_call_fallback_group_ended", extra={"call_id": chat_id, "group_id": group_id})
                     return
                 except Exception as e:
-                    logger.error(f"private_fallback_failed: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
+                    logger.error(
+                        f"private_fallback_failed: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)}
+                    )
                     # Fall through to try direct anyway (will be caught below)
                     pass
 
@@ -300,7 +309,9 @@ async def main():
                             "That private call failed (Telegram 406 layer). Please use group voice: create a group, add this account, and start a voice chat — I'll join instantly.",
                         )
                 else:
-                    logger.error(f"call_session_error: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
+                    logger.error(
+                        f"call_session_error: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)}
+                    )
             finally:
                 active_sessions.pop(chat_id, None)
                 call_locks.pop(chat_id, None)
@@ -323,19 +334,26 @@ async def main():
             logger.info("outgoing_private_fallback_to_group", extra={"call_id": chat_id})
             try:
                 from nally.telegram.voice_call import (
+                    VoiceCallSession as GroupSession,
+                )
+                from nally.telegram.voice_call import (
                     ensure_private_voice_group,
                     start_group_voice_chat,
-                    VoiceCallSession as GroupSession,
                 )
 
                 group_id, invite_link = await ensure_private_voice_group(telethon_client, chat_id)
                 # Beta 1:1: private group per user, just send invite link (no entity invite)
                 if invite_link:
                     with contextlib.suppress(Exception):
-                        await telethon_client.send_message(chat_id, f"Calling you via private group voice chat: {invite_link}\nTap to join — 1:1 with Nally.")
+                        await telethon_client.send_message(
+                            chat_id,
+                            f"Calling you via private group voice chat: {invite_link}\nTap to join — 1:1 with Nally.",
+                        )
                 else:
                     with contextlib.suppress(Exception):
-                        await telethon_client.send_message(chat_id, "Private voice chat ready — check your Nally Voice private group.")
+                        await telethon_client.send_message(
+                            chat_id, "Private voice chat ready — check your Nally Voice private group."
+                        )
                 try:
                     await start_group_voice_chat(tg_call, telethon_client, group_id)
                 except Exception as e:
@@ -357,7 +375,10 @@ async def main():
                 logger.info("outgoing_group_ended", extra={"call_id": chat_id, "group_id": group_id})
                 return
             except Exception as e:
-                logger.error(f"outgoing_group_fallback_failed: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
+                logger.error(
+                    f"outgoing_group_fallback_failed: {type(e).__name__}: {e}",
+                    extra={"call_id": chat_id, "error": str(e)},
+                )
                 # Fall through to direct attempt
 
         session = VoiceCallSession(chat_id, tg_call=tg_call, use_pipeline=True)
@@ -371,9 +392,13 @@ async def main():
             if "CALL_PROTOCOL_COMPAT_LAYER_INVALID" in err_str or "406" in err_str:
                 logger.error(f"outgoing_call_protocol_invalid: use group voice: {e}", extra={"call_id": chat_id})
                 with contextlib.suppress(Exception):
-                    await telethon_client.send_message(chat_id, "Outgoing private call failed (406). Use group voice chat instead.")
+                    await telethon_client.send_message(
+                        chat_id, "Outgoing private call failed (406). Use group voice chat instead."
+                    )
             else:
-                logger.error(f"outgoing_call_error: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)})
+                logger.error(
+                    f"outgoing_call_error: {type(e).__name__}: {e}", extra={"call_id": chat_id, "error": str(e)}
+                )
         finally:
             active_sessions.pop(chat_id, None)
             with contextlib.suppress(Exception):
@@ -393,11 +418,7 @@ async def main():
             # Find session with flexible ID resolution
             session = active_sessions.get(chat_id)
             if not session:
-                alt_ids = [
-                    abs(chat_id),
-                    int(str(chat_id).replace("-100", "")),
-                    int(f"-100{abs(chat_id)}")
-                ]
+                alt_ids = [abs(chat_id), int(str(chat_id).replace("-100", "")), int(f"-100{abs(chat_id)}")]
                 for alt_id in alt_ids:
                     if alt_id in active_sessions:
                         session = active_sessions[alt_id]
@@ -409,15 +430,18 @@ async def main():
                     # Clinton debug tip: log size + first bytes to confirm real audio arriving
                     _sample_frame = update.frames[0].frame if update.frames else b""
                     _preview = _sample_frame[:8].hex() if _sample_frame else "empty"
-                    logger.info("first_stream_frame", extra={
-                        "call_id": chat_id,
-                        "direction": str(update.direction),
-                        "device": str(update.device),
-                        "has_session": session is not None,
-                        "frame_count": len(update.frames),
-                        "frame_bytes": len(_sample_frame),
-                        "preview_hex": _preview,
-                    })
+                    logger.info(
+                        "first_stream_frame",
+                        extra={
+                            "call_id": chat_id,
+                            "direction": str(update.direction),
+                            "device": str(update.device),
+                            "has_session": session is not None,
+                            "frame_count": len(update.frames),
+                            "frame_bytes": len(_sample_frame),
+                            "preview_hex": _preview,
+                        },
+                    )
 
                 # Only feed INCOMING (remote user) audio into STT. Our own TTS
                 # is OUTGOING and must never be transcribed (feedback loop).

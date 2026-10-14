@@ -275,8 +275,8 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
         return []
 
     # Phase 1: Fast categorization — check credentials synchronously (no network)
-    needs_connect = []   # (server_config, transport, permission) — need actual connection
-    instant_results = [] # result dicts for servers that skip immediately
+    needs_connect = []  # (server_config, transport, permission) — need actual connection
+    instant_results = []  # result dicts for servers that skip immediately
 
     for server_config in MCP_SERVERS:
         name = server_config.get("name", "unknown")
@@ -301,7 +301,9 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
                     direct_count = len([t for t in reg.tools if t.startswith(prefix)])
             except Exception:
                 direct_count = 0
-            instant_results.append({"name": name, "status": "ok", "tools": direct_count, "message": "direct tools, not MCP"})
+            instant_results.append(
+                {"name": name, "status": "ok", "tools": direct_count, "message": "direct tools, not MCP"}
+            )
             continue
 
         if transport == "http":
@@ -312,7 +314,9 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
             except Exception:
                 tokens = None
             if not tokens:
-                instant_results.append({"name": name, "status": "awaiting", "tools": 0, "message": "awaiting OAuth connection"})
+                instant_results.append(
+                    {"name": name, "status": "awaiting", "tools": 0, "message": "awaiting OAuth connection"}
+                )
                 continue
             needs_connect.append((server_config, "http", permission))
 
@@ -396,7 +400,9 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
 
         for future in not_done:
             name = futures_map[future]
-            results.append({"name": name, "status": "timeout", "tools": 0, "message": f"exceeded budget ({timeout:.0f}s)"})
+            results.append(
+                {"name": name, "status": "timeout", "tools": 0, "message": f"exceeded budget ({timeout:.0f}s)"}
+            )
             future.cancel()
     finally:
         pool.shutdown(wait=False)
@@ -439,10 +445,8 @@ def _run_connect_http(server_config: dict, reg, timeout: float = 10.0) -> int:
 
     loop = asyncio.new_event_loop()
     try:
-        loop.run_until_complete(
-            asyncio.wait_for(connect_http_server(server_config, reg), timeout=timeout)
-        )
-    except asyncio.TimeoutError:
+        loop.run_until_complete(asyncio.wait_for(connect_http_server(server_config, reg), timeout=timeout))
+    except TimeoutError:
         name = server_config.get("name", "unknown")
         raise TimeoutError(f"MCP HTTP server '{name}' timed out after {timeout}s")
     finally:
@@ -534,7 +538,7 @@ def _connect_stdio_server(reg, server_config: dict, default_permission: str, tim
 
     try:
         tools = _run_coro_safely(asyncio.wait_for(_fetch_tools(), timeout=timeout))
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise TimeoutError(f"MCP server '{name}' timed out after {timeout}s")
     finally:
         mcp_logger.setLevel(prev_level)

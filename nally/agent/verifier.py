@@ -77,9 +77,17 @@ _ACTION_CLAIMS = [
     (r"(?:I |we )?(?:made|placed|initiated|dialed)\s+(?:a\s+)?(?:call|phone call)", "make_call", "call"),
     (r"(?:I |we )?(?:checked|looked up|got)\s+(?:the\s+)?(?:call status|status of)", "get_call_status", "status"),
     (r"(?:I |we )?(?:ended|hung up|terminated)\s+(?:the\s+)?call", "hangup_call", "hangup"),
-    (r"(?:I |we )?(?:listed|fetched|retrieved)\s+(?:the\s+)?(?:call log|recent calls|call history)", "list_calls", "list"),
+    (
+        r"(?:I |we )?(?:listed|fetched|retrieved)\s+(?:the\s+)?(?:call log|recent calls|call history)",
+        "list_calls",
+        "list",
+    ),
     # Image generation
-    (r"(?:I |we )?(?:generated|created|made)\s+(?:an?\s+)?(?:image|picture|photo|illustration)", "generate_image", "image_gen"),
+    (
+        r"(?:I |we )?(?:generated|created|made)\s+(?:an?\s+)?(?:image|picture|photo|illustration)",
+        "generate_image",
+        "image_gen",
+    ),
 ]
 
 # Patterns for fabricated limits/quotas/credits (agent inventing numbers)
@@ -150,7 +158,9 @@ class ClaimVerifier:
     def __init__(self, store: Optional[ReceiptStore] = None):
         self._store = store
 
-    def verify(self, llm_response: str, receipts: List[Receipt], registered_tools: Optional[set] = None) -> VerificationResult:
+    def verify(
+        self, llm_response: str, receipts: List[Receipt], registered_tools: Optional[set] = None
+    ) -> VerificationResult:
         """Verify all claims in an LLM response against receipts."""
         result = VerificationResult()
 
@@ -213,7 +223,7 @@ class ClaimVerifier:
             for match in matches:
                 # Skip claims in negative/conditional/hypothetical context
                 start = max(0, match.start() - 30)
-                prefix = text_lower[start:match.start()]
+                prefix = text_lower[start : match.start()]
                 if _NEGATIVE_LOOKBEHIND.search(prefix):
                     continue
 
@@ -384,7 +394,23 @@ class ClaimVerifier:
             for match in matches:
                 tool_name = match.group(1)
                 # Skip common non-tool words
-                if tool_name in {"the", "a", "an", "this", "that", "my", "your", "it", "them", "to", "for", "and", "or", "but", "so"}:
+                if tool_name in {
+                    "the",
+                    "a",
+                    "an",
+                    "this",
+                    "that",
+                    "my",
+                    "your",
+                    "it",
+                    "them",
+                    "to",
+                    "for",
+                    "and",
+                    "or",
+                    "but",
+                    "so",
+                }:
                     continue
                 if tool_name not in registered_tools:
                     findings.append(
@@ -400,11 +426,11 @@ class ClaimVerifier:
 
     def _verify_completion_claims(self, text: str, receipts: List[Receipt]) -> List[ClaimFinding]:
         """Detect agent claiming task completion without tool evidence.
-        
+
         If the agent says "I completed X" or "the website is done" but there
         are no successful tool calls in the receipts, the completion claim is
         unsupported. If there are only failed receipts, it's contradicted.
-        
+
         Skips negated/conditional sentences like "I haven't completed" or
         "the task won't be done until".
         """
@@ -420,7 +446,7 @@ class ClaimVerifier:
         for pattern in _COMPLETION_CLAIMS:
             for match in re.finditer(pattern, text_lower):
                 start = max(0, match.start() - 30)
-                prefix = text_lower[start:match.start()]
+                prefix = text_lower[start : match.start()]
                 if _NEGATIVE_LOOKBEHIND.search(prefix):
                     continue
                 # If we get here, there's a non-negated completion claim — break and check receipts

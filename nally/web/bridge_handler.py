@@ -79,9 +79,7 @@ class BridgeRegistry:
                 return device
         return None
 
-    async def send_tool_request(
-        self, device_id: str, tool: str, args: dict, timeout: float = 60.0
-    ) -> tuple[str, bool]:
+    async def send_tool_request(self, device_id: str, tool: str, args: dict, timeout: float = 60.0) -> tuple[str, bool]:
         """Send a tool request to a bridge and wait for the result.
 
         Returns (result, success).
@@ -95,17 +93,19 @@ class BridgeRegistry:
         self._pending[request_id] = future
 
         try:
-            await device.websocket.send_json({
-                "type": "tool_request",
-                "request_id": request_id,
-                "tool": tool,
-                "args": args,
-            })
+            await device.websocket.send_json(
+                {
+                    "type": "tool_request",
+                    "request_id": request_id,
+                    "tool": tool,
+                    "args": args,
+                }
+            )
 
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return f"Error: Bridge request timed out after {timeout}s", False
         except Exception as e:
             return f"Error communicating with bridge: {e}", False
@@ -161,11 +161,13 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
                 tools = msg.get("tools", [])
                 device = bridge_registry.register(device_id, websocket, platform, tools)
 
-                await websocket.send_json({
-                    "type": "registered",
-                    "session_id": f"bridge:{device_id}",
-                    "device": device_id,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "registered",
+                        "session_id": f"bridge:{device_id}",
+                        "device": device_id,
+                    }
+                )
 
             elif msg_type == "tool_result":
                 request_id = msg.get("request_id", "")

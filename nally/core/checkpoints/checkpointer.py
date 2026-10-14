@@ -16,8 +16,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from .models import FileState
 
@@ -117,7 +116,7 @@ class Checkpointer:
             # Keep only max_turns
             self._turns.append(rec)
             if len(self._turns) > self.max_turns:
-                self._turns = self._turns[-self.max_turns:]
+                self._turns = self._turns[-self.max_turns :]
             return rec
 
     def abort_turn(self) -> None:
@@ -261,8 +260,14 @@ class Checkpointer:
                         "turn_id": t.turn_id,
                         "started_at": t.started_at,
                         "ended_at": t.ended_at,
-                        "before": {p: (s.data.hex()[:40] + "…" if s.data and len(s.data) > 20 else repr(s.data)) for p, s in t.before.items()},
-                        "after": {p: (s.data.hex()[:40] + "…" if s.data and len(s.data) > 20 else repr(s.data)) for p, s in t.after.items()},
+                        "before": {
+                            p: (s.data.hex()[:40] + "…" if s.data and len(s.data) > 20 else repr(s.data))
+                            for p, s in t.before.items()
+                        },
+                        "after": {
+                            p: (s.data.hex()[:40] + "…" if s.data and len(s.data) > 20 else repr(s.data))
+                            for p, s in t.after.items()
+                        },
                     }
                     for t in self._turns
                 ],

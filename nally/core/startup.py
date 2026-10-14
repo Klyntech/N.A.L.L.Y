@@ -101,6 +101,7 @@ class StartupDisplay:
         parts = []
         if port:
             from ..config import NALLY_BASE_URL
+
             if NALLY_BASE_URL:
                 parts.append(NALLY_BASE_URL)
             else:
@@ -117,8 +118,7 @@ class StartupDisplay:
 
         self.console.print(
             Panel(
-                f"  [bold]NALLY online[/]  {status_text}\n"
-                f"  [dim]Startup in {time_str}[/]",
+                f"  [bold]NALLY online[/]  {status_text}\n  [dim]Startup in {time_str}[/]",
                 border_style="#7C6AEF",
                 padding=(0, 1),
             )

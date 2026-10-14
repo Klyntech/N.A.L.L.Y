@@ -53,9 +53,7 @@ class AgentSessionManager:
                 if key not in self._sessions:
                     ensure_migrated()
                     logger.info(f"Creating agent for session: {session_id} route: {key}")
-                    self._sessions[key] = NallyAgent(
-                        session_id=session_id, channel=channel, route_key=key
-                    )
+                    self._sessions[key] = NallyAgent(session_id=session_id, channel=channel, route_key=key)
         return self._sessions[key]
 
     def commit_turn(self, session_id: str, user_text: str, reply: str, route_key: Optional[str] = None) -> None:
@@ -93,7 +91,9 @@ class AgentSessionManager:
             q.append(message)
             return len(q)
 
-    def process(self, session_id: str, message: str, emit: Optional[Callable] = None, route_key: Optional[str] = None) -> str:
+    def process(
+        self, session_id: str, message: str, emit: Optional[Callable] = None, route_key: Optional[str] = None
+    ) -> str:
         """Process a message for a specific session (thread-safe, per-route).
 
         Sets busy flag while processing, then drains queued messages.

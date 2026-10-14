@@ -68,7 +68,9 @@ class TestCallLlmWithRetry:
 
         ok_response = ChatCompletion(
             id="test",
-            choices=[Choice(finish_reason="stop", index=0, message=ChatCompletionMessage(role="assistant", content="ok"))],
+            choices=[
+                Choice(finish_reason="stop", index=0, message=ChatCompletionMessage(role="assistant", content="ok"))
+            ],
             created=0,
             model="custom-model",
             object="chat.completion",
@@ -232,6 +234,7 @@ class TestGraphTopology:
 
     def test_graph_uses_single_react_loop(self):
         from langgraph.checkpoint.memory import MemorySaver
+
         from nally.agent.graph import create_agent_graph
 
         with patch("nally.agent.graph._create_checkpointer", return_value=MemorySaver()):

@@ -40,9 +40,7 @@ def test_language_hint_javascript():
 
 
 def test_extract_constraints():
-    constraints = extract_constraints(
-        "Build a tool with no external dependencies and it must be a single file"
-    )
+    constraints = extract_constraints("Build a tool with no external dependencies and it must be a single file")
     assert any("no external dependencies" in c for c in constraints)
     assert any("single file" in c for c in constraints)
 

@@ -8,7 +8,7 @@ from nally.core.managed_shell.manager import ManagedShellManager
 
 def test_start_and_read_output(tmp_path: Path):
     mgr = ManagedShellManager(base_dir=tmp_path / "shell-tool")
-    sess = mgr.start('echo hello_managed', cwd=str(tmp_path))
+    sess = mgr.start("echo hello_managed", cwd=str(tmp_path))
     assert sess.session_id.startswith("shell_")
     # Poll
     for _ in range(20):
@@ -23,8 +23,8 @@ def test_start_and_read_output(tmp_path: Path):
 
 def test_sessions_list(tmp_path: Path):
     mgr = ManagedShellManager(base_dir=tmp_path / "shell-tool")
-    mgr.start('echo one', cwd=str(tmp_path))
-    mgr.start('echo two', cwd=str(tmp_path))
+    mgr.start("echo one", cwd=str(tmp_path))
+    mgr.start("echo two", cwd=str(tmp_path))
     time.sleep(0.5)
     lst = mgr.list_sessions()
     assert len(lst) >= 2
@@ -59,7 +59,7 @@ def test_run_command_background(tmp_path: Path):
 
     tool = RunCommand()
     # Background should return session handle, not block
-    result = tool.execute(command='echo bg_test', background=True)
+    result = tool.execute(command="echo bg_test", background=True)
     assert "Started background shell session" in result
     assert "shell_output" in result
 
@@ -69,7 +69,7 @@ def test_shell_output_tool(tmp_path: Path):
     from nally.tools.managed import ShellOutput, ShellSessions
 
     mgr = get_manager()
-    sess = mgr.start('echo shell_output_test', cwd=str(tmp_path))
+    sess = mgr.start("echo shell_output_test", cwd=str(tmp_path))
     time.sleep(0.8)
     tool = ShellOutput()
     result = tool.execute(session_id=sess.session_id, cursor=0)

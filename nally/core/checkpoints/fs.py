@@ -41,6 +41,7 @@ class DiskFilesystem:
         try:
             if p.is_dir():
                 import shutil
+
                 shutil.rmtree(p)
             else:
                 p.unlink(missing_ok=True)

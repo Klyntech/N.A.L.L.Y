@@ -63,13 +63,9 @@ def score_approaches(
             "novelty": _clamp(a.novelty),
         }
         # If the approach object did not carry scores, we cannot score it.
-        any_scored = any(
-            getattr(a, axis) is not None for axis in _AXES
-        )
+        any_scored = any(getattr(a, axis) is not None for axis in _AXES)
         if not any_scored:
-            raise EngineeringError(
-                f"Approach '{a.id}' has no scores; scoring requires LLM-provided axis values."
-            )
+            raise EngineeringError(f"Approach '{a.id}' has no scores; scoring requires LLM-provided axis values.")
         weighted = sum(axis_values[axis] * w.get(axis, 0.0) for axis in _AXES)
         scores.append(
             ApproachScore(

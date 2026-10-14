@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Dict, List
 
-from .cases import Task, TaskCategory
 from .cost import CostTracker
 
 
@@ -49,6 +48,7 @@ def generate_json_report(
     # Buckets: Reliability / Capability / Safety (overall is secondary)
     try:
         from .cases import BUCKETS
+
         buckets = {}
         for bucket_name, cats in BUCKETS.items():
             cat_names = [c.value for c in cats]
@@ -58,7 +58,9 @@ def generate_json_report(
                 buckets[bucket_name] = {
                     "tasks": len(bucket_results),
                     "avg_score": sum(scores) / len(scores) if scores else 0,
-                    "pass_rate": sum(1 for r in bucket_results if r["passed"]) / len(bucket_results) if bucket_results else 0,
+                    "pass_rate": sum(1 for r in bucket_results if r["passed"]) / len(bucket_results)
+                    if bucket_results
+                    else 0,
                     "categories": cat_names,
                 }
             else:
@@ -69,13 +71,16 @@ def generate_json_report(
     # Frozen 30 separate (never modified after seeing results)
     try:
         from .cases import FROZEN_30_IDS
+
         frozen_results = [r for r in results if r["task_id"] in FROZEN_30_IDS]
         if frozen_results:
             f_scores = [r["score"] for r in frozen_results]
             frozen_summary = {
                 "tasks": len(frozen_results),
                 "avg_score": sum(f_scores) / len(f_scores) if f_scores else 0,
-                "pass_rate": sum(1 for r in frozen_results if r["passed"]) / len(frozen_results) if frozen_results else 0,
+                "pass_rate": sum(1 for r in frozen_results if r["passed"]) / len(frozen_results)
+                if frozen_results
+                else 0,
             }
         else:
             frozen_summary = None
@@ -87,6 +92,7 @@ def generate_json_report(
     if mode == "both":
         # Group by (task_id, model_base) where model is "opencode/hy3-free" and "opencode/hy3-free::raw"
         from collections import defaultdict
+
         paired = defaultdict(dict)  # (task_id, base_model) -> {nally: score, raw: score}
         for r in results:
             mid = r.get("model", "")
@@ -102,8 +108,14 @@ def generate_json_report(
             lift = {
                 "paired_tasks": len(lifts),
                 "avg_lift": sum(lifts) / len(lifts) if lifts else 0,
-                "nally_avg": sum(paired[k]["nally"] for k in paired if "nally" in paired[k] and "raw" in paired[k]) / len(lifts) if lifts else 0,
-                "raw_avg": sum(paired[k]["raw"] for k in paired if "nally" in paired[k] and "raw" in paired[k]) / len(lifts) if lifts else 0,
+                "nally_avg": sum(paired[k]["nally"] for k in paired if "nally" in paired[k] and "raw" in paired[k])
+                / len(lifts)
+                if lifts
+                else 0,
+                "raw_avg": sum(paired[k]["raw"] for k in paired if "nally" in paired[k] and "raw" in paired[k])
+                / len(lifts)
+                if lifts
+                else 0,
             }
 
     overall_scores = [r["score"] for r in results]
@@ -111,7 +123,7 @@ def generate_json_report(
 
     report = {
         "meta": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "total_tasks": len(results),
             "models_tested": models,
             "elapsed_seconds": round(elapsed_s, 1),
@@ -160,11 +172,13 @@ def generate_markdown_report(report: Dict) -> str:
     lines.append("")
     lines.append(f"**Date**: {meta['timestamp']}")
     lines.append(f"**Models**: {', '.join(meta['models_tested'])}")
-    lines.append(f"**Mode**: {meta.get('mode','nally')}")
+    lines.append(f"**Mode**: {meta.get('mode', 'nally')}")
     lines.append(f"**Tasks**: {meta['total_tasks']}")
     lines.append(f"**Duration**: {meta['elapsed_seconds']}s")
     if frozen:
-        lines.append(f"**Frozen 30**: {_pct(frozen['avg_score'])} ({frozen['tasks']} tasks) — never modified after seeing results")
+        lines.append(
+            f"**Frozen 30**: {_pct(frozen['avg_score'])} ({frozen['tasks']} tasks) — never modified after seeing results"
+        )
     lines.append("")
 
     # Buckets (primary — per user request)
@@ -175,21 +189,23 @@ def generate_markdown_report(report: Dict) -> str:
         lines.append("")
         lines.append("| Bucket | Tasks | Avg Score | Pass Rate | Categories |")
         lines.append("|--------|-------|-----------|-----------|------------|")
-        for bname in ["Reliability","Capability","Safety"]:
+        for bname in ["Reliability", "Capability", "Safety"]:
             b = buckets.get(bname)
             if b:
                 cats = ", ".join(b.get("categories", []))
-                lines.append(f"| **{bname}** | {b['tasks']} | {_pct(b['avg_score'])} | {_pct(b['pass_rate'])} | {cats} |")
+                lines.append(
+                    f"| **{bname}** | {b['tasks']} | {_pct(b['avg_score'])} | {_pct(b['pass_rate'])} | {cats} |"
+                )
         lines.append("")
 
     # NALLY Lift (most important experiment)
     if lift:
         lines.append("## NALLY Lift (NALLY − Raw, Paired)")
         lines.append("")
-        lines.append(f"> Same task, same model, same params — does NALLY architecture help?")
+        lines.append("> Same task, same model, same params — does NALLY architecture help?")
         lines.append("")
-        lines.append(f"| Metric | Value |")
-        lines.append(f"|--------|-------|")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
         lines.append(f"| Paired tasks | {lift['paired_tasks']} |")
         lines.append(f"| NALLY avg | {_pct(lift['nally_avg'])} |")
         lines.append(f"| Raw avg | {_pct(lift['raw_avg'])} |")
@@ -200,8 +216,8 @@ def generate_markdown_report(report: Dict) -> str:
     # Overall (secondary)
     lines.append("## Overall (Secondary)")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
     lines.append(f"| Average Score | {_pct(overall['avg_score'])} |")
     lines.append(f"| Pass Rate | {_pct(overall['pass_rate'])} |")
     lines.append(f"| Passed | {overall['total_passed']} |")
@@ -214,9 +230,7 @@ def generate_markdown_report(report: Dict) -> str:
     lines.append("| Category | Tasks | Avg Score | Passed | Failed |")
     lines.append("|----------|-------|-----------|--------|--------|")
     for cat, s in sorted(categories.items()):
-        lines.append(
-            f"| {cat} | {s['tasks']} | {_pct(s['avg_score'])} | {s['passed']} | {s['failed']} |"
-        )
+        lines.append(f"| {cat} | {s['tasks']} | {_pct(s['avg_score'])} | {s['passed']} | {s['failed']} |")
     lines.append("")
 
     # Category breakdown
@@ -224,10 +238,10 @@ def generate_markdown_report(report: Dict) -> str:
     lines.append("")
     for cat, s in sorted(categories.items()):
         lines.append(f"### {cat}")
-        lines.append(f"```")
+        lines.append("```")
         lines.append(f"Score: {_bar(s['avg_score'])} {_pct(s['avg_score'])}")
         lines.append(f"Range: {_pct(s['min_score'])} – {_pct(s['max_score'])}")
-        lines.append(f"```")
+        lines.append("```")
         lines.append("")
 
     # Cost
@@ -253,11 +267,11 @@ def generate_markdown_report(report: Dict) -> str:
         lines.append("|---------|----------|-------|---------|")
         for r in failed[:50]:  # cap at 50 for 800-task report
             details = r.get("details", "")[:80]
-            mode = r.get("mode","")
+            mode = r.get("mode", "")
             mid = f" {mode}" if mode else ""
             lines.append(f"| {r['task_id']}{mid} | {r['category']} | {_pct(r['score'])} | {details} |")
         if len(failed) > 50:
-            lines.append(f"| ... | ... | ... | +{len(failed)-50} more |")
+            lines.append(f"| ... | ... | ... | +{len(failed) - 50} more |")
         lines.append("")
 
     return "\n".join(lines)

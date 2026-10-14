@@ -114,4 +114,3 @@ def test_connect_mcp_servers_error_handling():
     with patch("nally.mcp.client.MCP_SERVERS", fake_server):
         connect_mcp_servers(reg)  # should not raise
     assert len(reg.tools) == 0
-

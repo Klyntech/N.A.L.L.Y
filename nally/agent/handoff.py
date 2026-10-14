@@ -9,7 +9,7 @@ specialist receives only what they need.
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 
 def rewrite_context(
@@ -70,9 +70,34 @@ def _extract_triggering_request(messages: List[Dict], goal: str) -> str:
     """Find the user message that triggered this delegation."""
     # Look for the most recent user message that relates to the goal
     goal_words = set(goal.lower().split())
-    goal_words -= {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to",
-                   "for", "of", "with", "by", "from", "is", "it", "this", "that",
-                   "please", "can", "you", "help", "me", "need", "want"}
+    goal_words -= {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
+        "it",
+        "this",
+        "that",
+        "please",
+        "can",
+        "you",
+        "help",
+        "me",
+        "need",
+        "want",
+    }
 
     best_match = ""
     best_score = 0
@@ -97,8 +122,27 @@ def _extract_triggering_request(messages: List[Dict], goal: str) -> str:
 def _extract_relevant_findings(messages: List[Dict], goal: str) -> str:
     """Extract tool results and assistant findings relevant to the goal."""
     goal_words = set(goal.lower().split())
-    goal_words -= {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to",
-                   "for", "of", "with", "by", "from", "is", "it", "this", "that"}
+    goal_words -= {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
+        "it",
+        "this",
+        "that",
+    }
 
     findings = []
     for msg in messages:

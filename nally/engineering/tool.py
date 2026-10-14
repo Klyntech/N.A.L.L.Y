@@ -9,8 +9,6 @@ toolbox + sandboxed workspace) and runs it, returning a short summary string
 
 from __future__ import annotations
 
-from typing import Dict
-
 from .loop import EngineeringLoop
 from .models import EngineeringError
 from .protocol import NallyLLMBackend
@@ -88,6 +86,4 @@ def register() -> None:
         # Registration is best-effort; the CLI path does not need the registry.
         import logging
 
-        logging.getLogger("nally.engineering").warning(
-            f"Could not register engineering_build tool: {exc}"
-        )
+        logging.getLogger("nally.engineering").warning(f"Could not register engineering_build tool: {exc}")

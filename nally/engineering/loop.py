@@ -13,15 +13,14 @@ This decoupling is what makes the full loop drivable end-to-end by
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .approaches import ensure_categories, parse_approaches
 from .intake import (
     is_ambiguous,
     parse_assumptions,
     parse_task,
 )
-from .approaches import ensure_categories, parse_approaches
 from .models import (
     Approach,
     ApproachScore,
@@ -193,9 +192,7 @@ class EngineeringLoop:
                 # REFINE
                 self.backend.complete(
                     critique_system(),
-                    critique_prompt(
-                        spec, design, test_out, test_ok, self._fmt_findings(findings)
-                    ),
+                    critique_prompt(spec, design, test_out, test_ok, self._fmt_findings(findings)),
                     stage="refine",
                     expect_json=True,
                 )
@@ -205,9 +202,7 @@ class EngineeringLoop:
                 self._stage(EngineeringStage.REFINE, {"iteration": refinements})
 
             # 12. FINALIZE
-            result = self._finalize(
-                spec, chosen, scores, design, test_plan, artifacts, refinements, test_ok, report
-            )
+            result = self._finalize(spec, chosen, scores, design, test_plan, artifacts, refinements, test_ok, report)
             self._stage(EngineeringStage.FINALIZE, {"readme": result.readme_path})
             self._stage(EngineeringStage.DONE, {"success": result.success})
             return result
@@ -271,9 +266,7 @@ class EngineeringLoop:
             artifacts.append(rel)
         return artifacts
 
-    def _run_tests(
-        self, spec: TaskSpec, design: DesignPlan, test_plan: TestPlan
-    ) -> Tuple[str, bool]:
+    def _run_tests(self, spec: TaskSpec, design: DesignPlan, test_plan: TestPlan) -> Tuple[str, bool]:
         lang = (spec.language_hint or "python").lower()
         if lang == "python":
             return self.toolbox.run_tests("")
@@ -314,7 +307,9 @@ class EngineeringLoop:
     ) -> EngineeringResult:
         limitations = self._gather_limitations(spec, design, report)
 
-        readme = self._build_readme(spec, chosen, scores, design, test_plan, artifacts, refinements, test_ok, limitations)
+        readme = self._build_readme(
+            spec, chosen, scores, design, test_plan, artifacts, refinements, test_ok, limitations
+        )
         readme_path = self.workspace.write_artifact("README.md", readme)
 
         scorecard_path = self.workspace.write_artifact(
@@ -382,11 +377,9 @@ class EngineeringLoop:
             ]
         return limitations[:8]
 
-    def _run_commands(
-        self, spec: TaskSpec, design: Optional[DesignPlan], deps: List[str]
-    ) -> List[str]:
+    def _run_commands(self, spec: TaskSpec, design: Optional[DesignPlan], deps: List[str]) -> List[str]:
         lang = (spec.language_hint or "python").lower()
-        entry = (design.file_plan[0].path if design and design.file_plan else "main.py")
+        entry = design.file_plan[0].path if design and design.file_plan else "main.py"
         if lang == "python":
             cmds = []
             if deps:

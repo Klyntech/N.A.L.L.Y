@@ -35,9 +35,7 @@ def main(argv: list = None) -> int:
         print("Set OPENCODE_API_KEY or GROQ_API_KEY in your environment / .env.", file=sys.stderr)
         return 2
 
-    workspace = EngineeringWorkspace(
-        base_dir=Path(args.out) if args.out else None, task=args.task
-    )
+    workspace = EngineeringWorkspace(base_dir=Path(args.out) if args.out else None, task=args.task)
     toolbox = RealToolbox(auto_approve_ask=True)
 
     # Imported here to keep CLI startup light.
@@ -45,7 +43,10 @@ def main(argv: list = None) -> int:
 
     try:
         result = EngineeringLoop(
-            backend, toolbox, workspace, max_refinements=args.max_refinements,
+            backend,
+            toolbox,
+            workspace,
+            max_refinements=args.max_refinements,
             emit=_cli_emit,
         ).run(args.task)
     except Exception as exc:

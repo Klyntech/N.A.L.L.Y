@@ -14,15 +14,83 @@ from typing import Dict, List
 
 from ..utils.logger import logger
 
-_STOPWORDS = frozenset({
-    "the", "is", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "it", "this", "that", "are", "was", "were", "be",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
-    "may", "might", "can", "shall", "not", "no", "if", "then", "than", "so",
-    "just", "about", "what", "when", "where", "how", "who", "which", "there",
-    "here", "now", "also", "very", "too", "my", "your", "its", "our", "their",
-    "me", "him", "her", "us", "them", "you", "he", "she", "we", "they", "i",
-})
+_STOPWORDS = frozenset(
+    {
+        "the",
+        "is",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "it",
+        "this",
+        "that",
+        "are",
+        "was",
+        "were",
+        "be",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "shall",
+        "not",
+        "no",
+        "if",
+        "then",
+        "than",
+        "so",
+        "just",
+        "about",
+        "what",
+        "when",
+        "where",
+        "how",
+        "who",
+        "which",
+        "there",
+        "here",
+        "now",
+        "also",
+        "very",
+        "too",
+        "my",
+        "your",
+        "its",
+        "our",
+        "their",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
+        "you",
+        "he",
+        "she",
+        "we",
+        "they",
+        "i",
+    }
+)
 
 # Try tiktoken for accurate token counting, fall back to char estimation
 try:
@@ -160,7 +228,11 @@ class ContextManager:
             # Still heavy — try LLM summarization for better compression
             llm_summary = self._llm_summarize(old)
             if llm_summary and len(llm_summary) < len(summary):
-                compacted = [system_msg, {"role": "system", "content": f"[Previous conversation context — LLM summary]\n{llm_summary}"}, *recent]
+                compacted = [
+                    system_msg,
+                    {"role": "system", "content": f"[Previous conversation context — LLM summary]\n{llm_summary}"},
+                    *recent,
+                ]
                 new_tokens = self.estimate_tokens(compacted)
 
         # Log compaction
@@ -198,8 +270,7 @@ class ContextManager:
             prompt = (
                 "Summarize this conversation excerpt in 5-7 bullet points. "
                 "Focus on: user intent, key files touched, decisions made, errors. "
-                "Be concise, preserve file paths and facts.\n\n"
-                + transcript[:8000]
+                "Be concise, preserve file paths and facts.\n\n" + transcript[:8000]
             )
             from ..agent.llm import llm
 
@@ -212,7 +283,7 @@ class ContextManager:
 
     def _summarize_messages(self, messages: List[Dict]) -> str:
         """Create a summary of old messages.
-        
+
         Preserves full user messages (they contain the original request context).
         Summarizes assistant responses and tool results more aggressively.
         """
@@ -292,7 +363,7 @@ class ContextManager:
 
         # Also search with extracted keywords (skip stopwords)
         try:
-            keywords = [w for w in re.split(r'[^a-zA-Z0-9_]+', query) if len(w) >= 3 and w.lower() not in _STOPWORDS]
+            keywords = [w for w in re.split(r"[^a-zA-Z0-9_]+", query) if len(w) >= 3 and w.lower() not in _STOPWORDS]
             if keywords:
                 keyword_query = " ".join(keywords[:5])
                 kw_mems = memory_store.recall(search=keyword_query, min_confidence=0.5, limit=5)
@@ -308,6 +379,7 @@ class ContextManager:
         # Always inject high-priority category memories (projects, auto_facts)
         try:
             from ..memory import memory_store as mv2
+
             for cat in ("project", "auto_fact"):
                 cat_mems = mv2.recall(category=cat, min_confidence=0.5, limit=5)
                 if cat_mems and isinstance(cat_mems, dict):

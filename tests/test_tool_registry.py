@@ -6,7 +6,7 @@ from nally.tools.registry import VALID_PERMISSIONS, Tool, ToolRegistry
 
 
 def test_valid_permissions_set():
-    assert VALID_PERMISSIONS == {"safe", "destructive", "read_only", "write"}
+    assert {"safe", "destructive", "read_only", "write"} == VALID_PERMISSIONS
 
 
 def test_register_valid_permission():
@@ -32,7 +32,9 @@ def test_register_invalid_permission_raises(permission):
 
 def test_get_all_tools_returns_registered_schemas():
     registry = ToolRegistry()
-    registry.register(Tool(name="lookup", description="Search", parameters={"query": {"type": "string", "required": True}}))
+    registry.register(
+        Tool(name="lookup", description="Search", parameters={"query": {"type": "string", "required": True}})
+    )
     schemas = registry.get_all_tools()
     assert len(schemas) == 1
     assert schemas[0]["function"]["name"] == "lookup"

@@ -6,7 +6,6 @@ Mirrors vibe/core/checkpoints/models.py FileState but self-contained.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 
@@ -29,15 +28,15 @@ class FileState:
         return self.data is not None and b"\x00" in self.data
 
     @classmethod
-    def absent(cls) -> "FileState":
+    def absent(cls) -> FileState:
         return cls(data=None)
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> "FileState":
+    def from_bytes(cls, data: bytes) -> FileState:
         return cls(data=data)
 
     @classmethod
-    def from_text(cls, text: str, encoding: str = "utf-8") -> "FileState":
+    def from_text(cls, text: str, encoding: str = "utf-8") -> FileState:
         return cls(data=text.encode(encoding))
 
     def to_text(self, encoding: str = "utf-8") -> Optional[str]:

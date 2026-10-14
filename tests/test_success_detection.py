@@ -4,13 +4,14 @@ Covers:
 - registry._result_is_success (authoritative success from Error prefix + run_command exit code)
 - llm.call_llm back-compat shim (reactivates the verification self-correction path)
 """
+
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from nally.tools.registry import _result_is_success
 from nally.agent.llm import call_llm
+from nally.tools.registry import _result_is_success
 
 
 def test_error_prefix_is_failure():

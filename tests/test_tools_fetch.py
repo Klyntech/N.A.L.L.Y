@@ -1,9 +1,11 @@
 """Tests for nally.tools.fetch — FetchTool with retry and SSL config."""
 
 import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from nally.tools.fetch import FetchTool, _fetch_url, VERIFY_SSL
+
+from nally.tools.fetch import VERIFY_SSL, FetchTool, _fetch_url
 
 
 @pytest.fixture
@@ -19,6 +21,7 @@ class TestFetchTool:
 
     def test_missing_url(self):
         from nally.tools.fetch import _fetch_url
+
         result = _fetch_url("not-a-url")
         assert "Error" in result
 
@@ -38,7 +41,9 @@ class TestVerifySSL:
         with patch.dict(os.environ, {"NALLY_VERIFY_SSL": "true"}):
             # Re-import to pick up env change
             import importlib
+
             import nally.tools.fetch as fetch_mod
+
             importlib.reload(fetch_mod)
             assert fetch_mod.VERIFY_SSL is True
             # Restore default
@@ -48,7 +53,9 @@ class TestVerifySSL:
         """NALLY_VERIFY_SSL=1 also enables verification."""
         with patch.dict(os.environ, {"NALLY_VERIFY_SSL": "1"}):
             import importlib
+
             import nally.tools.fetch as fetch_mod
+
             importlib.reload(fetch_mod)
             assert fetch_mod.VERIFY_SSL is True
             importlib.reload(fetch_mod)
@@ -63,6 +70,7 @@ class TestFetchUrlRetry:
             mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
 
             import httpx
+
             mock_resp = MagicMock()
             mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
                 "500", request=MagicMock(), response=MagicMock(status_code=500)
@@ -75,6 +83,7 @@ class TestFetchUrlRetry:
     def test_retry_on_timeout(self):
         """Timeout errors should be retried."""
         import httpx
+
         with patch("nally.tools.fetch.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client)

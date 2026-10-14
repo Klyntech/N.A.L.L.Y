@@ -18,23 +18,17 @@ from .models import EngineeringError
 class Toolbox(Protocol):
     """Filesystem + shell surface the engineering loop is allowed to use."""
 
-    def write_file(self, path: str, content: str) -> str:
-        ...
+    def write_file(self, path: str, content: str) -> str: ...
 
-    def read_file(self, path: str) -> str:
-        ...
+    def read_file(self, path: str) -> str: ...
 
-    def list_dir(self, path: str) -> List[str]:
-        ...
+    def list_dir(self, path: str) -> List[str]: ...
 
-    def run_command(self, command: str) -> Tuple[str, bool]:
-        ...
+    def run_command(self, command: str) -> Tuple[str, bool]: ...
 
-    def run_tests(self, path: str = "") -> Tuple[str, bool]:
-        ...
+    def run_tests(self, path: str = "") -> Tuple[str, bool]: ...
 
-    def run_lint(self, path: str = "") -> Tuple[str, bool]:
-        ...
+    def run_lint(self, path: str = "") -> Tuple[str, bool]: ...
 
 
 class RealToolbox:
@@ -61,15 +55,11 @@ class RealToolbox:
         if decision.value == "deny":
             raise EngineeringError(f"Tool '{name}' denied by permission gate.")
         if decision.value == "ask" and not self.auto_approve_ask:
-            raise EngineeringError(
-                f"Tool '{name}' requires approval but auto-approve is disabled."
-            )
+            raise EngineeringError(f"Tool '{name}' requires approval but auto-approve is disabled.")
         return registry.execute(name, args)
 
     def write_file(self, path: str, content: str) -> str:
-        result, _ = self._exec(
-            "file_ops", {"action": "write", "file_path": path, "content": content}
-        )
+        result, _ = self._exec("file_ops", {"action": "write", "file_path": path, "content": content})
         return result
 
     def read_file(self, path: str) -> str:

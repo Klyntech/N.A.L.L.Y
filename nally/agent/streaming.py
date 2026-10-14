@@ -43,6 +43,7 @@ class EventType(StrEnum):
 @dataclass
 class StreamEvent:
     """A single typed event in the stream."""
+
     type: EventType
     data: Dict[str, Any]
     namespace: str = "agent"  # agent, tool, system, checkpoint
@@ -124,15 +125,27 @@ class EventEmitter:
 
     def tool_call(self, name: str, args: dict, iteration: int = 0, tool_call_id: str = ""):
         """Emit tool call started."""
-        self.emit(EventType.TOOL_CALL, {
-            "name": name,
-            "args": args,
-            "iteration": iteration,
-            "id": tool_call_id,
-        }, namespace="tool")
+        self.emit(
+            EventType.TOOL_CALL,
+            {
+                "name": name,
+                "args": args,
+                "iteration": iteration,
+                "id": tool_call_id,
+            },
+            namespace="tool",
+        )
 
-    def tool_result(self, name: str, result: str, duration_ms: int = 0, success: bool = True,
-                    diff: str = None, file_path: str = None, tool_call_id: str = ""):
+    def tool_result(
+        self,
+        name: str,
+        result: str,
+        duration_ms: int = 0,
+        success: bool = True,
+        diff: str = None,
+        file_path: str = None,
+        tool_call_id: str = "",
+    ):
         """Emit tool call result."""
         data = {
             "name": name,
@@ -146,8 +159,7 @@ class EventEmitter:
             data["file_path"] = file_path
         self.emit(EventType.TOOL_RESULT, data, namespace="tool")
 
-    def confirmation_required(self, tool_call_id: str, name: str, args: dict,
-                              diff: str = None, file_path: str = None):
+    def confirmation_required(self, tool_call_id: str, name: str, args: dict, diff: str = None, file_path: str = None):
         """Emit tool approval request."""
         data = {
             "tool_call_id": tool_call_id,

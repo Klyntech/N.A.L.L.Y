@@ -26,11 +26,9 @@ import asyncio
 import contextlib
 import logging
 import os
-import threading
 from typing import Optional
 
 import numpy as np
-
 from livekit import rtc
 from livekit.agents import AgentServer, AutoSubscribe, JobContext, cli, vad
 from livekit.plugins import silero
@@ -106,8 +104,9 @@ def _wav_to_frames(wav_bytes: bytes, target_rate: int = OUTPUT_SAMPLE_RATE) -> l
         # Try scipy polyphase
         if resampled is None:
             try:
-                from scipy.signal import resample_poly  # type: ignore
                 import math
+
+                from scipy.signal import resample_poly  # type: ignore
 
                 g = math.gcd(int(sample_rate), int(target_rate))
                 up = int(target_rate // g)
@@ -217,7 +216,7 @@ class SipCall:
             from livekit.plugins import elevenlabs
 
             return elevenlabs.ElevenLabs()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning(f"ElevenLabs plugin unavailable, using existing TTS backend: {e}")
             return None
 
@@ -227,9 +226,7 @@ class SipCall:
         if event == "confirmation_required":
             self._pending_approval = data
             with contextlib.suppress(RuntimeError):
-                asyncio.run_coroutine_threadsafe(
-                    self._speak(_approval_prompt(data)), self._loop
-                )
+                asyncio.run_coroutine_threadsafe(self._speak(_approval_prompt(data)), self._loop)
 
     # ── TTS / playback ──
 
@@ -246,7 +243,7 @@ class SipCall:
                 if frames:
                     self._play_task = asyncio.create_task(self._play_frames(frames))
                     return
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning(f"Plugin TTS failed, using existing backend: {e}")
 
         from ..voice import tts
@@ -267,7 +264,7 @@ class SipCall:
                 await asyncio.sleep(0.005)  # yield so VAD can set _interrupted
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(f"Playback failed: {e}")
 
     async def _interrupt_tts(self):
@@ -290,7 +287,7 @@ class SipCall:
             from livekit.plugins import deepgram
 
             return deepgram.STT().stream()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning(f"Streaming STT unavailable, using batch STT: {e}")
             return None
 
@@ -301,7 +298,7 @@ class SipCall:
             async for speech in stt_stream:
                 if getattr(speech, "is_final", True) or speech.text:
                     parts.append(speech.text)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning(f"Streaming STT failed, using batch STT: {e}")
             return ""
         return " ".join(p for p in parts if p).strip()
@@ -366,7 +363,7 @@ class SipCall:
 
         try:
             response = await asyncio.to_thread(_process)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(f"Agent failed for {self._session_id}: {e}")
             response = "Sorry, I ran into an error. Please try again."
 

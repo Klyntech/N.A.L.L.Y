@@ -82,57 +82,65 @@ Edit `nally/config.py` → `MCP_SERVERS` for service-connection metadata and acc
 ### HTTP Server (Remote)
 
 ```python
-{
-    "name": "my-service",
-    "url": "https://mcp.example.com/mcp",
-    "transport": "http",
-    "description": "My custom service",
-    "scope": "read",
-    "permission": "safe",
-},
+(
+    {
+        "name": "my-service",
+        "url": "https://mcp.example.com/mcp",
+        "transport": "http",
+        "description": "My custom service",
+        "scope": "read",
+        "permission": "safe",
+    },
+)
 ```
 
 ### HTTP + OAuth Server
 
 ```python
-{
-    "name": "my-service",
-    "url": "https://mcp.example.com/mcp",
-    "transport": "http",
-    "auth_mode": "oauth",
-    "description": "My OAuth service",
-    "scope": "read write",
-    "permission": "write",
-},
+(
+    {
+        "name": "my-service",
+        "url": "https://mcp.example.com/mcp",
+        "transport": "http",
+        "auth_mode": "oauth",
+        "description": "My OAuth service",
+        "scope": "read write",
+        "permission": "write",
+    },
+)
 ```
 
 ### stdio Server (Local)
 
 ```python
-{
-    "name": "my-tool",
-    "command": "npx",
-    "args": ["-y", "@example/mcp-server"],
-    "transport": "stdio",
-    "description": "My local tool",
-    "permission": "safe",
-},
+(
+    {
+        "name": "my-tool",
+        "command": "npx",
+        "args": ["-y", "@example/mcp-server"],
+        "transport": "stdio",
+        "description": "My local tool",
+        "permission": "safe",
+    },
+)
 ```
 
 ### stdio + API Key
 
 ```python
-{
-    "name": "my-tool",
-    "command": "npx",
-    "args": ["-y", "@example/mcp-server"],
-    "transport": "stdio",
-    "auth_mode": "api_key",
-    "env_key": "MY_API_KEY",      # Env var to read
-    "env_name": "MY_API_KEY",     # Env var to inject into subprocess
-    "description": "My API key tool",
-    "permission": "safe",
-},
+(
+    {
+        "name": "my-tool",
+        "command": "npx",
+        "args": ["-y", "@example/mcp-server"],
+        "transport": "stdio",
+        "auth_mode": "api_key",
+        "env_key": "MY_API_KEY",  # Env var to read
+        "env_name": "MY_API_KEY",  # Env var to inject into subprocess
+        "description": "My API key tool",
+        "permission": "safe",
+    },
+)
 ```
 
 ## Connection Status

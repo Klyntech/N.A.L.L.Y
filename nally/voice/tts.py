@@ -12,7 +12,6 @@ import io
 import logging
 import struct
 import time
-import typing
 import urllib.request
 from pathlib import Path
 
@@ -203,6 +202,7 @@ class ElevenLabsBackend(TTSBackend):
 
         try:
             import websockets
+
             # Check if websockets.connect supports the 'proxy' parameter (added in v14)
             proxy_supported = "proxy" in inspect.signature(websockets.connect).parameters
         except Exception:
@@ -222,15 +222,17 @@ class ElevenLabsBackend(TTSBackend):
                 logger.debug(f"el_ws: connected in {time.monotonic() - t_conn:.1f}s")
 
                 # 1. Send voice settings (init frame)
-                init_msg = json.dumps({
-                    "text": " ",
-                    "voice_settings": {
-                        "stability": 0.65,
-                        "similarity_boost": 0.80,
-                        "style": 0.35,
-                        "use_speaker_boost": True,
-                    },
-                })
+                init_msg = json.dumps(
+                    {
+                        "text": " ",
+                        "voice_settings": {
+                            "stability": 0.65,
+                            "similarity_boost": 0.80,
+                            "style": 0.35,
+                            "use_speaker_boost": True,
+                        },
+                    }
+                )
                 await ws.send(init_msg)
                 await asyncio.sleep(0)  # yield to event loop — flush transport write buffer
                 logger.debug("el_ws: sent_init")
@@ -251,7 +253,7 @@ class ElevenLabsBackend(TTSBackend):
                 #    chunk and keep leftover input samples for the next cycle.
                 input_acc = np.array([], dtype=np.int16)
                 out_chunk = int(target_sample_rate * 0.02)  # 960 samples @48k — exact 20ms, do not drift
-                ratio = eleven_sr / target_sample_rate       # ~0.459
+                ratio = eleven_sr / target_sample_rate  # ~0.459
                 # Exact input needed for one output chunk: 960 * 22050/48000 = 441
                 needed_in = int(round(out_chunk * eleven_sr / target_sample_rate))  # 441 @22050→48000
                 msg_count = 0
@@ -291,7 +293,7 @@ class ElevenLabsBackend(TTSBackend):
 
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=recv_timeout)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         if first_audio_at is None:
                             # Still no audio — fast failure
                             logger.warning(
@@ -316,9 +318,7 @@ class ElevenLabsBackend(TTSBackend):
                         if first_audio_at is None:
                             first_audio_at = time.monotonic()
                             logger.debug(f"el_ws: first_audio in {first_audio_at - t_conn:.1f}s")
-                        chunk_pcm = np.frombuffer(
-                            base64.b64decode(audio_b64), dtype=np.int16
-                        )
+                        chunk_pcm = np.frombuffer(base64.b64decode(audio_b64), dtype=np.int16)
                         input_acc = np.append(input_acc, chunk_pcm)
                         audio_bytes_in += len(chunk_pcm) * 2
 
@@ -330,18 +330,14 @@ class ElevenLabsBackend(TTSBackend):
                     while len(input_acc) >= needed_in:
                         window = input_acc[:needed_in]
                         # Use shared helper for quality: soxr > scipy > linear
-                        resampled_bytes = _resample_pcm(
-                            window.tobytes(), eleven_sr, target_sample_rate
-                        )
+                        resampled_bytes = _resample_pcm(window.tobytes(), eleven_sr, target_sample_rate)
                         # _resample_pcm may be slightly off due to filter delay; force 960
                         resampled = np.frombuffer(resampled_bytes, dtype=np.int16)
                         if len(resampled) != out_chunk:
                             if len(resampled) > out_chunk:
                                 resampled = resampled[:out_chunk]
                             else:
-                                resampled = np.pad(
-                                    resampled, (0, out_chunk - len(resampled))
-                                )
+                                resampled = np.pad(resampled, (0, out_chunk - len(resampled)))
                         yield resampled.tobytes()
                         chunks_out += 1
                         input_acc = input_acc[needed_in:]
@@ -357,9 +353,7 @@ class ElevenLabsBackend(TTSBackend):
                 # Flush any remaining input samples (< 20ms tail) — resample once
                 # to keep total duration exact (avoids fast/slow drift).
                 if len(input_acc) > 0:
-                    tail_bytes = _resample_pcm(
-                        input_acc.tobytes(), eleven_sr, target_sample_rate
-                    )
+                    tail_bytes = _resample_pcm(input_acc.tobytes(), eleven_sr, target_sample_rate)
                     if tail_bytes:
                         yield tail_bytes
 
@@ -446,7 +440,8 @@ class FishAudioBackend(TTSBackend):
     name = "fishaudio"
 
     def _get_config(self):
-        from ..config import FISH_API_KEY, FISH_VOICE_ID, FISH_MODEL
+        from ..config import FISH_API_KEY, FISH_MODEL, FISH_VOICE_ID
+
         if not FISH_API_KEY:
             raise ValueError("FISH_API_KEY not set")
         return FISH_API_KEY, FISH_VOICE_ID, FISH_MODEL
@@ -455,13 +450,16 @@ class FishAudioBackend(TTSBackend):
         if not text or not text.strip():
             return
         try:
+            import io
+            import wave
+
             import sounddevice as sd
-            import io, wave
+
             wav_bytes = self.synthesize_to_wav(text)
             if not wav_bytes:
                 print(f"[TTS unavailable] {text}")
                 return
-            with wave.open(io.BytesIO(wav_bytes), 'rb') as w:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as w:
                 sample_rate = w.getframerate()
                 frames = w.readframes(w.getnframes())
                 audio_int16 = np.frombuffer(frames, dtype=np.int16)
@@ -478,6 +476,7 @@ class FishAudioBackend(TTSBackend):
             return None
         try:
             import asyncio
+
             # Run async function in a sync environment
             try:
                 loop = asyncio.get_running_loop()
@@ -497,13 +496,12 @@ class FishAudioBackend(TTSBackend):
         """Asynchronously synthesize text using fishaudio SDK."""
         try:
             from fishaudio import AsyncFishAudio
+
             api_key, voice_id, model = self._get_config()
             async with AsyncFishAudio(api_key=api_key) as client:
                 # convert returns wav/mp3 bytes. We ask for WAV for compatibility.
                 # _fish_convert retries without the voice id if it is rejected.
-                audio_bytes = await _fish_convert(
-                    client, text=text, model=model, voice_id=voice_id, fmt="wav"
-                )
+                audio_bytes = await _fish_convert(client, text=text, model=model, voice_id=voice_id, fmt="wav")
                 if audio_bytes:
                     return audio_bytes
                 raise RuntimeError("Fish Audio returned empty audio")
@@ -523,7 +521,6 @@ class FishAudioBackend(TTSBackend):
         Uses Fish Audio's streaming endpoint when available, falling back to a
         single convert() call that is decoded + resampled.
         """
-        import asyncio
 
         from fishaudio import AsyncFishAudio
         from fishaudio.types.tts import TTSConfig
@@ -568,9 +565,7 @@ class FishAudioBackend(TTSBackend):
                     logger.debug(f"Fish stream PCM failed ({e}); falling back to convert")
 
                 # Fallback 1: full synthesis -> WAV -> decode -> resample.
-                wav = await _fish_convert(
-                    client, text=text, model=model, voice_id=voice_id, fmt="wav"
-                )
+                wav = await _fish_convert(client, text=text, model=model, voice_id=voice_id, fmt="wav")
                 if wav:
                     pcm, sr = _wav_to_pcm(wav)
                     if sr != target_sample_rate:
@@ -583,9 +578,7 @@ class FishAudioBackend(TTSBackend):
                     return
 
                 # Fallback 2: local Piper (no cloud dependency).
-                logger.warning(
-                    "Fish Audio streaming unavailable — falling back to Piper TTS"
-                )
+                logger.warning("Fish Audio streaming unavailable — falling back to Piper TTS")
                 pcm = _piper_pcm(text, target_sample_rate)
                 if pcm:
                     chunk_samples = int(target_sample_rate * 0.2)
@@ -644,8 +637,9 @@ def _resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
         logger.debug(f"soxr resample failed ({e}), trying scipy")
     # Try scipy polyphase
     try:
-        from scipy.signal import resample_poly  # type: ignore
         import math
+
+        from scipy.signal import resample_poly  # type: ignore
 
         audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
         g = math.gcd(int(src_rate), int(dst_rate))
@@ -670,9 +664,7 @@ def _resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
     n_dst = int(round(len(audio) * dst_rate / src_rate))
     if n_dst <= 0:
         return b""
-    resampled = np.interp(
-        np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio
-    )
+    resampled = np.interp(np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio)
     return np.clip(resampled, -32768, 32767).astype(np.int16).tobytes()
 
 
@@ -760,12 +752,18 @@ def _mp3_to_pcm(mp3_bytes: bytes, sample_rate: int = 22050) -> tuple[bytes | Non
     try:
         proc = subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-i", tmp_in_path,
-                "-f", "s16le",
-                "-acodec", "pcm_s16le",
-                "-ar", str(sample_rate),
-                "-ac", "1",
+                "ffmpeg",
+                "-y",
+                "-i",
+                tmp_in_path,
+                "-f",
+                "s16le",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                str(sample_rate),
+                "-ac",
+                "1",
                 tmp_out_path,
             ],
             capture_output=True,
@@ -807,11 +805,16 @@ def _mp3_to_ogg(mp3_bytes: bytes) -> bytes | None:
     try:
         proc = subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-i", tmp_in_path,
-                "-c:a", "libopus",
-                "-b:a", "96k",
-                "-application", "audio",
+                "ffmpeg",
+                "-y",
+                "-i",
+                tmp_in_path,
+                "-c:a",
+                "libopus",
+                "-b:a",
+                "96k",
+                "-application",
+                "audio",
                 tmp_out_path,
             ],
             capture_output=True,
@@ -842,6 +845,7 @@ def _strip_markdown(text: str) -> str:
     if not text:
         return ""
     import re
+
     # Strip code blocks
     text = re.sub(r"```[\s\S]*?```", "", text)
     # Strip inline code

@@ -14,9 +14,7 @@ SOUL.md format:
 """
 
 import hashlib
-import json
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -79,6 +77,7 @@ class SoulManager:
         """Load fallback personality from config."""
         try:
             from ..config import get_system_prompt
+
             return get_system_prompt()
         except Exception:
             return "You are Nally, a helpful AI assistant."

@@ -157,7 +157,9 @@ def _finalize():
 
 def _base_responses(initial_main):
     return {
-        "clarify": json.dumps({"assumptions": ["Use Python 3.11", "Single file"], "questions": [], "needs_clarification": False}),
+        "clarify": json.dumps(
+            {"assumptions": ["Use Python 3.11", "Single file"], "questions": [], "needs_clarification": False}
+        ),
         "brainstorm": _brainstorm(),
         "design": _design(),
         "test_plan": _test_plan(),
@@ -170,7 +172,9 @@ def test_full_loop_success(tmp_path):
     backend = FakeLLMBackend(_base_responses(MAIN_OK), default="{}")
     toolbox = FakeToolbox(test_result=("3 passed", True), lint_result=("", True))
     ws = EngineeringWorkspace(base_dir=tmp_path, task="organize files by extension")
-    result = run_engineering("Build a CLI tool that organizes files by extension", backend=backend, toolbox=toolbox, workspace=ws)
+    result = run_engineering(
+        "Build a CLI tool that organizes files by extension", backend=backend, toolbox=toolbox, workspace=ws
+    )
 
     # Progression checks
     assert result.success is True
@@ -207,7 +211,9 @@ def test_full_loop_refines_on_failure(tmp_path):
     # First test run fails, second (after refine) passes.
     toolbox = FakeToolbox(test_result=[("1 failed", False), ("3 passed", True)], lint_result=("", True))
     ws = EngineeringWorkspace(base_dir=tmp_path, task="organize files")
-    result = run_engineering("Build a CLI tool that organizes files by extension", backend=backend, toolbox=toolbox, workspace=ws)
+    result = run_engineering(
+        "Build a CLI tool that organizes files by extension", backend=backend, toolbox=toolbox, workspace=ws
+    )
 
     assert result.refinements == 1
     assert result.success is True

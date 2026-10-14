@@ -72,8 +72,9 @@ def resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
         pass
     # Try scipy polyphase
     try:
-        from scipy.signal import resample_poly  # type: ignore
         import math
+
+        from scipy.signal import resample_poly  # type: ignore
 
         audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
         g = math.gcd(int(src_rate), int(dst_rate))
@@ -95,9 +96,7 @@ def resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
     n_dst = int(round(len(audio) * dst_rate / src_rate))
     if n_dst <= 0:
         return b""
-    resampled = np.interp(
-        np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio
-    )
+    resampled = np.interp(np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio)
     return np.clip(resampled, -32768, 32767).astype(np.int16).tobytes()
 
 
@@ -154,6 +153,7 @@ class VoicePipeline:
         if not _vad_loaded:
             try:
                 from silero_vad import load_silero_vad
+
                 _vad_model = await asyncio.to_thread(load_silero_vad, onnx=True)
                 _vad_loaded = True
                 logger.info("silero_vad_loaded")
@@ -203,8 +203,8 @@ class VoicePipeline:
         if not self._running or not frame_bytes:
             return
         # Allow frames during reconnect — queue them instead of dropping
-        if not self.stt.connected and not getattr(self.stt, '_reconnecting', False):
-            if not hasattr(self, '_stt_drop_logged'):
+        if not self.stt.connected and not getattr(self.stt, "_reconnecting", False):
+            if not hasattr(self, "_stt_drop_logged"):
                 self._stt_drop_logged = True
                 logger.warning("stt_disconnected", extra={"action": "dropping_frames"})
             return
@@ -310,9 +310,7 @@ class VoicePipeline:
     def _run_vad(self) -> float:
         import torch
 
-        audio_int16 = np.concatenate(
-            [np.frombuffer(b, dtype=np.int16) for b in self._vad_buffer]
-        )
+        audio_int16 = np.concatenate([np.frombuffer(b, dtype=np.int16) for b in self._vad_buffer])
         audio_f32 = audio_int16.astype(np.float32) / 32768.0
         audio_tensor = torch.from_numpy(audio_f32)
         self._vad_buffer = []
@@ -358,7 +356,7 @@ class VoicePipeline:
                 continue
 
             # Track when audio starts flowing to detect dead connections.
-            last_audio_ts = getattr(self.stt, '_last_real_audio_ts', 0)
+            last_audio_ts = getattr(self.stt, "_last_real_audio_ts", 0)
             if first_audio_sent_at is None and last_audio_ts > 0:
                 first_audio_sent_at = last_audio_ts
 
@@ -375,7 +373,7 @@ class VoicePipeline:
                         "with zero transcripts — triggering reconnect"
                     )
                     first_audio_sent_at = None  # reset, let reconnect happen
-                    if hasattr(self.stt, '_connected'):
+                    if hasattr(self.stt, "_connected"):
                         self.stt._connected = False
                 continue
 
@@ -421,9 +419,7 @@ class VoicePipeline:
             except Exception as e:
                 inc_error("agent")
                 logger.error(f"agent_processing_failed: {type(e).__name__}: {e}", extra={"error": str(e)})
-                await self._synthesize_turn(
-                    "Sorry, I ran into an error. Please try again."
-                )
+                await self._synthesize_turn("Sorry, I ran into an error. Please try again.")
 
     async def _synthesize_turn(self, text: str):
         """Synthesize one transcript and stream chunks to the outbound queue."""
@@ -466,8 +462,7 @@ class VoicePipeline:
             if sent_any and first_chunk_at is not None:
                 record_pipeline_latency(time.monotonic() - started)
             logger.debug(
-                f"tts_synth: done chunks={chunk_count} bytes={total_bytes} "
-                f"sent={sent_any} elapsed={elapsed:.3f}s"
+                f"tts_synth: done chunks={chunk_count} bytes={total_bytes} sent={sent_any} elapsed={elapsed:.3f}s"
             )
 
     async def _tts_stream(self, text: str):
@@ -493,7 +488,7 @@ class VoicePipeline:
 
         # Fallback: full WAV from active backend -> resample to call rate.
         try:
-            from .tts import _wav_to_pcm, _resample_pcm
+            from .tts import _resample_pcm, _wav_to_pcm
 
             wav = await asyncio.to_thread(self.tts.synthesize_to_wav, text)
             if not wav:

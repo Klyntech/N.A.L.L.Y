@@ -264,11 +264,15 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
     # Intercept "call me" on web UI — redirect to Telegram
     if text.strip().lower() in ("call me", "call nally"):
         from ..config import NALLY_VOICE_CALLS_ENABLED
+
         if NALLY_VOICE_CALLS_ENABLED:
-            await ws_manager.send_json(cid, {
-                "type": "response",
-                "text": 'Voice calls only work on Telegram. Send me "call me" there and I\'ll set up a voice chat for you.',
-            })
+            await ws_manager.send_json(
+                cid,
+                {
+                    "type": "response",
+                    "text": 'Voice calls only work on Telegram. Send me "call me" there and I\'ll set up a voice chat for you.',
+                },
+            )
             return
 
     # Check if session is busy — queue the message (per-route)
@@ -365,9 +369,12 @@ async def _process_message(cid: str, session_id: str, text: str, tab_id: str, ro
     await ws_manager.send_json(cid, {"type": "done"})
 
 
-async def _process_voice(cid: str, session_id: str, audio_b64: str, tab_id: str, audio_format: str = "", route_key: str = None):
+async def _process_voice(
+    cid: str, session_id: str, audio_b64: str, tab_id: str, audio_format: str = "", route_key: str = None
+):
     """Process voice audio from browser: STT -> agent -> TTS -> stream audio back (per-route)."""
     from ..core.abort import check_abort, clear_abort
+
     rk = route_key or session_id
 
     loop = asyncio.get_event_loop()

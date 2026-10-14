@@ -24,7 +24,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -221,7 +221,13 @@ class ManagedShellManager:
                     data = json.loads(mf.read_text(encoding="utf-8"))
                     # Rehydrate minimal session
                     sess = TerminalSession(**{k: data[k] for k in TerminalSession.__dataclass_fields__ if k in data})
-                    return {"session": sess, "proc": None, "thread": None, "output_path": self.sessions_dir / f"{session_id}.log", "manifest_path": mf}
+                    return {
+                        "session": sess,
+                        "proc": None,
+                        "thread": None,
+                        "output_path": self.sessions_dir / f"{session_id}.log",
+                        "manifest_path": mf,
+                    }
                 except Exception:
                     return None
             return None
@@ -398,6 +404,7 @@ class ManagedShellManager:
 # Singleton
 _manager: Optional[ManagedShellManager] = None
 _lock = threading.Lock()
+
 
 def get_manager() -> ManagedShellManager:
     global _manager

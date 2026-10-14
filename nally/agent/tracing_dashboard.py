@@ -4,10 +4,8 @@ Extends Nally's existing tracer with dashboard-ready data formats.
 Provides structured trace data for visualization in web UI.
 """
 
-import json
 import logging
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nally.tracing_dashboard")
@@ -16,6 +14,7 @@ logger = logging.getLogger("nally.tracing_dashboard")
 @dataclass
 class SpanSummary:
     """Summarized span for dashboard display."""
+
     span_id: str
     name: str
     start_time: float
@@ -51,6 +50,7 @@ class SpanSummary:
 @dataclass
 class TraceSummary:
     """Summarized trace for dashboard display."""
+
     run_id: str
     start_time: float
     end_time: float
@@ -91,7 +91,7 @@ class TracingDashboard:
         """Record a completed trace."""
         self._traces.append(trace)
         if len(self._traces) > self._max_traces:
-            self._traces = self._traces[-self._max_traces:]
+            self._traces = self._traces[-self._max_traces :]
 
     def get_recent_traces(self, limit: int = 20) -> List[Dict]:
         """Get recent traces for dashboard."""
@@ -128,8 +128,10 @@ class TracingDashboard:
         if not spans:
             return TraceSummary(
                 run_id=run_id,
-                start_time=0, end_time=0,
-                total_duration_ms=0, spans=[],
+                start_time=0,
+                end_time=0,
+                total_duration_ms=0,
+                spans=[],
             )
 
         start_time = min(s.get("start_time", 0) for s in spans)
@@ -156,21 +158,23 @@ class TracingDashboard:
             if s.get("error"):
                 error_count += 1
 
-            span_summaries.append(SpanSummary(
-                span_id=s.get("span_id", ""),
-                name=name,
-                start_time=s.get("start_time", 0),
-                end_time=s.get("end_time", 0),
-                duration_ms=int((s.get("end_time", 0) - s.get("start_time", 0)) * 1000),
-                status="error" if s.get("error") else "ok",
-                parent_id=s.get("parent_id"),
-                run_id=s.get("run_id"),
-                input_summary=str(s.get("input", ""))[:200],
-                output_summary=str(s.get("output", ""))[:200],
-                error=s.get("error"),
-                token_count=tokens,
-                cost_usd=s.get("cost_usd", 0),
-            ))
+            span_summaries.append(
+                SpanSummary(
+                    span_id=s.get("span_id", ""),
+                    name=name,
+                    start_time=s.get("start_time", 0),
+                    end_time=s.get("end_time", 0),
+                    duration_ms=int((s.get("end_time", 0) - s.get("start_time", 0)) * 1000),
+                    status="error" if s.get("error") else "ok",
+                    parent_id=s.get("parent_id"),
+                    run_id=s.get("run_id"),
+                    input_summary=str(s.get("input", ""))[:200],
+                    output_summary=str(s.get("output", ""))[:200],
+                    error=s.get("error"),
+                    token_count=tokens,
+                    cost_usd=s.get("cost_usd", 0),
+                )
+            )
 
         return TraceSummary(
             run_id=run_id,

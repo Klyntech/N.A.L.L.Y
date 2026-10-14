@@ -84,6 +84,7 @@ def _log_backend_once():
         hint = "postgres"
         try:
             import os as _os
+
             url = _os.getenv("DATABASE_URL", "") or DATABASE_URL or ""
             # Extract host between @ and / or ? without leaking credentials
             if "@" in url:
@@ -337,70 +338,96 @@ def _backfill_route_key_column(conn):
 
 class _LibSQLRow:
     """Dict-like wrapper for libsql tuple rows — enables row["column_name"] access."""
+
     __slots__ = ("_data", "_keys")
+
     def __init__(self, row_tuple, description):
         self._data = row_tuple
         self._keys = {desc[0]: i for i, desc in enumerate(description)}
+
     def __getitem__(self, key):
         if isinstance(key, str):
             return self._data[self._keys[key]]
         return self._data[key]
+
     def get(self, key, default=None):
         try:
             return self[key]
         except (KeyError, IndexError):
             return default
+
     def keys(self):
         """Return column names — enables dict(row) conversion."""
         return list(self._keys.keys())
+
     def values(self):
         """Return column values in column order."""
         return list(self._data)
+
     def items(self):
         """Return (column_name, value) pairs — enables dict(row) and row.items()."""
         return [(k, self._data[i]) for k, i in self._keys.items()]
+
     def __iter__(self):
         return iter(self._data)
+
     def __len__(self):
         return len(self._data)
 
 
 class _LibSQLCursorWrapper:
     """Wraps libsql cursor to return _LibSQLRow objects from fetchone/fetchall."""
+
     __slots__ = ("_cursor",)
+
     def __init__(self, cursor):
         self._cursor = cursor
+
     def fetchone(self):
         row = self._cursor.fetchone()
         if row is None:
             return None
         return _LibSQLRow(row, self._cursor.description)
+
     def fetchall(self):
         desc = self._cursor.description
         return [_LibSQLRow(r, desc) for r in self._cursor.fetchall()]
+
     def __iter__(self):
         desc = self._cursor.description
         for r in self._cursor:
             yield _LibSQLRow(r, desc)
+
     def __getattr__(self, name):
         return getattr(self._cursor, name)
 
 
 class _NoOpCursor:
     """Minimal cursor stub returned when executescript has no real statements."""
+
     description = []
-    def fetchone(self): return None
-    def fetchall(self): return []
-    def fetchmany(self, n): return []
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+    def fetchmany(self, n):
+        return []
+
     @property
-    def rowcount(self): return -1
+    def rowcount(self):
+        return -1
 
 
 # ── Postgres wrappers ─────────────────────────────────────
 
+
 class _PostgresRow:
     """Dict-like wrapper over Postgres tuple rows (supports row['col'] and row[0])."""
-    __slots__ = ("_data", "_keys", "_key_list")
+
+    __slots__ = ("_data", "_key_list", "_keys")
 
     def __init__(self, row_tuple, description):
         self._data = row_tuple
@@ -450,6 +477,7 @@ class _PostgresRow:
 
 class _PostgresCursorWrapper:
     """Wraps a psycopg cursor to return _PostgresRow objects."""
+
     __slots__ = ("_cursor",)
 
     def __init__(self, cursor):
@@ -598,6 +626,7 @@ class LibSQLConnectionProxy:
     All query results are wrapped via ``_LibSQLCursorWrapper`` so that
     ``row["column"]`` access works identically to ``sqlite3.Row``.
     """
+
     __slots__ = ("_conn",)
 
     def __init__(self, conn):
@@ -703,17 +732,20 @@ class MemoryRepository:
         if backend == "postgres":
             # Prefer psycopg 3, fall back to psycopg2
             import os as _os
+
             live_url = _os.getenv("DATABASE_URL", "") or DATABASE_URL or ""
             last_err = None
             for mod_name in ("psycopg", "psycopg2"):
                 try:
                     if mod_name == "psycopg":
                         import psycopg  # type: ignore
+
                         # psycopg 3: connect with conninfo string
                         # autocommit=False so we can use explicit commit/rollback like SQLite
                         raw = psycopg.connect(live_url, autocommit=False)  # type: ignore[arg-type]
                     else:
                         import psycopg2  # type: ignore
+
                         raw = psycopg2.connect(live_url)  # type: ignore[arg-type]
                     return _PostgresConnectionWrapper(raw)
                 except ImportError as e:
@@ -730,6 +762,7 @@ class MemoryRepository:
         if TURSO_URL and TURSO_TOKEN:
             try:
                 import libsql_experimental as libsql
+
                 logger.debug(f"Using Turso/LibSQL: TURSO_URL={TURSO_URL[:20]}...")
                 raw = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
                 return LibSQLConnectionProxy(raw)
@@ -837,7 +870,8 @@ class MemoryRepository:
         try:
             # Tokenize query: split on non-alphanumeric, join with OR
             import re
-            tokens = [t for t in re.split(r'[^a-zA-Z0-9_]+', search) if len(t) >= 2]
+
+            tokens = [t for t in re.split(r"[^a-zA-Z0-9_]+", search) if len(t) >= 2]
             if not tokens:
                 return None
             fts_query = " OR ".join(tokens)
@@ -858,7 +892,9 @@ class MemoryRepository:
 
     # ── Long-term Memory ──────────────────────────────────────
 
-    def remember(self, key: str, value: str, category: str = "general", confidence: float = 0.5, ttl_days: Optional[int] = None) -> str:
+    def remember(
+        self, key: str, value: str, category: str = "general", confidence: float = 0.5, ttl_days: Optional[int] = None
+    ) -> str:
         """Store a fact. Boosts confidence if key already exists.
 
         Args:
@@ -940,7 +976,9 @@ class MemoryRepository:
             if category:
                 rows = conn.execute(
                     f"SELECT * FROM memories WHERE category = ? AND deleted = 0 AND confidence >= ? {expired_clause} ORDER BY confidence DESC, last_confirmed DESC LIMIT ?",
-                    (category, min_confidence, now_iso, limit) if not include_expired else (category, min_confidence, limit),
+                    (category, min_confidence, now_iso, limit)
+                    if not include_expired
+                    else (category, min_confidence, limit),
                 ).fetchall()
                 return {row["key"]: row["value"] for row in rows}
 
@@ -953,7 +991,9 @@ class MemoryRepository:
                 like_pattern = f"%{search}%"
                 rows = conn.execute(
                     f"SELECT * FROM memories WHERE deleted = 0 AND confidence >= ? AND (key LIKE ? OR value LIKE ? OR category LIKE ?) {expired_clause} ORDER BY confidence DESC LIMIT ?",
-                    (min_confidence, like_pattern, like_pattern, like_pattern, now_iso, limit) if not include_expired else (min_confidence, like_pattern, like_pattern, like_pattern, limit),
+                    (min_confidence, like_pattern, like_pattern, like_pattern, now_iso, limit)
+                    if not include_expired
+                    else (min_confidence, like_pattern, like_pattern, like_pattern, limit),
                 ).fetchall()
                 return {row["key"]: row["value"] for row in rows}
 
@@ -1212,7 +1252,9 @@ class MemoryRepository:
 
     # ── Conversation History Persistence ──────────────────────
 
-    def save_messages(self, messages: List[Dict[str, Any]], session_id: str = "default", route_key: Optional[str] = None) -> str:
+    def save_messages(
+        self, messages: List[Dict[str, Any]], session_id: str = "default", route_key: Optional[str] = None
+    ) -> str:
         """Save full conversation messages to database.
 
         If route_key is provided, history is isolated per-channel (Telegram vs Web)
@@ -1279,13 +1321,13 @@ class MemoryRepository:
                 return f"Saved {len(messages)} messages"
             except _sqlite3.OperationalError as e:
                 if "busy" in str(e).lower() and _attempt < 2:
-                    _time.sleep(0.05 * (2 ** _attempt))
+                    _time.sleep(0.05 * (2**_attempt))
                     continue
                 raise
             except Exception as e:
                 msg_lower = str(e).lower()
                 if any(k in msg_lower for k in ("busy", "deadlock", "timeout", "could not serialize")) and _attempt < 2:
-                    _time.sleep(0.05 * (2 ** _attempt))
+                    _time.sleep(0.05 * (2**_attempt))
                     continue
                 raise
         return f"Saved {len(messages)} messages"
@@ -1374,10 +1416,7 @@ class MemoryRepository:
             now = self._now()
             conn.executemany(
                 "INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                [
-                    (target_session_id, r["role"], r["content"], r["tool_calls"], r["tool_call_id"], now)
-                    for r in rows
-                ],
+                [(target_session_id, r["role"], r["content"], r["tool_calls"], r["tool_call_id"], now) for r in rows],
             )
             return len(rows)
 
@@ -1509,9 +1548,7 @@ class MemoryRepository:
         d.pop("input_json", None)
         d.pop("output_json", None)
         d["duration_ms"] = (
-            round((d["ended_at"] - d["started_at"]) * 1000, 1)
-            if d.get("ended_at") and d.get("started_at")
-            else None
+            round((d["ended_at"] - d["started_at"]) * 1000, 1) if d.get("ended_at") and d.get("started_at") else None
         )
         return d
 
@@ -1661,4 +1698,3 @@ MEMORY_TOOL_SCHEMAS = [
         },
     },
 ]
-

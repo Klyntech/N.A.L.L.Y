@@ -25,23 +25,23 @@ from .toolbox import FakeToolbox, RealToolbox, Toolbox
 from .workspace import EngineeringWorkspace
 
 __all__ = [
-    "EngineeringLoop",
-    "EngineeringError",
-    "EngineeringResult",
-    "EngineeringStage",
-    "TaskSpec",
     "Approach",
     "ApproachScore",
-    "DesignPlan",
-    "TestPlan",
     "CritiqueReport",
+    "DesignPlan",
+    "EngineeringError",
+    "EngineeringLoop",
+    "EngineeringResult",
+    "EngineeringStage",
+    "EngineeringWorkspace",
+    "FakeLLMBackend",
+    "FakeToolbox",
     "LLMBackend",
     "NallyLLMBackend",
-    "FakeLLMBackend",
-    "Toolbox",
     "RealToolbox",
-    "FakeToolbox",
-    "EngineeringWorkspace",
+    "TaskSpec",
+    "TestPlan",
+    "Toolbox",
     "run_engineering",
 ]
 
@@ -75,9 +75,7 @@ def run_engineering(
         toolbox = RealToolbox()
     if emit is None and verbose:
         emit = _cli_emit
-    loop = EngineeringLoop(
-        backend, toolbox, workspace, max_refinements=max_refinements, emit=emit, **kwargs
-    )
+    loop = EngineeringLoop(backend, toolbox, workspace, max_refinements=max_refinements, emit=emit, **kwargs)
     return loop.run(task)
 
 
@@ -86,8 +84,18 @@ def _cli_emit(stage: str, data: Dict[str, Any]) -> None:
     msg = stage
     if isinstance(data, dict):
         parts = []
-        for key in ("goal", "chosen_id", "count", "framework", "passed",
-                    "files", "iteration", "success", "attempt", "error"):
+        for key in (
+            "goal",
+            "chosen_id",
+            "count",
+            "framework",
+            "passed",
+            "files",
+            "iteration",
+            "success",
+            "attempt",
+            "error",
+        ):
             if key in data and data[key] is not None:
                 val = data[key]
                 if isinstance(val, list):

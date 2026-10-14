@@ -28,7 +28,9 @@ def _base_url() -> str:
     Falls back to http://localhost:5000 for local dev.
     """
     import os as _os
+
     from ..config import NALLY_BASE_URL
+
     if NALLY_BASE_URL:
         return NALLY_BASE_URL
     port = _os.getenv("NALLY_PORT", _os.getenv("PORT", "5000"))

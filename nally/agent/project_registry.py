@@ -16,7 +16,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger("nally.projects")
 
@@ -81,6 +81,7 @@ class ProjectRegistry:
         if self._cache_path:
             return self._cache_path
         from ..config import DATA_DIR
+
         return DATA_DIR / "projects.json"
 
     def resolve(self, name: str) -> Optional[str]:

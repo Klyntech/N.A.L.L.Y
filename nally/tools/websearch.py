@@ -3,6 +3,7 @@
 Tavily and Brave are used when their API keys are configured. DuckDuckGo is the
 keyless fallback, with a lightweight HTML fallback if its Python client fails.
 """
+
 import logging
 import os
 import urllib.parse

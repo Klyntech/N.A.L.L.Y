@@ -10,10 +10,13 @@ ffmpeg required for voice support.
 
 import asyncio
 import io
+
+# ── DNS 11001 spam filter: collapse httpx getaddrinfo failures to one warning ──
+import logging as _logging
 import os
 import secrets
-import time
 import threading
+import time
 from typing import Optional
 
 from telegram.constants import UpdateType
@@ -33,8 +36,6 @@ from ..agent.sessions import session_manager
 from ..utils.logger import logger
 from .format import md_to_telegram_html
 
-# ── DNS 11001 spam filter: collapse httpx getaddrinfo failures to one warning ──
-import logging as _logging
 
 class _GetAddrInfoFilter(_logging.Filter):
     """Collapse Telegram polling DNS failures (11001 getaddrinfo) to a single warning.
@@ -43,6 +44,7 @@ class _GetAddrInfoFilter(_logging.Filter):
     with exc_info on every poll. We rewrite it to a one-liner and downgrade to
     WARNING so the console isn't flooded while DNS is down.
     """
+
     _last_log = 0.0  # rate-limit to 1 per 30s
 
     def filter(self, record: _logging.LogRecord) -> bool:
@@ -50,6 +52,7 @@ class _GetAddrInfoFilter(_logging.Filter):
         if "getaddrinfo failed" in msg or "11001" in msg or "WinError 1231" in msg or "WinError 1236" in msg:
             # Rate-limit: only log once per 30s, drop the rest
             import time as _time
+
             now = _time.monotonic()
             if now - self._last_log < 30:
                 return False
@@ -64,10 +67,17 @@ class _GetAddrInfoFilter(_logging.Filter):
             return True
         return True
 
+
 # Install on the noisy loggers (httpx/httpcore/telegram)
 # Suppress Telegram library loggers to WARNING to stop stack trace spam.
 # The library uses CamelCase logger names (telegram.ext.Updater, not telegram.ext._updater).
-for _lname in ("telegram.ext.Updater", "telegram.request.BaseRequest", "telegram.request.HTTPXRequest", "httpx", "httpcore"):
+for _lname in (
+    "telegram.ext.Updater",
+    "telegram.request.BaseRequest",
+    "telegram.request.HTTPXRequest",
+    "httpx",
+    "httpcore",
+):
     try:
         _logging.getLogger(_lname).addFilter(_GetAddrInfoFilter())
         _logging.getLogger(_lname).setLevel(_logging.WARNING)
@@ -94,6 +104,7 @@ def _web_base_url() -> str:
     Falls back to http://localhost:<port> for local dev.
     """
     from ..config import NALLY_BASE_URL
+
     if NALLY_BASE_URL:
         return NALLY_BASE_URL
     port = os.getenv("NALLY_PORT", os.getenv("PORT", "5000"))
@@ -103,6 +114,7 @@ def _web_base_url() -> str:
 def _internal_auth_headers() -> dict[str, str]:
     """Build replay-resistant headers for bot-to-web internal requests."""
     from ..config import NALLY_INTERNAL_TOKEN
+
     return {
         "X-NALLY-INTERNAL-TOKEN": NALLY_INTERNAL_TOKEN,
         "X-NALLY-INTERNAL-TIMESTAMP": str(int(time.time())),
@@ -199,10 +211,13 @@ def _clean_message_text(text: str) -> str:
 
 # ── Streaming support (SQLite event queue) ────────────────
 
+
 def _get_stream_db():
     """Get/create the stream_events table for Telegram streaming."""
     import sqlite3
+
     from ..config import DATA_DIR
+
     db_path = DATA_DIR / "nally.db"
     conn = sqlite3.connect(db_path, timeout=30.0)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -224,6 +239,7 @@ def _get_stream_db():
 def _write_stream_event(session_id: str, event_type: str, payload: str):
     """Write a streaming event to SQLite (called from web server process)."""
     import time as _time
+
     try:
         conn = _get_stream_db()
         conn.execute(
@@ -265,10 +281,13 @@ def _clear_stream_events(session_id: str):
 
 # ── Callback ID map (SQLite persistence for cross-process resolve) ──
 
+
 def _get_callback_db():
     """Get/create the callback_id_map table for cross-process truncation resolve."""
     import sqlite3
+
     from ..config import DATA_DIR
+
     db_path = DATA_DIR / "nally.db"
     conn = sqlite3.connect(db_path, timeout=30.0)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -285,6 +304,7 @@ def _get_callback_db():
 def _write_callback_map(safe_id: str, full_id: str):
     """Persist safe->full mapping to SQLite (cross-process)."""
     import time as _time
+
     try:
         conn = _get_callback_db()
         conn.execute(
@@ -313,6 +333,7 @@ def _read_callback_map(safe_id: str) -> Optional[str]:
 def _clear_old_callbacks(max_age: float = 3600):
     """Remove callback mappings older than max_age seconds (cleanup)."""
     import time as _time
+
     try:
         conn = _get_callback_db()
         conn.execute("DELETE FROM callback_id_map WHERE created_at < ?", (_time.time() - max_age,))
@@ -366,23 +387,32 @@ def _make_emit(chat_id: int):
         logger.info(f"DEBUG CB: approve_cb={approve_cb!r} ({len(approve_cb.encode('utf-8'))} bytes)")
         logger.info(f"DEBUG CB: _callback_id_map has {len(_callback_id_map)} entries after storing {safe_tc_id!r}")
 
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("Approve", callback_data=f"approve:{safe_tc_id}"),
-            InlineKeyboardButton("Deny", callback_data=f"deny:{safe_tc_id}"),
-        ]])
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Approve", callback_data=f"approve:{safe_tc_id}"),
+                    InlineKeyboardButton("Deny", callback_data=f"deny:{safe_tc_id}"),
+                ]
+            ]
+        )
 
         try:
             if BOT:
                 print(f"[DEBUG-APP] emit sending via BOT id={id(BOT)}", flush=True)
+
                 async def _do_send():
                     try:
                         await _send_with_retry(
-                            BOT.send_message, chat_id, text,
-                            parse_mode="HTML", reply_markup=keyboard,
+                            BOT.send_message,
+                            chat_id,
+                            text,
+                            parse_mode="HTML",
+                            reply_markup=keyboard,
                         )
                         logger.info(f"Approval message sent for tool_call_id={tc_id}")
                     except Exception as e:
                         logger.error(f"Approval message failed after {_TG_MAX_RETRIES} attempts: {e}")
+
                 asyncio.run_coroutine_threadsafe(_do_send(), loop)
             else:
                 logger.warning("Approval emit: BOT is None, cannot send approval message")
@@ -408,10 +438,13 @@ def _make_emit_standalone(chat_id: int, session_id: str = ""):
         # confirmation_required is included so the bot can edit the placeholder
         # message inline — instead of sending a NEW message each time (which
         # caused messages to pile up in Telegram).
-        if event in ("response", "thought", "tool_call", "system_notice",
-                     "confirmation_required", "final_response") and session_id:
+        if (
+            event in ("response", "thought", "tool_call", "system_notice", "confirmation_required", "final_response")
+            and session_id
+        ):
             try:
                 import json as _json
+
                 _write_stream_event(session_id, event, _json.dumps(data))
             except Exception:
                 pass
@@ -458,10 +491,10 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for _attempt in range(3):
         try:
             await query.answer()
-            logger.info(f"DEBUG CALLBACK: query.answer() succeeded on attempt {_attempt+1}")
+            logger.info(f"DEBUG CALLBACK: query.answer() succeeded on attempt {_attempt + 1}")
             break
         except Exception as e:
-            logger.warning(f"query.answer() attempt {_attempt+1} failed: {e}")
+            logger.warning(f"query.answer() attempt {_attempt + 1} failed: {e}")
             if _attempt < 2:
                 await asyncio.sleep(min(2 ** (_attempt + 1), 5))
             else:
@@ -525,18 +558,13 @@ async def approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status_text = "✅ <b>Approved</b>" if approved else "❌ <b>Denied</b>"
             try:
                 orig_text = query.message.text_html or query.message.text or ""
-                await query.edit_message_text(
-                    f"{orig_text}\n\n<b>Result:</b> {status_text}",
-                    parse_mode="HTML"
-                )
+                await query.edit_message_text(f"{orig_text}\n\n<b>Result:</b> {status_text}", parse_mode="HTML")
                 logger.info(f"approval_callback: message updated for tc_id={full_tc_id}")
             except Exception as e:
                 logger.warning(f"approval_callback: edit_message_text failed: {e}")
                 try:
                     await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"{status_text}",
-                        parse_mode="HTML"
+                        chat_id=query.message.chat_id, text=f"{status_text}", parse_mode="HTML"
                     )
                 except Exception as e2:
                     logger.error(f"approval_callback: fallback send_message also failed: {e2}")
@@ -554,7 +582,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command — show system health."""
     import time
-    from ..config import ACTIVE_MODEL, DAILY_TOKEN_BUDGET, PROVIDER
+
+    from ..config import ACTIVE_MODEL, PROVIDER
 
     # Uptime
     uptime = time.time() - _start_time
@@ -566,6 +595,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Token budget
     try:
         from ..agent.context import context_manager
+
         stats = context_manager.get_stats()
         daily_used = stats.get("daily_tokens", 0)
         budget = stats.get("daily_token_budget", 0)
@@ -576,6 +606,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Tools
     try:
         from ..tools.registry import registry
+
         tool_count = len(registry.tools)
     except Exception:
         tool_count = 0
@@ -583,6 +614,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # DB size
     try:
         from ..config import DATA_DIR
+
         db_path = DATA_DIR / "nally_memory.db"
         db_size = f"{db_path.stat().st_size / 1024:.0f}KB" if db_path.exists() else "new"
     except Exception:
@@ -639,6 +671,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Text "abort" fallback — same as /abort command (per-route)
     if text.strip().lower() == "abort":
         from ..core.abort import set_abort
+
         set_abort(route_key)
         await message.reply_text("Abort signal sent. I'll stop what I'm doing.")
         return
@@ -665,6 +698,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # (e.g. waiting for bridge approval).
     async def _do_request():
         import json as _json
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 resp = await client.post(
@@ -673,14 +707,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     headers=_internal_auth_headers(),
                 )
                 if resp.status_code != 200:
-                    _write_stream_event(route_key, "final_response",
-                        _json.dumps({"text": f"Web server error (HTTP {resp.status_code})"}))
+                    _write_stream_event(
+                        route_key,
+                        "final_response",
+                        _json.dumps({"text": f"Web server error (HTTP {resp.status_code})"}),
+                    )
             except Exception as e:
                 logger.error(f"HTTP to web server failed: {type(e).__name__}: {e}")
-                _write_stream_event(route_key, "final_response",
-                    _json.dumps({"text": f"Web server unreachable: {e}"}))
+                _write_stream_event(route_key, "final_response", _json.dumps({"text": f"Web server unreachable: {e}"}))
 
     import json as _json_mod
+
     request_task = asyncio.create_task(_do_request())
 
     # Poll stream events for the final response (and approval requests).
@@ -728,6 +765,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 # Build inline keyboard (callback_data resolves via _callback_id_map)
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
                 MAX_CB_DATA = 60
                 max_tc_len = MAX_CB_DATA - len("approve:")
                 safe_tc_id = tc_id[:max_tc_len] if len(tc_id) > max_tc_len else tc_id
@@ -735,10 +773,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     _callback_id_map[safe_tc_id] = tc_id
                 _write_callback_map(safe_tc_id, tc_id)
 
-                keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("Approve", callback_data=f"approve:{safe_tc_id}"),
-                    InlineKeyboardButton("Deny", callback_data=f"deny:{safe_tc_id}"),
-                ]])
+                keyboard = InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton("Approve", callback_data=f"approve:{safe_tc_id}"),
+                            InlineKeyboardButton("Deny", callback_data=f"deny:{safe_tc_id}"),
+                        ]
+                    ]
+                )
 
                 if sent_msg:
                     try:
@@ -775,7 +817,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Outbound file markers (IMAGE_FILE: / SEND_FILE:) — send as Telegram attachments
     try:
-        from .media import parse_outbound_files, strip_file_markers, send_attachments_bot
+        from .media import parse_outbound_files, send_attachments_bot, strip_file_markers
+
         out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
         if out_files:
             cleaned = strip_file_markers(text_response)
@@ -839,6 +882,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check if ffmpeg is available
     from .voice import check_ffmpeg
+
     if not check_ffmpeg():
         await message.reply_text("Voice not available — ffmpeg not installed.")
         return
@@ -856,6 +900,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Convert OGG/Opus to raw PCM for STT
         from .voice import ogg_to_pcm
+
         pcm_bytes = ogg_to_pcm(bytes(ogg_bytes))
         if not pcm_bytes:
             await message.reply_text("Could not process voice message.")
@@ -863,6 +908,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Transcribe with Whisper
         from ..voice.stt import transcribe
+
         text = await asyncio.to_thread(transcribe, pcm_bytes)
 
         if not text.strip():
@@ -890,7 +936,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # If agent also produced files (e.g. image gen via voice), send them
         try:
-            from .media import parse_outbound_files, send_attachments_bot, strip_file_markers
+            from .media import parse_outbound_files, send_attachments_bot
+
             out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
             if out_files:
                 await send_attachments_bot(context.bot, chat.id, out_files)
@@ -928,6 +975,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Text "abort" fallback (per-route)
     if caption.strip().lower() == "abort":
         from ..core.abort import set_abort
+
         set_abort(route_key)
         await message.reply_text("Abort signal sent. I'll stop what I'm doing.")
         return
@@ -942,9 +990,10 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Download media to inbox and build combined prompt
     combined = caption
     try:
-        from .media import save_bot_media, build_agent_input, analyze_image_for_game
+        from .media import analyze_image_for_game, build_agent_input, save_bot_media
+
         saved_path, media_desc = await save_bot_media(context.bot, message, ref.route_key)
-        if saved_path and saved_path.suffix.lower() in {".jpg",".jpeg",".png",".webp",".gif",".bmp"}:
+        if saved_path and saved_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}:
             try:
                 # Game-aware vision + OCR (uses Muse Spark vision when available)
                 vision_block = await analyze_image_for_game(saved_path, user_question=caption)
@@ -952,8 +1001,10 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     media_desc += f"\n\n{vision_block}\n\n[Instruction: Use the Vision analysis above as the primary source. Do not run PIL/code to re-analyze the image — answer directly from Vision. This is the authoritative description.]"
                     # Record a receipt so the claim verifier sees this as grounded
                     try:
-                        from nally.tools.receipts import receipt_store
                         import uuid
+
+                        from nally.tools.receipts import receipt_store
+
                         receipt_store.record(
                             tool_call_id=f"vision_{uuid.uuid4().hex[:8]}",
                             tool="vision_analyze",
@@ -1004,6 +1055,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_event_id = eid
             try:
                 import json as _json
+
                 data = _json.loads(payload) if payload else {}
             except Exception:
                 data = {}
@@ -1039,7 +1091,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Outbound files
     try:
-        from .media import parse_outbound_files, strip_file_markers, send_attachments_bot
+        from .media import parse_outbound_files, send_attachments_bot, strip_file_markers
+
         out_files = parse_outbound_files(text_response if isinstance(text_response, str) else str(text_response))
         if out_files:
             cleaned = strip_file_markers(text_response)
@@ -1155,6 +1208,7 @@ async def _generate_voice_summary(text: str) -> str:
         logger.warning(f"Voice summary generation failed: {e}")
         # Fallback: first 2 sentences
         import re
+
         sentences = re.split(r"(?<=[.!?])\s+", text.strip())
         if len(sentences) >= 2:
             return " ".join(sentences[:2])
@@ -1165,11 +1219,17 @@ async def _generate_voice_summary(text: str) -> str:
 
 async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE):
     """Log errors from the telegram bot — collapse DNS 11001 to one warning."""
-    from telegram.error import TimedOut, NetworkError
+    from telegram.error import NetworkError, TimedOut
+
     error = context.error
     err_str = str(error) if error else ""
     # DNS / network down — already filtered to one warning every 30s, just log compactly
-    if "getaddrinfo failed" in err_str or "11001" in err_str or "WinError 1231" in err_str or "WinError 1236" in err_str:
+    if (
+        "getaddrinfo failed" in err_str
+        or "11001" in err_str
+        or "WinError 1231" in err_str
+        or "WinError 1236" in err_str
+    ):
         logger.warning(f"Telegram DNS/network down (will retry): {err_str[:120]}")
         return
     if isinstance(error, TimedOut):
@@ -1200,13 +1260,7 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
         pool_timeout=30.0,
     )
 
-    app = (
-        Application.builder()
-        .token(token)
-        .request(request)
-        .concurrent_updates(True)
-        .build()
-    )
+    app = Application.builder().token(token).request(request).concurrent_updates(True).build()
 
     # Store bot username and bot reference for mention detection and approval messages
     async def post_init(application: Application):
@@ -1214,9 +1268,12 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
         # Quick DNS check before get_me — gives actionable hint vs 20-line traceback
         try:
             import socket as _socket
+
             _socket.getaddrinfo("api.telegram.org", 443, timeout=3)
         except Exception as _dns_e:
-            logger.warning(f"DNS check failed for api.telegram.org at startup: {_dns_e} — check internet/DNS/proxy. Will retry get_me…")
+            logger.warning(
+                f"DNS check failed for api.telegram.org at startup: {_dns_e} — check internet/DNS/proxy. Will retry get_me…"
+            )
 
         for _attempt in range(3):
             try:
@@ -1229,7 +1286,7 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
                 err_str = str(e)
                 is_dns = "getaddrinfo failed" in err_str or "11001" in err_str or "WinError 1231" in err_str
                 level = logger.warning if is_dns else logger.error
-                msg = f"Telegram bot get_me() failed at startup (attempt {_attempt+1}/3): {e}"
+                msg = f"Telegram bot get_me() failed at startup (attempt {_attempt + 1}/3): {e}"
                 if is_dns:
                     msg += " — DNS/network down, will retry polling anyway"
                 # Don't take the whole bot down; be loud so operators notice degraded state
@@ -1327,10 +1384,7 @@ def run_telegram_bot(polling: bool = True, webhook_url: Optional[str] = None):
                 )
                 logger.info(f"Telegram bot started (webhook mode) -> {full_webhook_url}")
             else:
-                logger.error(
-                    "run_telegram_bot: polling=False requires a webhook_url. "
-                    "Telegram bot did not start."
-                )
+                logger.error("run_telegram_bot: polling=False requires a webhook_url. Telegram bot did not start.")
                 return
             try:
                 while True:

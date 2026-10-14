@@ -7,10 +7,10 @@ import os
 import sys
 import time
 import uuid
-from threading import Lock
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
+from threading import Lock
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
@@ -239,10 +239,18 @@ async def lifespan(app: FastAPI):
 
     # Suppress ALL noisy loggers during startup display
     _suppress = (
-        "nally.mcp", "nally.tools", "nally.memory", "nally.skills",
-        "mcp", "telegram", "httpx", "httpcore",
+        "nally.mcp",
+        "nally.tools",
+        "nally.memory",
+        "nally.skills",
+        "mcp",
+        "telegram",
+        "httpx",
+        "httpcore",
         "nally.memory.reflector",
-        "uvicorn", "uvicorn.access", "uvicorn.error",
+        "uvicorn",
+        "uvicorn.access",
+        "uvicorn.error",
     )
     _saved_levels = {}
     for _name in _suppress:
@@ -270,7 +278,9 @@ async def lifespan(app: FastAPI):
             display.phase("Config", "[green]valid[/]")
         # Memory backend hint — never logs secrets (host only, no creds)
         try:
-            from nally.config import memory_backend, DATABASE_URL as _DB_URL
+            from nally.config import DATABASE_URL as _DB_URL
+            from nally.config import memory_backend
+
             mb = memory_backend()
             if mb == "postgres":
                 hint = "postgres"
@@ -345,6 +355,7 @@ async def lifespan(app: FastAPI):
             async def _start_telegram_webhook_bg():
                 """Background task: start Telegram webhook, capture the Application."""
                 from ..telegram.bot import start_telegram_webhook
+
                 tg_app = await start_telegram_webhook(tg_webhook_url)
                 app.state.telegram_app = tg_app
                 return tg_app
@@ -400,6 +411,7 @@ async def lifespan(app: FastAPI):
         # If bot started successfully, stop it gracefully
         if tg_app:
             from ..telegram.bot import stop_telegram_polling
+
             await stop_telegram_polling(tg_app)
     except Exception:
         pass
@@ -493,6 +505,7 @@ app.mount("/mvp/static", StaticFiles(directory=str(_mvp_dir)), name="mvp-static"
 
 
 # ── Orb Standalone (floating preview) ───────────────────────
+
 
 @app.get("/orb")
 async def orb():
@@ -597,16 +610,20 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
     # Intercept "call me" on web UI — redirect to Telegram
     if message.lower() in ("call me", "call nally"):
         from ..config import NALLY_VOICE_CALLS_ENABLED
+
         if NALLY_VOICE_CALLS_ENABLED:
+
             async def voice_redirect():
                 yield 'data: {"type": "response", "text": "Voice calls only work on Telegram. Send me \\"call me\\" there and I\'ll set up a voice chat for you."}\n\n'
                 yield 'data: {"event": "done"}\n\n'
+
             return StreamingResponse(voice_redirect(), media_type="text/event-stream")
 
     # Identity: same brain (user:{owner}) for memory, but per-route history isolation (web:default)
     # Client-supplied session_id is kept only for backward compatibility.
     session_id = request.session_id
     from ..agent.identity import resolve_session
+
     ref = resolve_session("web")
     brain_session = ref.session_id
     route_key = ref.route_key
@@ -672,9 +689,13 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
             # Broadcast specific events to other tabs (per-route)
             evt_type = item.get("type", "")
             if evt_type == "thought":
-                broadcast_manager.broadcast("thinking", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key)
+                broadcast_manager.broadcast(
+                    "thinking", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key
+                )
             elif evt_type == "response":
-                broadcast_manager.broadcast("assistant_message", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key)
+                broadcast_manager.broadcast(
+                    "assistant_message", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key
+                )
 
         yield 'data: {"event": "done"}\n\n'
 
@@ -703,6 +724,7 @@ async def sse_events(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     from ..agent.identity import resolve_session
+
     route_key = resolve_session("web").route_key
     cid, queue = broadcast_manager.subscribe(route_key)
     broadcast_manager._loop = asyncio.get_event_loop()
@@ -736,6 +758,7 @@ async def sse_events(request: Request):
 @app.get("/api/history")
 async def history(_auth=Depends(verify_auth)):
     from ..agent.identity import resolve_session
+
     ref = resolve_session("web")
     messages = [
         {"role": msg.get("role", "unknown"), "content": msg.get("content", "")}
@@ -750,6 +773,7 @@ async def history(_auth=Depends(verify_auth)):
 @app.post("/api/clear")
 async def clear(_auth=Depends(verify_auth)):
     from ..agent.identity import resolve_session
+
     ref = resolve_session("web")
     agent = session_manager.get(ref.session_id, channel="Web", route_key=ref.route_key)
     agent.clear_history()
@@ -767,7 +791,9 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
     # resolve_approval does blocking SQLite I/O — keep it off the event loop.
     await asyncio.to_thread(resolve_approval, request.tool_call_id, request.approved)
     broadcast_manager.broadcast(
-        "approval_resolved", {"tool_call_id": request.tool_call_id, "approved": request.approved}, route_key="web:default"
+        "approval_resolved",
+        {"tool_call_id": request.tool_call_id, "approved": request.approved},
+        route_key="web:default",
     )
     return {"ok": True}
 
@@ -830,7 +856,9 @@ async def rewind_checkpoint(body: RewindRequest, _auth=Depends(verify_auth)):
                 break
         if next_idx is not None and next_idx < len(turns):
             await asyncio.to_thread(_cp.drop_turns_from, turns[next_idx].turn_id)
-        broadcast_manager.broadcast("rewind", {"turn_id": body.turn_id, "restored": list(plan.keys())}, route_key="web:default")
+        broadcast_manager.broadcast(
+            "rewind", {"turn_id": body.turn_id, "restored": list(plan.keys())}, route_key="web:default"
+        )
         return {"status": "ok", "turn_id": body.turn_id, "restored": list(plan.keys())}
     except HTTPException:
         raise
@@ -925,6 +953,7 @@ async def tg_message(
             response = f"Error: {e}"
         # Write final response to stream events so the bot picks it up (per-route)
         import json as _json
+
         _write_stream_event(route_key, "final_response", _json.dumps({"text": response}))
 
     asyncio.create_task(_process())
@@ -950,8 +979,9 @@ async def tg_approve(
 
 
 def check_abort(session_id: Optional[str] = None) -> bool:
-    from ..core.abort import check_abort as _check
     from ..agent.identity import resolve_session
+    from ..core.abort import check_abort as _check
+
     if session_id is None:
         session_id = resolve_session("web").route_key
     return _check(session_id)
@@ -959,8 +989,8 @@ def check_abort(session_id: Optional[str] = None) -> bool:
 
 @app.post("/api/abort")
 async def abort_session(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
-    from ..core.abort import set_abort
     from ..agent.identity import resolve_session
+    from ..core.abort import set_abort
 
     # Per-route abort — only stops operations for this channel
     route = resolve_session("web").route_key
@@ -970,8 +1000,8 @@ async def abort_session(session_id: Optional[str] = None, _auth=Depends(verify_a
 
 @app.post("/api/abort/clear")
 async def abort_clear(session_id: Optional[str] = None, _auth=Depends(verify_auth)):
-    from ..core.abort import clear_abort
     from ..agent.identity import resolve_session
+    from ..core.abort import clear_abort
 
     route = resolve_session("web").route_key
     clear_abort(route)
@@ -1381,6 +1411,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 
 # ── Telegram Webhook ──────────────────────────────────────
+
 
 @app.post("/telegram/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):

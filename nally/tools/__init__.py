@@ -19,16 +19,19 @@ def _load_all_registered():
 
     # Local command execution: run_command only (no system_health).
     from .system import RunCommand
+
     registry.register(RunCommand())
 
     # File I/O: read and manage files.
     from .files import FileOps, ReadFile
+
     registry.register(ReadFile())
     registry.register(FileOps())
 
     # Web research: search results plus full-page fetching.
-    from .websearch import WebSearch
     from .fetch import FetchTool
+    from .websearch import WebSearch
+
     registry.register(WebSearch())
     registry.register(FetchTool())
 
@@ -56,15 +59,11 @@ def _load_all_registered():
                 key, value = kwargs.get("key", ""), kwargs.get("value", "")
                 if not str(key).strip() or not str(value).strip():
                     return "Error: key and value are required and must be non-empty."
-                return self.mem_store.remember(
-                    key, value, kwargs.get("category", "general")
-                )
+                return self.mem_store.remember(key, value, kwargs.get("category", "general"))
 
             if self.name == "recall":
                 if memory_type == "episode":
-                    episodes = self.mem_store.search_episodes(
-                        kwargs.get("topic", ""), kwargs.get("search", "")
-                    )
+                    episodes = self.mem_store.search_episodes(kwargs.get("topic", ""), kwargs.get("search", ""))
                     if not episodes:
                         return "No episodes found."
                     lines = []
@@ -103,14 +102,17 @@ def _load_all_registered():
 
     # Preserve the one-time profile migration used by durable memory.
     from ..memory.store import migrate_profile
+
     migrate_profile(mem_store)
 
     # Task delegation.
     from ..subagent.tools import register_tools as register_subagent_tools
+
     register_subagent_tools()
 
     # Remote execution through connected NallyBridge devices.
     from . import bridge
+
     bridge.register(registry)
 
     _loaded = True

@@ -9,11 +9,7 @@ Nally remembers facts, episodes, and patterns across conversations. The memory s
 Key-value pairs with confidence scoring:
 
 ```python
-memory_store.remember(
-    key="favorite_color",
-    value="blue",
-    category="preferences"
-)
+memory_store.remember(key="favorite_color", value="blue", category="preferences")
 ```
 
 - **Confidence**: Starts at 0.5, decays over time, boosted by access
@@ -29,7 +25,7 @@ memory_store.add_episode(
     topic="deployed v2.0",
     what_happened="Successfully deployed to production via Docker",
     outcome="Live on port 5000",
-    tags=["deploy", "docker"]
+    tags=["deploy", "docker"],
 )
 ```
 
@@ -48,10 +44,7 @@ Generated automatically by the background reflector — an hourly loop plus once
 Recurring themes/structures extracted by the background reflector:
 
 ```python
-memory_store.add_semantic(
-    pattern="user prefers concise answers",
-    confidence=0.8
-)
+memory_store.add_semantic(pattern="user prefers concise answers", confidence=0.8)
 ```
 
 ## How Memory Works

@@ -11,14 +11,16 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .registry import Tool
 from ._retry import retry_transient
+from .registry import Tool
 
 logger = logging.getLogger("nally.tools.fetch")
 
 MAX_OUTPUT = 50000
 DEFAULT_TIMEOUT = 15.0
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 
 # SSL verification is enabled by default; disable explicitly only for controlled proxy environments.
 VERIFY_SSL = os.environ.get("NALLY_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
@@ -33,7 +35,14 @@ def _strip_html(html: str) -> str:
     # Strip remaining tags
     text = re.sub(r"<[^>]+>", "", text)
     # Decode common entities
-    for entity, char in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#39;", "'"), ("&nbsp;", " ")]:
+    for entity, char in [
+        ("&amp;", "&"),
+        ("&lt;", "<"),
+        ("&gt;", ">"),
+        ("&quot;", '"'),
+        ("&#39;", "'"),
+        ("&nbsp;", " "),
+    ]:
         text = text.replace(entity, char)
     # Collapse whitespace
     text = re.sub(r"[ \t]+", " ", text)

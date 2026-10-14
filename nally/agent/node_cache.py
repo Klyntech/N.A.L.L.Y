@@ -8,7 +8,7 @@ import hashlib
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger("nally.cache")
@@ -17,6 +17,7 @@ logger = logging.getLogger("nally.cache")
 @dataclass
 class CacheEntry:
     """A single cached result."""
+
     key: str
     result: Any
     created_at: float
@@ -118,6 +119,7 @@ def cached_node(node_name: str, ttl: int = 3600):
             # ... expensive operation ...
             return {"calendar": events}
     """
+
     def decorator(func: Callable) -> Callable:
         def wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
             # Extract cacheable inputs from state
@@ -139,6 +141,7 @@ def cached_node(node_name: str, ttl: int = 3600):
 
         wrapper._cache_node_name = node_name
         return wrapper
+
     return decorator
 
 

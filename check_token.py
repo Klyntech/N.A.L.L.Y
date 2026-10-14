@@ -1,7 +1,9 @@
-import sqlite3, json
+import json
+import sqlite3
+
 from nally.mcp.oauth import _decrypt_token
 
-conn = sqlite3.connect('C:/Users/chuki/Desktop/N.A.L.L.Y/data/nally.db')
+conn = sqlite3.connect("C:/Users/chuki/Desktop/N.A.L.L.Y/data/nally.db")
 row = conn.execute("SELECT tokens FROM mcp_oauth WHERE service='gmail'").fetchone()
 raw = _decrypt_token(row[0])
 data = json.loads(raw)

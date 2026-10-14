@@ -273,4 +273,3 @@ def test_resolve_approval_sqlite_persistence():
     res = resolve_approval(test_tc_id, True)
     assert res is True
     assert _get_approval_status(test_tc_id) == "approved"
-

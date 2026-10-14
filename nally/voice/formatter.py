@@ -11,15 +11,17 @@ from enum import Enum
 
 class VoiceMode(str, Enum):
     """Voice output mode."""
-    FULL = "full"           # Speak entire response (short responses)
-    SUMMARY = "summary"     # Speak only voice_summary field
-    SMART = "smart"         # Auto: <200 chars = full, >200 = summary
-    NONE = "none"           # Silent — visual only
+
+    FULL = "full"  # Speak entire response (short responses)
+    SUMMARY = "summary"  # Speak only voice_summary field
+    SMART = "smart"  # Auto: <200 chars = full, >200 = summary
+    NONE = "none"  # Silent — visual only
 
 
 @dataclass
 class VoiceConfig:
     """Voice output configuration from agent."""
+
     speak: bool = True
     mode: VoiceMode = VoiceMode.SMART
     summary: str = ""
@@ -165,7 +167,7 @@ class VoiceFormatter:
             if i < len(ordinals):
                 parts.append(f"{ordinals[i]}, {item}")
             else:
-                parts.append(f"Item {i+1}, {item}")
+                parts.append(f"Item {i + 1}, {item}")
 
         return ". ".join(parts) + "."
 

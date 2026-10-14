@@ -38,9 +38,7 @@ _MAX_FILE_LINES = 800
 def review_codebase(file_contents: Dict[str, str]) -> List[CritiqueFinding]:
     """Run static self-review over an in-memory ``{path: content}`` map."""
     findings: List[CritiqueFinding] = []
-    code_files = {
-        p: c for p, c in file_contents.items() if _looks_like_code(p)
-    }
+    code_files = {p: c for p, c in file_contents.items() if _looks_like_code(p)}
 
     for path, content in code_files.items():
         findings.extend(_review_one_file(path, content))
@@ -156,10 +154,7 @@ def summarize_findings(
         if not findings:
             summary = "Static review found no issues."
         else:
-            summary = (
-                f"{high} high / {medium} medium issues found across "
-                f"{len(findings)} checks."
-            )
+            summary = f"{high} high / {medium} medium issues found across {len(findings)} checks."
     return CritiqueReport(findings=findings, summary=summary, needs_refinement=needs)
 
 

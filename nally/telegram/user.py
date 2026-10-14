@@ -17,22 +17,18 @@ First run will prompt for phone code and 2FA password.
 import asyncio
 import contextlib
 import io
-import logging
-import os
 import re
-import time
-from pathlib import Path
 from typing import Optional
 
 from telethon import TelegramClient, events
 
 from ..config import (
     DATA_DIR,
-    TELEGRAM_USER_API_ID,
-    TELEGRAM_USER_API_HASH,
-    TELEGRAM_USER_PHONE,
-    TELEGRAM_USER_ID,
     NALLY_VOICE_CALLS_ENABLED,
+    TELEGRAM_USER_API_HASH,
+    TELEGRAM_USER_API_ID,
+    TELEGRAM_USER_ID,
+    TELEGRAM_USER_PHONE,
 )
 from ..utils.logger import logger
 
@@ -86,13 +82,15 @@ async def _init_pytgcalls():
         # Ensure silent WAV exists for call keepalive (60 seconds at 48kHz)
         silent_path = DATA_DIR / "silent.wav"
         if not silent_path.exists():
-            import wave, io
+            import io
+            import wave
+
             buf = io.BytesIO()
-            with wave.open(buf, 'wb') as w:
+            with wave.open(buf, "wb") as w:
                 w.setnchannels(1)
                 w.setsampwidth(2)
                 w.setframerate(48000)
-                w.writeframes(b'\x00\x00' * (48000 * 60))  # 60 seconds
+                w.writeframes(b"\x00\x00" * (48000 * 60))  # 60 seconds
             silent_path.write_bytes(buf.getvalue())
 
         from pytgcalls import PyTgCalls
@@ -100,7 +98,7 @@ async def _init_pytgcalls():
         _tg_call = PyTgCalls(_client)
         await _tg_call.start()
 
-        from pytgcalls.types import StreamFrames, StreamEnded, ChatUpdate, Direction
+        from pytgcalls.types import ChatUpdate, Direction, StreamEnded, StreamFrames
 
         @_tg_call.on_update()
         async def _on_call_update(client, update):
@@ -112,11 +110,7 @@ async def _init_pytgcalls():
                 session = _active_calls.get(chat_id)
                 if not session:
                     # Try alternate forms
-                    alt_ids = [
-                        abs(chat_id),
-                        int(str(chat_id).replace("-100", "")),
-                        int(f"-100{abs(chat_id)}")
-                    ]
+                    alt_ids = [abs(chat_id), int(str(chat_id).replace("-100", "")), int(f"-100{abs(chat_id)}")]
                     for alt_id in alt_ids:
                         if alt_id in _active_calls:
                             session = _active_calls[alt_id]
@@ -166,8 +160,8 @@ async def _start_voice_session(msg, sender_id: int):
     from .voice_call import (
         VoiceCallSession,
         ensure_private_voice_group,
-        start_group_voice_chat,
         leave_group_voice_chat,
+        start_group_voice_chat,
     )
 
     # Beta 1:1: private group per user (isolated, no cross-talk)
@@ -208,12 +202,16 @@ async def _start_voice_session(msg, sender_id: int):
 
 def _make_auto_approve_emit():
     """Create emit that auto-approves gated tools for the owner (Telethon path)."""
+
     def emit(event: str, data: dict):
         if event == "confirmation_required":
             try:
                 from ..config import TELEGRAM_USER_AUTO_APPROVE
+
                 if not TELEGRAM_USER_AUTO_APPROVE:
-                    logger.info(f"Telethon approval required but auto-approve disabled: {data.get('name')} tc_id={data.get('tool_call_id')}")
+                    logger.info(
+                        f"Telethon approval required but auto-approve disabled: {data.get('name')} tc_id={data.get('tool_call_id')}"
+                    )
                     return
             except Exception:
                 pass
@@ -223,12 +221,16 @@ def _make_auto_approve_emit():
             if tc_id:
                 try:
                     from ..agent.graph import resolve_approval
+
                     resolve_approval(tc_id, True)
                 except Exception as e:
                     logger.error(f"Telethon auto-approve failed for {tc_id}: {e}")
+
     return emit
 
+
 # ── Voice note helpers ──
+
 
 async def _generate_voice_summary(text: str) -> str:
     """Generate 1-2 sentence spoken summary via LLM (or fallback)."""
@@ -236,6 +238,7 @@ async def _generate_voice_summary(text: str) -> str:
         if len(text) <= 200:
             return text
         from ..agent.llm import llm
+
         summary = await asyncio.to_thread(
             llm.simple_chat,
             user_message=f"Rewrite this as a 1-2 sentence spoken summary. Keep it conversational and natural, like you're talking to a friend. No markdown, no lists, just flowing speech:\n\n{text}",
@@ -251,12 +254,13 @@ async def _generate_voice_summary(text: str) -> str:
             return sentences[0]
         return text[:200]
 
+
 async def _send_voice_response_telethon(client, peer, text: str):
     """Send voice reply via Telethon (TTS -> OGG) with text fallback."""
     try:
         from ..voice.formatter import VoiceFormatter, VoiceMode
         from ..voice.tts import synthesize_to_wav
-        from .voice import wav_to_ogg, check_ffmpeg
+        from .voice import check_ffmpeg, wav_to_ogg
 
         if not check_ffmpeg():
             # Fallback to text if ffmpeg missing
@@ -312,6 +316,7 @@ async def _send_voice_response_telethon(client, peer, text: str):
         except Exception:
             pass
 
+
 async def _handle_voice_note(event, sender_id: int):
     """Handle incoming voice/audio notes: download -> STT -> agent -> voice reply."""
     msg = event.message
@@ -320,6 +325,7 @@ async def _handle_voice_note(event, sender_id: int):
     # Check ffmpeg
     try:
         from .voice import check_ffmpeg
+
         if not check_ffmpeg():
             await msg.reply("Voice not available \u2014 ffmpeg not installed.")
             return
@@ -342,6 +348,7 @@ async def _handle_voice_note(event, sender_id: int):
 
             # Convert OGG->PCM
             from .voice import ogg_to_pcm
+
             pcm_bytes = await asyncio.to_thread(ogg_to_pcm, ogg_bytes)
             if not pcm_bytes:
                 await msg.reply("Could not process voice message.")
@@ -349,6 +356,7 @@ async def _handle_voice_note(event, sender_id: int):
 
             # Transcribe
             from ..voice.stt import transcribe
+
             text = await asyncio.to_thread(transcribe, pcm_bytes)
             if not text or not text.strip():
                 await msg.reply("Couldn't understand the voice message.")
@@ -382,6 +390,7 @@ async def _handle_voice_note(event, sender_id: int):
             # Check for outbound file markers (image gen etc.)
             try:
                 from .media import parse_outbound_files, strip_file_markers
+
                 out_files = parse_outbound_files(text_response)
                 cleaned = strip_file_markers(text_response)
                 # Send voice first
@@ -389,6 +398,7 @@ async def _handle_voice_note(event, sender_id: int):
                 # Then send any generated files
                 if out_files:
                     from .media import send_attachments_telethon
+
                     await send_attachments_telethon(client, sender_id, out_files)
                 return
             except Exception as e:
@@ -403,7 +413,9 @@ async def _handle_voice_note(event, sender_id: int):
         except Exception:
             pass
 
+
 # ── Media + text handler ──
+
 
 async def _handle_message(event: events.NewMessage.Event):
     """Handle incoming DMs — route through agent brain."""
@@ -451,19 +463,22 @@ async def _handle_message(event: events.NewMessage.Event):
     inbound_path = None
     if is_photo or is_document:
         try:
-            from .media import save_telethon_media, build_agent_input, analyze_image_for_game
+            from .media import analyze_image_for_game, build_agent_input, save_telethon_media
+
             # Show typing while downloading
             async with client.action(sender_id, "typing"):
                 inbound_path, media_desc = await save_telethon_media(client, msg, f"tg_user:{sender_id}")
                 # Vision + OCR for images (game-aware, uses Muse Spark when available)
-                if inbound_path and inbound_path.suffix.lower() in {".jpg",".jpeg",".png",".webp",".gif",".bmp"}:
+                if inbound_path and inbound_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}:
                     try:
                         vision_block = await analyze_image_for_game(inbound_path, user_question=caption)
                         if vision_block:
                             media_desc += f"\n\n{vision_block}\n\n[Instruction: Use the Vision analysis above as the primary source. Do not run PIL/code to re-analyze the image — answer directly from Vision. This is the authoritative description.]"
                             try:
-                                from nally.tools.receipts import receipt_store
                                 import uuid
+
+                                from nally.tools.receipts import receipt_store
+
                                 receipt_store.record(
                                     tool_call_id=f"vision_{uuid.uuid4().hex[:8]}",
                                     tool="vision_analyze",
@@ -497,7 +512,7 @@ async def _handle_message(event: events.NewMessage.Event):
                 # Process through agent with typing indicator
                 from ..agent.identity import resolve_session
                 from ..agent.sessions import session_manager
-                from .media import parse_outbound_files, strip_file_markers, send_attachments_telethon
+                from .media import parse_outbound_files, send_attachments_telethon, strip_file_markers
 
                 ref = resolve_session("tg_user", sender_id=sender_id)
                 session_id = ref.session_id
@@ -564,7 +579,7 @@ async def _handle_message(event: events.NewMessage.Event):
     try:
         from ..agent.identity import resolve_session
         from ..agent.sessions import session_manager
-        from .media import parse_outbound_files, strip_file_markers, send_attachments_telethon
+        from .media import parse_outbound_files, send_attachments_telethon, strip_file_markers
 
         ref = resolve_session("tg_user", sender_id=sender_id)
         session_id = ref.session_id
@@ -593,7 +608,8 @@ async def _handle_message(event: events.NewMessage.Event):
 
     # Check for outbound file markers
     try:
-        from .media import parse_outbound_files, strip_file_markers, send_attachments_telethon
+        from .media import parse_outbound_files, send_attachments_telethon, strip_file_markers
+
         out_files = parse_outbound_files(text_response)
         cleaned = strip_file_markers(text_response)
         if not cleaned.strip() and out_files:
@@ -750,6 +766,7 @@ async def send_message(text: str, user_id: Optional[int] = None) -> bool:
 
 def run_standalone():
     """Run the user client as a standalone process (blocking)."""
+
     async def _main():
         await start()
         try:

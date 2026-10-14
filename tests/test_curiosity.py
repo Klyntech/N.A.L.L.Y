@@ -1,14 +1,9 @@
 """Tests for Nally Curiosity — proactive learning system."""
 
-import json
-import os
 import sqlite3
-import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # ── Interest Inference ────────────────────────────────────
 
@@ -26,7 +21,9 @@ class TestInterestInference:
         from nally.curiosity.interests import infer_interests
 
         result = infer_interests(
-            receipts=[], episodes=[], semantic_patterns=[],
+            receipts=[],
+            episodes=[],
+            semantic_patterns=[],
             profile_interests='["python", "rust", "web"]',
         )
         assert "python" in result
@@ -87,7 +84,9 @@ class TestInterestInference:
         from nally.curiosity.interests import infer_interests
 
         result = infer_interests(
-            [], [], [],
+            [],
+            [],
+            [],
             profile_interests='["golang", "kubernetes"]',
         )
         assert "golang" in result
@@ -97,7 +96,9 @@ class TestInterestInference:
         from nally.curiosity.interests import infer_interests
 
         result = infer_interests(
-            [], [], [],
+            [],
+            [],
+            [],
             profile_interests="python, rust, golang",
         )
         assert "python" in result
@@ -183,16 +184,34 @@ class TestScanner:
 
     def _make_scanner(self):
         from nally.curiosity.scanner import CuriosityScanner
+
         return CuriosityScanner()
 
     def test_score_items_interest_overlap(self):
         scanner = self._make_scanner()
         items = [
-            MagicMock(title="Python async guide", url="https://a.com", tags=["python", "async"], source="devto", score=0, published=time.time()),
-            MagicMock(title="Rust tutorial", url="https://b.com", tags=["rust"], source="devto", score=0, published=time.time()),
+            MagicMock(
+                title="Python async guide",
+                url="https://a.com",
+                tags=["python", "async"],
+                source="devto",
+                score=0,
+                published=time.time(),
+            ),
+            MagicMock(
+                title="Rust tutorial",
+                url="https://b.com",
+                tags=["rust"],
+                source="devto",
+                score=0,
+                published=time.time(),
+            ),
         ]
         # Convert to dicts for _score_items
-        item_dicts = [{"title": i.title, "url": i.url, "tags": i.tags, "source": i.source, "score": 0, "published": i.published} for i in items]
+        item_dicts = [
+            {"title": i.title, "url": i.url, "tags": i.tags, "source": i.source, "score": 0, "published": i.published}
+            for i in items
+        ]
         scored = scanner._score_items(item_dicts, ["python", "web"])
         # Python item should score higher
         assert scored[0]["score"] >= scored[1]["score"]
@@ -200,7 +219,14 @@ class TestScanner:
     def test_triangulate_boosts_multi_source(self):
         scanner = self._make_scanner()
         items = [
-            {"title": "A", "url": "https://same.com", "source": "hacker_news", "tags": [], "score": 0.5, "published": 0},
+            {
+                "title": "A",
+                "url": "https://same.com",
+                "source": "hacker_news",
+                "tags": [],
+                "score": 0.5,
+                "published": 0,
+            },
             {"title": "A", "url": "https://same.com", "source": "devto", "tags": [], "score": 0.3, "published": 0},
         ]
         result = scanner._triangulate(items)
@@ -210,7 +236,14 @@ class TestScanner:
     def test_triangulate_single_source_not_boosted(self):
         scanner = self._make_scanner()
         items = [
-            {"title": "A", "url": "https://unique.com", "source": "hacker_news", "tags": [], "score": 0.5, "published": 0},
+            {
+                "title": "A",
+                "url": "https://unique.com",
+                "source": "hacker_news",
+                "tags": [],
+                "score": 0.5,
+                "published": 0,
+            },
         ]
         result = scanner._triangulate(items)
         assert result[0]["triangulated"] is False
@@ -232,16 +265,19 @@ class TestSessionIdle:
 
     def test_all_idle_when_no_sessions(self):
         from nally.agent.sessions import AgentSessionManager
+
         mgr = AgentSessionManager()
         assert mgr.all_idle() is True
 
     def test_seconds_since_last_activity_zero(self):
         from nally.agent.sessions import AgentSessionManager
+
         mgr = AgentSessionManager()
         assert mgr.seconds_since_last_activity() == 0
 
     def test_active_session_ids_empty(self):
         from nally.agent.sessions import AgentSessionManager
+
         mgr = AgentSessionManager()
         assert mgr.active_session_ids() == []
 
@@ -254,6 +290,7 @@ class TestStoreTTL:
 
     def test_remember_with_ttl(self, tmp_dir):
         from nally.memory.store import MemoryRepository
+
         db = Path(tmp_dir) / "test_ttl.db"
         store = MemoryRepository(db_path=db)
         result = store.remember("ttl_key", "ttl_value", ttl_days=1)
@@ -264,8 +301,10 @@ class TestStoreTTL:
         assert val == "ttl_value"
 
     def test_prune_expired(self, tmp_dir):
-        from nally.memory.store import MemoryRepository
         from datetime import datetime, timedelta
+
+        from nally.memory.store import MemoryRepository
+
         db = Path(tmp_dir) / "test_prune.db"
         store = MemoryRepository(db_path=db)
 
@@ -297,8 +336,10 @@ class TestStoreTTL:
         assert val == "valid_val"
 
     def test_recall_skips_expired_by_default(self, tmp_dir):
-        from nally.memory.store import MemoryRepository
         from datetime import datetime, timedelta
+
+        from nally.memory.store import MemoryRepository
+
         db = Path(tmp_dir) / "test_recall.db"
         store = MemoryRepository(db_path=db)
 
@@ -329,6 +370,7 @@ class TestStoreTTL:
     def test_backfill_expires_at(self, tmp_dir):
         """Test that existing DBs without expires_at column get it added."""
         from nally.memory.store import _backfill_expires_at_column
+
         db = Path(tmp_dir) / "test_backfill.db"
 
         # Create DB without expires_at column (minimal schema, no FTS)
@@ -344,8 +386,10 @@ class TestStoreTTL:
             last_confirmed TEXT NOT NULL,
             deleted INTEGER DEFAULT 0
         )""")
-        conn.execute("INSERT INTO memories (key, value, category, confidence, mention_count, created, last_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      ("old_key", "old_val", "general", 0.5, 1, "2026-01-01", "2026-01-01"))
+        conn.execute(
+            "INSERT INTO memories (key, value, category, confidence, mention_count, created, last_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("old_key", "old_val", "general", 0.5, 1, "2026-01-01", "2026-01-01"),
+        )
         conn.commit()
 
         # Run backfill directly

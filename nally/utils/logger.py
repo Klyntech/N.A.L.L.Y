@@ -21,9 +21,11 @@ class _StructuredFormatter(logging.Formatter):
 
     def format(self, record):
         msg = super().format(record)
-        extras = {k: v for k, v in record.__dict__.items()
-                  if k not in logging.LogRecord("", 0, "", 0, "", (), None).__dict__
-                  and k not in ("message", "asctime")}
+        extras = {
+            k: v
+            for k, v in record.__dict__.items()
+            if k not in logging.LogRecord("", 0, "", 0, "", (), None).__dict__ and k not in ("message", "asctime")
+        }
         if extras:
             pairs = " ".join(f"{k}={v}" for k, v in extras.items())
             return f"{msg} | {pairs}"
@@ -33,8 +35,10 @@ class _StructuredFormatter(logging.Formatter):
 # ── Global DNS/network spam filter (applies to all Nally processes) ──
 import logging as _logging  # noqa: E402
 
+
 class _DnsSpamFilter(_logging.Filter):
     """Collapse repeated DNS 11001 / WinError 1231/1236 to one WARNING per 30s."""
+
     _last_log = 0.0
 
     def filter(self, record: _logging.LogRecord) -> bool:
@@ -52,6 +56,7 @@ class _DnsSpamFilter(_logging.Filter):
         hay = f"{msg} {exc}"
         if "getaddrinfo failed" in hay or "11001" in hay or "WinError 1231" in hay or "WinError 1236" in hay:
             import time as _time
+
             now = _time.monotonic()
             if now - self._last_log < 30:
                 return False
@@ -64,6 +69,7 @@ class _DnsSpamFilter(_logging.Filter):
             record.msg = "Network DNS down (getaddrinfo 11001 / WinError 1231) — check internet, DNS (8.8.8.8), or proxy for api.telegram.org. Retrying…"
             record.args = ()
         return True
+
 
 # Install globally once at import time
 try:

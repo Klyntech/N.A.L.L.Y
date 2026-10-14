@@ -22,8 +22,25 @@ from .metrics import inc_bargein
 
 # Standard backchannel / filler words that should NOT trigger barge-in
 _FILLER_WORDS = {
-    "um", "uh", "ah", "er", "mhm", "huh", "yeah", "ok", "okay", "yep",
-    "yup", "yes", "oh", "like", "mm", "hmm", "right", "sure", "gotcha",
+    "um",
+    "uh",
+    "ah",
+    "er",
+    "mhm",
+    "huh",
+    "yeah",
+    "ok",
+    "okay",
+    "yep",
+    "yup",
+    "yes",
+    "oh",
+    "like",
+    "mm",
+    "hmm",
+    "right",
+    "sure",
+    "gotcha",
 }
 
 

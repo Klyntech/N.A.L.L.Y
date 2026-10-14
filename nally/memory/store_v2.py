@@ -8,6 +8,7 @@ don't break during the phased migration.
 from . import memory_store as _memory_store
 from . import memory_tools_v2 as _memory_tools_v2
 
+
 # Deprecation notice — emitted lazily to avoid import-time hangs.
 # Use: python -W always::DeprecationWarning to surface.
 def _warn_deprecated():
@@ -18,6 +19,8 @@ def _warn_deprecated():
         DeprecationWarning,
         stacklevel=3,
     )
+
+
 from .store import MemoryRepository
 
 # Backward-compatible singletons

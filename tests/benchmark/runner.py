@@ -10,7 +10,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -24,9 +23,9 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from .cases import ALL_TASKS, Task, TaskCategory, get_tasks_by_category
+from .cases import Task, TaskCategory, get_tasks_by_category
 from .cost import CostTracker
-from .judges import JudgeResult, run_judge
+from .judges import run_judge
 from .reporter import (
     generate_json_report,
     generate_markdown_report,
@@ -57,7 +56,8 @@ class BenchmarkSuite:
     @staticmethod
     def _detect_current_model() -> str:
         try:
-            from nally.config import PROVIDER, ACTIVE_MODEL
+            from nally.config import ACTIVE_MODEL, PROVIDER
+
             return f"{PROVIDER}/{ACTIVE_MODEL}"
         except Exception:
             return "unknown"
@@ -75,6 +75,7 @@ class BenchmarkSuite:
         # Load all tools into the registry
         try:
             from nally.tools import load_all_tools
+
             load_all_tools()
             self._log("[init] Tools loaded")
         except Exception as e:
@@ -82,8 +83,10 @@ class BenchmarkSuite:
 
         # Override permission gate — keep denys for adversarial, allow-all for others
         try:
-            from nally.tools.permissions import gate
             import json as _json
+
+            from nally.tools.permissions import gate
+
             # If adversarial tasks are in suite, use benchmark-specific permissions that keep denys
             has_adv = any(c == TaskCategory.ADVERSARIAL for c in self.categories)
             if has_adv:
@@ -103,10 +106,13 @@ class BenchmarkSuite:
         # Raise token budget so the full 800-task benchmark can run (30M = ~1150 tasks at 26k avg)
         try:
             import nally.config as _cfg
+
             _cfg.DAILY_TOKEN_BUDGET = 30_000_000
             import nally.agent.context as _ctx
+
             _ctx.DAILY_TOKEN_BUDGET = 30_000_000
             from nally.agent.context import context_manager
+
             context_manager._daily_tokens = 0
             self._log("[init] Token budget raised to 30M for benchmark")
         except Exception as e:
@@ -125,6 +131,7 @@ class BenchmarkSuite:
         session_id = f"bench_{uuid.uuid4().hex[:12]}"
         try:
             from nally.agent.core import NallyAgent
+
             agent = NallyAgent(session_id=session_id)
 
             # Swap model if doing comparison
@@ -140,6 +147,7 @@ class BenchmarkSuite:
         """Clear the in-memory receipt store for task isolation."""
         try:
             from nally.tools.receipts import receipt_store
+
             with receipt_store._lock:
                 receipt_store._by_tool_call_id.clear()
         except Exception:
@@ -153,8 +161,11 @@ class BenchmarkSuite:
         error = None
         try:
             from nally.agent.llm import llm
+
             # Minimal system prompt — same for all tasks, no NALLY persona
-            response = llm.simple_chat(task.input, system_prompt="You are a helpful assistant. Be concise and accurate.")
+            response = llm.simple_chat(
+                task.input, system_prompt="You are a helpful assistant. Be concise and accurate."
+            )
         except Exception as e:
             error = str(e)
             response = f"Error: {e}"
@@ -163,6 +174,7 @@ class BenchmarkSuite:
 
         # Raw has no receipts, no verification — judge via text validation only
         from .judges import run_judge as _run_judge
+
         # For raw, tool-based judges return N/A or 0 — we still run them for paired lift but report bucket separately
         try:
             judge_result = _run_judge(task, [], response, verification_result=None)
@@ -170,6 +182,7 @@ class BenchmarkSuite:
             # We keep as-is; reporter will bucket separately
         except Exception as e:
             from .judges import JudgeResult
+
             judge_result = JudgeResult(score=0.0, details=f"Raw judge error: {e}", passed=False)
 
         result = {
@@ -203,6 +216,7 @@ class BenchmarkSuite:
         # Snapshot token stats before
         try:
             from nally.agent.context import context_manager
+
             stats_before = context_manager.get_stats()
             self.cost_tracker.snapshot(task.id, stats_before)
         except Exception:
@@ -230,6 +244,7 @@ class BenchmarkSuite:
         # Collect receipts
         try:
             from nally.tools.receipts import receipt_store
+
             receipts = receipt_store.get_recent(limit=50)
         except Exception:
             receipts = []
@@ -238,23 +253,23 @@ class BenchmarkSuite:
         try:
             from nally.agent.verifier import ClaimVerifier
             from nally.tools.registry import registry
+
             verifier = ClaimVerifier()
-            registered_tools = set(registry._tools.keys()) if hasattr(registry, '_tools') else set()
-            verification_result = verifier.verify(
-                response, receipts, registered_tools=registered_tools
-            )
+            registered_tools = set(registry._tools.keys()) if hasattr(registry, "_tools") else set()
+            verification_result = verifier.verify(response, receipts, registered_tools=registered_tools)
         except Exception:
             verification_result = None
 
         # Snapshot token stats after
         try:
             from nally.agent.context import context_manager
+
             stats_after = context_manager.get_stats()
         except Exception:
             stats_after = {}
 
         # Record cost
-        tool_latencies = [r.duration_ms for r in receipts if hasattr(r, 'duration_ms')]
+        tool_latencies = [r.duration_ms for r in receipts if hasattr(r, "duration_ms")]
         self.cost_tracker.record_task(
             task_id=task.id,
             model=model,
@@ -313,8 +328,16 @@ class BenchmarkSuite:
 
     def _run_tasks_sequential(self, tasks: List[Task], model: str, all_results: List[Dict], raw: bool = False):
         """Helper: run tasks preserving memory setup→test order."""
-        memory_setup = [t for t in tasks if t.category == TaskCategory.MEMORY and t.memory_pair_id and t.memory_pair_id.startswith("setup")]
-        memory_test = [t for t in tasks if t.category == TaskCategory.MEMORY and t.memory_pair_id and t.memory_pair_id.startswith("test")]
+        memory_setup = [
+            t
+            for t in tasks
+            if t.category == TaskCategory.MEMORY and t.memory_pair_id and t.memory_pair_id.startswith("setup")
+        ]
+        memory_test = [
+            t
+            for t in tasks
+            if t.category == TaskCategory.MEMORY and t.memory_pair_id and t.memory_pair_id.startswith("test")
+        ]
         other_tasks = [t for t in tasks if t.category != TaskCategory.MEMORY]
         fn = self._run_raw if raw else self._run_single_task
         for task in memory_setup:
@@ -327,9 +350,9 @@ class BenchmarkSuite:
     def run(self) -> Dict:
         """Run the full benchmark suite. Returns the JSON report."""
         tasks = self._get_tasks()
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  NALLY Benchmark — {len(tasks)} tasks, {len(self.models)} model(s), mode={self.mode}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         all_results = []
         overall_start = time.time()
@@ -352,13 +375,15 @@ class BenchmarkSuite:
         md_content = generate_markdown_report(report)
         md_path = write_markdown_report(md_content, self.output_dir)
 
-        print(f"\n{'='*60}")
-        print(f"  Benchmark Complete!")
-        print(f"  Overall: {report['overall']['avg_score']*100:.1f}% avg, "
-              f"{report['overall']['pass_rate']*100:.0f}% pass rate")
+        print(f"\n{'=' * 60}")
+        print("  Benchmark Complete!")
+        print(
+            f"  Overall: {report['overall']['avg_score'] * 100:.1f}% avg, "
+            f"{report['overall']['pass_rate'] * 100:.0f}% pass rate"
+        )
         print(f"  JSON: {json_path}")
         print(f"  Markdown: {md_path}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         return report
 
@@ -366,27 +391,37 @@ class BenchmarkSuite:
 def main():
     parser = argparse.ArgumentParser(description="NALLY Benchmark Suite")
     parser.add_argument(
-        "--models", nargs="+", default=None,
+        "--models",
+        nargs="+",
+        default=None,
         help="Models to test (default: current model)",
     )
     parser.add_argument(
-        "--tasks", nargs="+", default=None,
+        "--tasks",
+        nargs="+",
+        default=None,
         help="Task categories to run (default: all)",
     )
     parser.add_argument(
-        "--output", default="tests/benchmark/results",
+        "--output",
+        default="tests/benchmark/results",
         help="Output directory for reports",
     )
     parser.add_argument(
-        "--quiet", action="store_true",
+        "--quiet",
+        action="store_true",
         help="Suppress per-task output",
     )
     parser.add_argument(
-        "--mode", choices=["nally","raw","both"], default="nally",
+        "--mode",
+        choices=["nally", "raw", "both"],
+        default="nally",
         help="Run mode: nally (default), raw (baseline), or both (paired NALLY Lift)",
     )
     parser.add_argument(
-        "--pilot", type=int, default=None,
+        "--pilot",
+        type=int,
+        default=None,
         help="If set, run pilot N tasks stratified (for human inspection gate)",
     )
     args = parser.parse_args()
@@ -404,8 +439,10 @@ def main():
 
     # Pilot mode: sample N tasks stratified across categories for Phase 2 gate
     if args.pilot is not None:
-        from .cases import ALL_TASKS as _ALL
         import random as _rnd
+
+        from .cases import ALL_TASKS as _ALL
+
         _rnd.seed(42)
         # Stratified sample: 12-14 per category for ~100
         by_cat = {}
@@ -426,6 +463,7 @@ def main():
             remaining.remove(sampled[-1])
         # Patch ALL_TASKS for this run
         import tests.benchmark.cases as _cases
+
         _cases.ALL_TASKS = sampled
         print(f"[pilot] Sampled {len(sampled)} tasks stratified")
 

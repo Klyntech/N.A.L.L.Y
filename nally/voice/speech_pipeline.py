@@ -74,14 +74,12 @@ PRONUNCIATION_MAP: dict[str, str] = {
     "Groq": "Grok",
     "ElevenLabs": "Eleven Labs",
     "OpenCode": "Open Code",
-
     # Financial abbreviations
     "IPO": "I.P.O.",
     "ETF": "E.T.F.",
     "SaaS": "Sass",
     "B2B": "B to B",
     "B2C": "B to C",
-
     # Common symbols
     "%": " percent",
     "&": " and",
@@ -91,7 +89,6 @@ PRONUNCIATION_MAP: dict[str, str] = {
     "@": " at ",
     "->": " leading to ",
     "=>": " resulting in ",
-
     # Common mispronunciations
     "Cupertino": "Coo-per-tee-no",
     "Dijkstra": "Dike-struh",
@@ -103,18 +100,63 @@ PRONUNCIATION_MAP: dict[str, str] = {
 
 # Abbreviations that should NOT trigger sentence boundaries
 ABBREVIATIONS: set[str] = {
-    "Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "Inc", "Ltd", "Corp",
-    "vs", "etc", "approx", "apt", "dept", "est", "gov", "misc", "tech",
-    "temp", "vet", "vol", "avg", "max", "min", "seq", "ref", "fig",
-    "e.g", "i.e", "a.m", "p.m", "St", "Ave", "Blvd", "Rd",
-    "U.S", "U.K", "E.U", "N.A.S.A", "F.B.I", "C.I.A",
-    "No", "Nos", "Op", "pp", "ch", "sec", "def", "resp",
+    "Mr",
+    "Mrs",
+    "Ms",
+    "Dr",
+    "Prof",
+    "Sr",
+    "Jr",
+    "Inc",
+    "Ltd",
+    "Corp",
+    "vs",
+    "etc",
+    "approx",
+    "apt",
+    "dept",
+    "est",
+    "gov",
+    "misc",
+    "tech",
+    "temp",
+    "vet",
+    "vol",
+    "avg",
+    "max",
+    "min",
+    "seq",
+    "ref",
+    "fig",
+    "e.g",
+    "i.e",
+    "a.m",
+    "p.m",
+    "St",
+    "Ave",
+    "Blvd",
+    "Rd",
+    "U.S",
+    "U.K",
+    "E.U",
+    "N.A.S.A",
+    "F.B.I",
+    "C.I.A",
+    "No",
+    "Nos",
+    "Op",
+    "pp",
+    "ch",
+    "sec",
+    "def",
+    "resp",
 }
 
 
 # ════════════════════════════════════════════════════════════════
 #  Sentence Boundary Detection
 # ════════════════════════════════════════════════════════════════
+
 
 def check_sentence_boundary(text: str, pos: int) -> bool:
     """Check if the character at pos is a real sentence boundary.
@@ -227,6 +269,7 @@ def split_into_sentences(text: str) -> list[str]:
 #  Text Preprocessing — Written → Spoken Form
 # ════════════════════════════════════════════════════════════════
 
+
 def _escape_regex(s: str) -> str:
     return re.escape(s)
 
@@ -296,8 +339,18 @@ def preprocess_for_speech(raw_text: str) -> str:
 
     # 15. Normalize dates: 5/6/2025 → "may sixth twenty twenty five"
     MONTHS = [
-        "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
     ]
 
     def _date_to_spoken(match: re.Match) -> str:
@@ -334,8 +387,15 @@ def preprocess_for_speech(raw_text: str) -> str:
     def _equation_to_spoken(match: re.Match) -> str:
         a, op, b = match.group(1), match.group(2), match.group(3)
         result = match.group(4)
-        ops = {"+": "plus", "-": "minus", "*": "times", "/": "divided by",
-               "\u00d7": "times", "\u00f7": "divided by", "=": "equals"}
+        ops = {
+            "+": "plus",
+            "-": "minus",
+            "*": "times",
+            "/": "divided by",
+            "\u00d7": "times",
+            "\u00f7": "divided by",
+            "=": "equals",
+        }
         eq = f"{a} {ops.get(op, op)} {b}"
         if result:
             eq += f" equals {result}"
@@ -357,7 +417,9 @@ def preprocess_for_speech(raw_text: str) -> str:
     # 18. Monetary amounts: $200M → "200 million dollars"
     text = re.sub(
         r"\$(\d+(?:\.\d+)?)([MBK])",
-        lambda m: f"{m.group(1)} {{'M': 'million', 'B': 'billion', 'K': 'thousand'}}.get(m.group(2), m.group(2)) dollars",
+        lambda m: (
+            f"{m.group(1)} {{'M': 'million', 'B': 'billion', 'K': 'thousand'}}.get(m.group(2), m.group(2)) dollars"
+        ),
         text,
     )
     text = re.sub(r"\$(\d+(?:,\d{3})*(?:\.\d+)?)", r"\1 dollars", text)
@@ -395,7 +457,9 @@ def preprocess_for_speech(raw_text: str) -> str:
     text = re.sub(r"\b(20\d{2})\b", _year_to_spoken, text)
 
     # 23. Version numbers: v2.0 → "version two point oh"
-    text = re.sub(r"v(\d+(?:\.\d+)+)", lambda m: "version " + m.group(1).replace(".", " point "), text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"v(\d+(?:\.\d+)+)", lambda m: "version " + m.group(1).replace(".", " point "), text, flags=re.IGNORECASE
+    )
 
     # 24. Clean up residual markdown artifacts
     text = re.sub(r"[#*_~`|<>]", "", text)
@@ -405,7 +469,12 @@ def preprocess_for_speech(raw_text: str) -> str:
     text = re.sub(r"\s*\.\s*\.\s*\.\s*", "\u2026", text)
 
     # 26. Remove emotion tags
-    text = re.sub(r"\[(?:confident|curious|urgent|empathetic|informative|neutral|excited|calm|serious)\]", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\[(?:confident|curious|urgent|empathetic|informative|neutral|excited|calm|serious)\]",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
 
     # 27. Final cleanup
     text = re.sub(r"\s{2,}", " ", text)
@@ -417,12 +486,12 @@ def preprocess_for_speech(raw_text: str) -> str:
 # ════════════════════════════════════════════════════════════════
 
 EMOTION_PROSODY: dict[str, dict[str, float]] = {
-    "confident":   {"rate": 0.93, "pitch": 0.85, "volume": 1.0},
-    "curious":     {"rate": 0.92, "pitch": 0.92, "volume": 0.95},
-    "urgent":      {"rate": 1.05, "pitch": 0.93, "volume": 1.1},
-    "empathetic":  {"rate": 0.88, "pitch": 0.84, "volume": 0.9},
+    "confident": {"rate": 0.93, "pitch": 0.85, "volume": 1.0},
+    "curious": {"rate": 0.92, "pitch": 0.92, "volume": 0.95},
+    "urgent": {"rate": 1.05, "pitch": 0.93, "volume": 1.1},
+    "empathetic": {"rate": 0.88, "pitch": 0.84, "volume": 0.9},
     "informative": {"rate": 0.90, "pitch": 0.86, "volume": 0.98},
-    "neutral":     {"rate": 0.95, "pitch": 0.88, "volume": 1.0},
+    "neutral": {"rate": 0.95, "pitch": 0.88, "volume": 1.0},
 }
 
 
@@ -453,7 +522,9 @@ def detect_emotion(text: str, user_sentiment: str | None = None) -> str:
         return "curious"
 
     # Confident / authoritative
-    if re.search(r"\b(?:verified|confirmed|found|identified|here's what|the answer is|definitely|exactly|precisely)\b", lower):
+    if re.search(
+        r"\b(?:verified|confirmed|found|identified|here's what|the answer is|definitely|exactly|precisely)\b", lower
+    ):
         return "confident"
 
     # Informative / data-heavy
@@ -469,9 +540,13 @@ def detect_user_sentiment(user_message: str) -> str:
 
     if re.search(r"\b(?:urgent|emergency|asap|help\s*!|need\s+now|right\s+now|immediately|hurry)", lower):
         return "urgent"
-    if re.search(r"\b(?:worried|scared|afraid|sad|upset|frustrated|annoyed|angry|disappointed|hate|terrible|awful)\b", lower):
+    if re.search(
+        r"\b(?:worried|scared|afraid|sad|upset|frustrated|annoyed|angry|disappointed|hate|terrible|awful)\b", lower
+    ):
         return "empathetic"
-    if re.search(r"\b(?:wonder|curious|interesting|how\s+come|why\s+do|what\s+if|hmm)\b", lower) or user_message.strip().endswith("?"):
+    if re.search(
+        r"\b(?:wonder|curious|interesting|how\s+come|why\s+do|what\s+if|hmm)\b", lower
+    ) or user_message.strip().endswith("?"):
         return "curious"
 
     return "neutral"
@@ -481,9 +556,11 @@ def detect_user_sentiment(user_message: str) -> str:
 #  Voice Profiles
 # ════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class VoiceProfile:
     """A named voice profile with prosody multipliers."""
+
     name: str
     rate_mult: float = 1.0
     pitch_mult: float = 1.0
@@ -492,10 +569,10 @@ class VoiceProfile:
 
 
 VOICE_PROFILES: dict[str, VoiceProfile] = {
-    "nally":    VoiceProfile("nally",    0.97, 0.95, 1.0,  1.1),   # Confident, measured
-    "narrator": VoiceProfile("narrator", 1.0,  0.98, 1.0,  1.0),   # Steady, expressive
-    "concise":  VoiceProfile("concise",  1.1,  0.9,  0.92, 0.5),   # Fast, minimal pauses
-    "warm":     VoiceProfile("warm",     1.02, 1.03, 1.0,  0.85),  # Lighter, warmer
+    "nally": VoiceProfile("nally", 0.97, 0.95, 1.0, 1.1),  # Confident, measured
+    "narrator": VoiceProfile("narrator", 1.0, 0.98, 1.0, 1.0),  # Steady, expressive
+    "concise": VoiceProfile("concise", 1.1, 0.9, 0.92, 0.5),  # Fast, minimal pauses
+    "warm": VoiceProfile("warm", 1.02, 1.03, 1.0, 0.85),  # Lighter, warmer
 }
 
 
@@ -503,9 +580,11 @@ VOICE_PROFILES: dict[str, VoiceProfile] = {
 #  Speech Segments & Prosody Smoothing
 # ════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class SpeechSegment:
     """A single speech segment with prosody parameters."""
+
     text: str
     rate: float = 0.95
     pitch: float = 0.88
@@ -614,6 +693,7 @@ def apply_voice_profile(
 #  Full Pipeline — One-Shot Processing
 # ════════════════════════════════════════════════════════════════
 
+
 def process_for_speech(
     text: str,
     profile: str = "nally",
@@ -665,6 +745,7 @@ def process_for_speech_flat(
 # ════════════════════════════════════════════════════════════════
 #  Streaming Sentence Detector
 # ════════════════════════════════════════════════════════════════
+
 
 class SentenceStream:
     """Streaming sentence detector for real-time TTS.

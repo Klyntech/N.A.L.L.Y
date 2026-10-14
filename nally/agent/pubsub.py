@@ -18,6 +18,7 @@ logger = logging.getLogger("nally.pubsub")
 @dataclass
 class Message:
     """A message published to a topic."""
+
     topic: str
     data: Dict[str, Any]
     publisher: str
@@ -37,6 +38,7 @@ class Message:
 @dataclass
 class Subscription:
     """A subscription to a topic."""
+
     subscriber_id: str
     topic_pattern: str  # Can be exact match or regex pattern
     callback: Callable
@@ -85,8 +87,7 @@ class PubSubBus:
         with self._lock:
             if topic_pattern in self._subscriptions:
                 self._subscriptions[topic_pattern] = [
-                    s for s in self._subscriptions[topic_pattern]
-                    if s.subscriber_id != subscriber_id
+                    s for s in self._subscriptions[topic_pattern] if s.subscriber_id != subscriber_id
                 ]
 
     def publish(self, topic: str, data: Dict[str, Any], publisher: str = "system"):
@@ -96,7 +97,7 @@ class PubSubBus:
         with self._lock:
             self._history.append(msg)
             if len(self._history) > self._max_history:
-                self._history = self._history[-self._max_history:]
+                self._history = self._history[-self._max_history :]
 
         self._stats["published"] += 1
 
@@ -120,8 +121,7 @@ class PubSubBus:
             with self._lock:
                 if pattern in self._subscriptions:
                     self._subscriptions[pattern] = [
-                        s for s in self._subscriptions[pattern]
-                        if s.subscriber_id != sub.subscriber_id
+                        s for s in self._subscriptions[pattern] if s.subscriber_id != sub.subscriber_id
                     ]
 
         self._stats["delivered"] += delivered
@@ -142,11 +142,13 @@ class PubSubBus:
                 if topic and pattern != topic and not re.match(pattern, topic):
                     continue
                 for sub in subs:
-                    result.append({
-                        "subscriber": sub.subscriber_id,
-                        "topic_pattern": sub.topic_pattern,
-                        "once": sub.once,
-                    })
+                    result.append(
+                        {
+                            "subscriber": sub.subscriber_id,
+                            "topic_pattern": sub.topic_pattern,
+                            "once": sub.once,
+                        }
+                    )
             return result
 
     def get_stats(self) -> Dict[str, Any]:

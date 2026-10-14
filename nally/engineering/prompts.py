@@ -8,8 +8,6 @@ here makes the loop logic readable and the prompts easy to tune.
 
 from __future__ import annotations
 
-from typing import List
-
 from .models import Approach, TaskSpec, TestPlan
 
 _BRAINSTORM_TECHNIQUES = (
@@ -111,9 +109,7 @@ def implement_system() -> str:
 
 
 def implement_prompt(spec: TaskSpec, design_plan, test_plan: TestPlan, mode: str = "initial") -> str:
-    files_block = "\n".join(
-        f"- {f.path}: {f.purpose}" for f in design_plan.file_plan
-    )
+    files_block = "\n".join(f"- {f.path}: {f.purpose}" for f in design_plan.file_plan)
     tests_block = "\n".join(f"- {c.name}: {c.description}" for c in test_plan.cases) or "(none)"
     extra = ""
     if mode == "refine":
@@ -121,13 +117,7 @@ def implement_prompt(spec: TaskSpec, design_plan, test_plan: TestPlan, mode: str
             "\n\nThis is a REFINEMENT pass. Fix the issues described below while preserving "
             "working behavior. Return ALL files (not just the changed ones)."
         )
-    return (
-        f"TASK: {spec.goal}\n"
-        f"MODE: {mode}\n\n"
-        f"FILE PLAN:\n{files_block}\n\n"
-        f"TEST PLAN:\n{tests_block}\n"
-        f"{extra}"
-    )
+    return f"TASK: {spec.goal}\nMODE: {mode}\n\nFILE PLAN:\n{files_block}\n\nTEST PLAN:\n{tests_block}\n{extra}"
 
 
 def critique_system() -> str:
@@ -160,5 +150,5 @@ def finalize_prompt(spec: TaskSpec, design_plan, result_summary: str) -> str:
         f"TASK: {spec.goal}\n"
         f"RESULT SUMMARY: {result_summary}\n\n"
         "List known limitations of the delivered solution (max 6, concise bullets). "
-        "Respond ONLY with JSON: {\"known_limitations\": [\"...\"]}"
+        'Respond ONLY with JSON: {"known_limitations": ["..."]}'
     )

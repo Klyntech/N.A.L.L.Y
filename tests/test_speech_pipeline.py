@@ -1,26 +1,24 @@
 """Tests for the speech pipeline — sentence splitting, preprocessing, prosody."""
 
-import pytest
 from nally.voice.speech_pipeline import (
-    split_into_sentences,
-    preprocess_for_speech,
+    VOICE_PROFILES,
+    SentenceStream,
+    SpeechSegment,
+    apply_voice_profile,
     check_sentence_boundary,
     detect_emotion,
     detect_user_sentiment,
+    preprocess_for_speech,
     process_for_speech,
     process_for_speech_flat,
-    SentenceStream,
-    SpeechSegment,
     smooth_prosody,
-    apply_voice_profile,
-    VOICE_PROFILES,
-    EMOTION_PROSODY,
+    split_into_sentences,
 )
-
 
 # ════════════════════════════════════════════════════════════════
 #  Sentence Boundary Detection
 # ════════════════════════════════════════════════════════════════
+
 
 class TestSentenceBoundary:
     def test_simple_period(self):
@@ -73,6 +71,7 @@ class TestSplitSentences:
 #  Text Preprocessing
 # ════════════════════════════════════════════════════════════════
 
+
 class TestPreprocessForSpeech:
     def test_url_normalization(self):
         result = preprocess_for_speech("Visit https://example.com/path")
@@ -106,6 +105,7 @@ class TestPreprocessForSpeech:
 # ════════════════════════════════════════════════════════════════
 #  Emotion Detection
 # ════════════════════════════════════════════════════════════════
+
 
 class TestEmotionDetection:
     def test_urgent(self):
@@ -142,6 +142,7 @@ class TestUserSentiment:
 #  Voice Profiles & Prosody
 # ════════════════════════════════════════════════════════════════
 
+
 class TestVoiceProfiles:
     def test_all_profiles_exist(self):
         assert "nally" in VOICE_PROFILES
@@ -169,6 +170,7 @@ class TestVoiceProfiles:
 #  Full Pipeline
 # ════════════════════════════════════════════════════════════════
 
+
 class TestFullPipeline:
     def test_process_for_speech(self):
         result = process_for_speech("Hello Dr. Smith. Check https://example.com!")
@@ -184,6 +186,7 @@ class TestFullPipeline:
 # ════════════════════════════════════════════════════════════════
 #  Streaming Sentence Detector
 # ════════════════════════════════════════════════════════════════
+
 
 class TestSentenceStream:
     def test_feed_partial(self):

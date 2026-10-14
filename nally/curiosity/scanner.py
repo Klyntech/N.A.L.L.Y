@@ -166,14 +166,16 @@ class CuriosityScanner:
             if published and (time.time() - published) < 86400:
                 score += 0.1
 
-            scored.append({
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "source": item.get("source", ""),
-                "tags": list(tags),
-                "score": min(score, 1.0),
-                "published": published,
-            })
+            scored.append(
+                {
+                    "title": item.get("title", ""),
+                    "url": item.get("url", ""),
+                    "source": item.get("source", ""),
+                    "tags": list(tags),
+                    "score": min(score, 1.0),
+                    "published": published,
+                }
+            )
 
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored[:30]  # Top 30
@@ -209,13 +211,16 @@ class CuriosityScanner:
         from ..memory import memory_store
 
         key = f"curiosity:{item['source']}:{item['url'][-60:]}"
-        value = json.dumps({
-            "title": item["title"],
-            "url": item["url"],
-            "source": item["source"],
-            "tags": item["tags"],
-            "triangulated": item.get("triangulated", False),
-        }, ensure_ascii=False)
+        value = json.dumps(
+            {
+                "title": item["title"],
+                "url": item["url"],
+                "source": item["source"],
+                "tags": item["tags"],
+                "triangulated": item.get("triangulated", False),
+            },
+            ensure_ascii=False,
+        )
 
         memory_store.remember(
             key=key,
