@@ -151,8 +151,18 @@ class SQLiteTokenStorage:
         if row is None or row["tokens"] is None:
             return None
         try:
-            decrypted = _decrypt_token(row["tokens"])
-            return OAuthToken.model_validate_json(decrypted)
+            stored = row["tokens"]
+            decrypted = _decrypt_token(stored)
+            token = OAuthToken.model_validate_json(decrypted)
+            if not stored.startswith("gAAAA"):
+                # Legacy plaintext rows are accepted only long enough to migrate
+                # them when encryption is configured. Never return them without
+                # a key, and never silently keep writing plaintext.
+                if _get_fernet() is None:
+                    logger.error("Legacy plaintext OAuth token blocked until NALLY_CRED_KEY is configured")
+                    return None
+                await self.set_tokens(token)
+            return token
         except Exception:
             return None
 
