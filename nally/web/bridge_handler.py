@@ -5,6 +5,7 @@ They register themselves and then receive tool execution requests.
 """
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -15,8 +16,6 @@ from typing import Optional
 from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("nally.bridge")
-
-NALLY_BRIDGE_TOKEN = os.environ.get("NALLY_BRIDGE_TOKEN", "")
 
 
 class BridgeDevice:
@@ -135,7 +134,8 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
     """
     # Auth via query param
     token = websocket.query_params.get("token", "")
-    if not NALLY_BRIDGE_TOKEN or token != NALLY_BRIDGE_TOKEN:
+    expected_token = os.getenv("NALLY_BRIDGE_TOKEN", "")
+    if not expected_token or not hmac.compare_digest(token, expected_token):
         logger.warning(f"Bridge auth failed for device: {device_id}")
         await websocket.close(code=4001, reason="Unauthorized")
         return
