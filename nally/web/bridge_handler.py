@@ -8,6 +8,7 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Optional
@@ -43,7 +44,7 @@ class BridgeRegistry:
 
     def __init__(self):
         self._devices: dict[str, BridgeDevice] = {}
-        self._pending: dict[str, asyncio.Future] = {}  # request_id -> Future
+        self._pending: dict[str, tuple[str, asyncio.Future]] = {}  # request_id -> (device_id, Future)
 
     @property
     def devices(self) -> dict[str, BridgeDevice]:
@@ -59,10 +60,12 @@ class BridgeRegistry:
     def unregister(self, device_id: str):
         """Remove a bridge device."""
         self._devices.pop(device_id, None)
-        # Cancel any pending requests for this device
-        for rid, fut in list(self._pending.items()):
-            if not fut.done():
-                fut.cancel()
+        # Cancel only requests owned by this device. Disconnecting one bridge
+        # must not cancel unrelated work assigned to another connected bridge.
+        for rid, (pending_device_id, fut) in list(self._pending.items()):
+            if pending_device_id == device_id:
+                if not fut.done():
+                    fut.cancel()
                 self._pending.pop(rid, None)
         logger.info(f"Bridge unregistered: {device_id}")
 
@@ -88,7 +91,7 @@ class BridgeRegistry:
 
         request_id = str(uuid.uuid4())[:12]
         future = asyncio.get_event_loop().create_future()
-        self._pending[request_id] = future
+        self._pending[request_id] = (device_id, future)
 
         try:
             await device.websocket.send_json(
@@ -112,9 +115,11 @@ class BridgeRegistry:
 
     def resolve_result(self, request_id: str, result: str, success: bool):
         """Resolve a pending tool request with its result."""
-        future = self._pending.get(request_id)
-        if future and not future.done():
-            future.set_result((result, success))
+        pending = self._pending.get(request_id)
+        if pending:
+            _, future = pending
+            if not future.done():
+                future.set_result((result, success))
 
 
 # Singleton
