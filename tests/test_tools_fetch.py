@@ -120,3 +120,26 @@ class TestFetchSSRFProtection:
 
     def test_rejects_credentials_in_url(self):
         assert _validate_public_url("https://user:pass@example.com") is not None
+
+
+    def test_blocks_redirect_to_private_network(self):
+        response = MagicMock()
+        response.status_code = 302
+        response.headers = {"location": "http://127.0.0.1/admin"}
+
+        with (
+            patch(
+                "nally.tools.fetch._validate_public_url",
+                side_effect=[None, "Private, local, and non-public network targets are blocked"],
+            ),
+            patch("nally.tools.fetch.httpx.Client") as mock_client_cls,
+        ):
+            client = MagicMock()
+            mock_client_cls.return_value.__enter__.return_value = client
+            mock_client_cls.return_value.__exit__.return_value = False
+            client.get.return_value = response
+
+            result = _fetch_url("https://public.example/article")
+
+        assert "Unsafe redirect blocked" in result
+        client.get.assert_called_once()
