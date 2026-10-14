@@ -1,10 +1,8 @@
-"""Nally's deliberately small, fixed core toolset.
+"""Register Nally's small default core toolset.
 
-Only these capabilities are exposed to the model:
-run_command, read_file, file_ops, fetch_url, web_search,
-remember, recall, forget, agent, bridge_execute.
-
-MCP servers and user plugins are intentionally not loaded here.
+The core tools are registered here. Explicit MCP service connections may register
+additional tools at runtime; the model receives the current registry schemas.
+User plugins are not loaded.
 """
 
 import threading
@@ -120,7 +118,7 @@ def _load_all_registered():
 
 
 def load_all_tools():
-    """Load the fixed core toolset. Returns (tool_count, empty_mcp_status)."""
+    """Load default core tools. Returns (current tool count, startup MCP status)."""
     global _loaded
     with _loaded_lock:
         if not _loaded:
