@@ -59,7 +59,7 @@ async def _check_database() -> dict:
 
     # Turso/LibSQL
     if DATABASE_URL and DATABASE_URL.startswith("libsql://"):
-        return {"status": "ok", "engine": "libsql", "url": DATABASE_URL[:50] + "..."}
+        return {"status": "ok", "engine": "libsql", "configured": True}
 
     # SQLite (default)
     db_path = DATA_DIR / "nally_memory.db"
