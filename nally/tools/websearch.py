@@ -156,11 +156,7 @@ def _search_fallback(query: str, num_results: int = 3) -> str:
                 for anchor in soup.select(selector):
                     href = anchor.get("href", "")
                     title = anchor.get_text(" ", strip=True)
-                    if (
-                        title
-                        and href.startswith(("http://", "https://"))
-                        and href not in seen_urls
-                    ):
+                    if title and href.startswith(("http://", "https://")) and href not in seen_urls:
                         results.append({"title": title, "url": href, "content": ""})
                         seen_urls.add(href)
                     if len(results) >= num_results:
