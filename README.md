@@ -54,7 +54,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, patterns, and data flo
 | Backend | Python, FastAPI, LangGraph |
 | Frontend | Vanilla JS, HTML, CSS |
 | LLM | OpenCode Zen or Groq |
-| Database | SQLite (`data/nally.db` + `data/nally_memory.db`); PostgreSQL/Redis reachability health probes only |
+| Database | SQLite by default; optional PostgreSQL (Neon/Supabase) or Turso/LibSQL for durable memory; Redis is an optional health probe |
 | Streaming | SSE + WebSocket |
 | Integrations | OAuth account-management flows; MCP servers are not added to the agent's tool registry |
 
