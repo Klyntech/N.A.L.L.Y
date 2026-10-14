@@ -3,7 +3,27 @@
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
+User
+ │
+ ▼
+FastAPI (auth, rate limits, request handling)
+ │
+ ▼
+NallyAgent
+ ├─ Input guardrails
+ ├─ Context + relevant memory
+ └─ Registered tool schemas
+      │
+      ▼
+   LLM-driven ReAct loop
+      ├─ Model answers, or requests a tool
+      ├─ Permission gate checks tool call
+      ├─ Runtime executes and returns result
+      └─ Model continues until done or bounded
+ │
+ ▼
+Response stream + conversation persistence
+```┌─────────────────────────────────────────────────────────┐
 │                    Frontend (Vanilla JS)                 │
 │                    web/index.html                        │
 └──────────────────────┬──────────────────────────────────┘
@@ -65,23 +85,16 @@ POST /api/chat  (SSE)  —or—  WS /ws/{session_id}  (WebSocket)
     ▼
 NallyAgent.process(message)
     │
-    ├─ Try pattern matcher (instant local response)
-    │   └─ Match found? → Return immediately
+    ├─ Input guardrails
+    ├─ Context manager: compact history and inject relevant memory
+    ├─ Read schemas from the registered tool registry
     │
-    └─ Fall through to LLM
-        │
-        ├─ Context manager: compact old messages
-        ├─ Context manager: inject relevant memories
-        ├─ Tool filter: select tools for this query
-        │
-        ▼
+    ▼
     LangGraph agent loop (ReAct)
-        │
-        ├─ LLM call (streaming)
-        ├─ Parse tool calls
-        ├─ Permission gate check
-        ├─ Execute tools (parallel)
-        ├─ Loop until done or max iterations
+        ├─ LLM chooses a direct answer or tool call
+        ├─ Runtime validates permissions and executes the call
+        ├─ Tool result or structured error returns to the LLM
+        ├─ Continue until the model finishes or a hard limit is reached
         │
         ▼
     Return final response
@@ -184,14 +197,7 @@ def get_system_prompt(user_context=None):
 
 ### MCP Integration (`nally/mcp/`)
 
-Model Context Protocol — connects NALLY to external services. Default configured `MCP_SERVERS` are GitHub, Notion, and Gmail; Google Drive/Calendar and Higgsfield exist as OAuth flows only (not registered servers), and Context7/Meta/Telegram are npm packages (not default servers).
-
-**Request flow:**
-1. `client.py:connect_mcp_servers()` runs at startup
-2. Stdio servers: spawn subprocess, fetch tool list, register as `MCPTool` instances
-3. HTTP servers: check for stored OAuth tokens → reconnect if found, else await user connection via web UI
-4. API key servers: check env var → connect if set, else await user connection
-5. Tool execution: `MCPTool.execute()` spawns a fresh connection per call, calls the tool, returns result
+MCP and OAuth code remains in the web layer for account-linking and service-management flows. The core tool loader does not dynamically register external MCP tools into the model-callable registry. The LLM receives only the schemas of tools explicitly registered by the core tool loader. Treat the older dynamic-MCP execution path as inactive unless it is deliberately reintroduced and tested.
 
 **OAuth flow (`oauth.py`):**
 - Notion: RFC 9470/8414 discovery → Dynamic Client Registration → PKCE (S256) → token exchange
@@ -291,9 +297,8 @@ class Reflector:
 
 Pub/sub event bus for decoupled communication:
 
-- **Plan events**: `plan_created`, `plan_step_started`, `plan_step_completed`, `plan_complete`
 - **Agent notifications**: Streaming events forwarded to WebSocket/SSE subscribers
-- **Used by**: Planner → Web frontend for real-time plan progress display
+- Used to forward agent and application events to WebSocket/SSE subscribers.
 
 ### Database
 
