@@ -51,11 +51,11 @@ async def _check_database() -> dict:
                 await conn.close()
 
             await _test()
-            return {"status": "ok", "engine": "postgresql", "url": DATABASE_URL[:40] + "..."}
+            return {"status": "ok", "engine": "postgresql"}
         except ImportError:
             return {"status": "error", "engine": "postgresql", "error": "asyncpg not installed"}
         except Exception as e:
-            return {"status": "error", "engine": "postgresql", "error": str(e)[:100]}
+            return {"status": "error", "engine": "postgresql", "error": type(e).__name__}
 
     # Turso/LibSQL
     if DATABASE_URL and DATABASE_URL.startswith("libsql://"):
