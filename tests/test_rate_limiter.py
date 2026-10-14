@@ -1,6 +1,8 @@
 """Regression tests for rate limiter correctness and bounded state."""
 
-from nally.web import app as web_app
+import importlib
+
+web_app = importlib.import_module("nally.web.app")
 
 
 def test_rate_limiter_enforces_burst_and_refills(monkeypatch):
