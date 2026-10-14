@@ -485,7 +485,6 @@ NALLY_VOICE_CALLS_ENABLED = os.getenv("NALLY_VOICE_CALLS_ENABLED", "false").lowe
 # Telethon auto-approve: owner-only user account auto-approves gated tools (no inline buttons on Telethon)
 TELEGRAM_USER_AUTO_APPROVE = os.getenv("TELEGRAM_USER_AUTO_APPROVE", "true").lower() == "true"
 
-PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY", "")
 
 
 def resolve_telegram_mode() -> str:
