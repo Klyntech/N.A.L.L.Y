@@ -1,9 +1,14 @@
-"""Tests for Tavily and DuckDuckGo web search provider fallback."""
+"""Tests for Tavily, Brave, and DuckDuckGo web search provider fallback."""
 
 import os
 from unittest.mock import MagicMock, patch
 
-from nally.tools.websearch import WebSearch, _search_duckduckgo, _search_tavily
+from nally.tools.websearch import (
+    WebSearch,
+    _search_brave,
+    _search_duckduckgo,
+    _search_tavily,
+)
 
 
 def test_tavily_no_api_key_uses_fallback():
@@ -50,6 +55,53 @@ def test_tavily_http_error_returns_none():
         assert _search_tavily("test query") is None
 
 
+def test_brave_no_api_key_returns_none():
+    with patch.dict(os.environ, {}, clear=True):
+        assert _search_brave("test query") is None
+
+
+def test_brave_success_formats_results_and_uses_auth_header():
+    response = MagicMock()
+    response.json.return_value = {
+        "web": {
+            "results": [
+                {
+                    "title": "Brave Result",
+                    "url": "https://brave.example",
+                    "description": "A useful Brave snippet.",
+                }
+            ]
+        }
+    }
+    response.raise_for_status.return_value = None
+
+    with (
+        patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "brave-test-key"}),
+        patch("nally.tools.websearch.httpx.get", return_value=response) as get,
+    ):
+        result = _search_brave("test query", 2)
+
+    assert "Brave Result" in result
+    assert "https://brave.example" in result
+    assert "useful Brave snippet" in result
+    assert get.call_args.kwargs["headers"]["X-Subscription-Token"] == "brave-test-key"
+    assert get.call_args.args[0] == "https://api.search.brave.com/res/v1/web/search"
+    assert get.call_args.kwargs["params"] == {"q": "test query", "count": 2}
+
+
+def test_brave_http_error_returns_none():
+    import httpx
+
+    with (
+        patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "test-key"}),
+        patch(
+            "nally.tools.websearch.httpx.get",
+            side_effect=httpx.ConnectError("connection failed"),
+        ),
+    ):
+        assert _search_brave("test query") is None
+
+
 def test_duckduckgo_formats_results():
     mock_result = [
         {"title": "DDG Result", "href": "https://ddg.example", "body": "DuckDuckGo snippet"}
@@ -89,10 +141,23 @@ def test_web_search_tool_schema():
     assert tool.permission == "safe"
 
 
+def test_web_search_tries_brave_after_tavily_fails():
+    tool = WebSearch()
+    with (
+        patch("nally.tools.websearch._search_tavily", return_value=None),
+        patch("nally.tools.websearch._search_brave", return_value="Brave results") as brave,
+        patch("nally.tools.websearch._search_duckduckgo") as ddg,
+    ):
+        assert tool.execute(query="test", num_results=3) == "Brave results"
+        brave.assert_called_once_with("test", 3)
+        ddg.assert_not_called()
+
+
 def test_web_search_clamps_num_results_and_falls_back():
     tool = WebSearch()
     with (
         patch("nally.tools.websearch._search_tavily", return_value=None),
+        patch("nally.tools.websearch._search_brave", return_value=None),
         patch("nally.tools.websearch._search_duckduckgo", return_value="fallback") as fallback,
     ):
         assert tool.execute(query="test", num_results=10) == "fallback"
