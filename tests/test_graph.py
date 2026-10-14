@@ -228,33 +228,17 @@ class TestHasDuplicateToolCalls:
 
 
 class TestGraphTopology:
-    """Test that the graph topology is correct when PLAN_ENABLED is on/off."""
+    """The runtime uses one direct ReAct loop without planner/router stages."""
 
-    def test_plan_enabled_has_critique_node(self):
-        """When PLAN_ENABLED=true, the graph should contain a 'critique' node."""
-        with patch("nally.agent.graph.PLAN_ENABLED", True):
-            from langgraph.checkpoint.memory import MemorySaver
+    def test_graph_uses_single_react_loop(self):
+        from langgraph.checkpoint.memory import MemorySaver
+        from nally.agent.graph import create_agent_graph
 
-            with patch("nally.agent.graph._create_checkpointer", return_value=MemorySaver()):
-                from nally.agent.graph import create_agent_graph
+        with patch("nally.agent.graph._create_checkpointer", return_value=MemorySaver()):
+            compiled = create_agent_graph().get_graph()
 
-                graph = create_agent_graph()
-                compiled = graph.get_graph()
-                node_names = set(compiled.nodes.keys())
-                assert "critique" in node_names
-                assert "planner" in node_names
-                assert "execute_step" in node_names
-
-    def test_plan_disabled_no_critique_node(self):
-        """When PLAN_ENABLED=false, no critique node should exist."""
-        with patch("nally.agent.graph.PLAN_ENABLED", False):
-            from langgraph.checkpoint.memory import MemorySaver
-
-            with patch("nally.agent.graph._create_checkpointer", return_value=MemorySaver()):
-                from nally.agent.graph import create_agent_graph
-
-                graph = create_agent_graph()
-                compiled = graph.get_graph()
-                node_names = set(compiled.nodes.keys())
-                assert "critique" not in node_names
-                assert "planner" not in node_names
+        node_names = set(compiled.nodes.keys())
+        assert "llm" in node_names
+        assert "tools" in node_names
+        for retired in ("classify", "planner", "critique", "execute_step", "human_checkpoint", "replan", "synthesize"):
+            assert retired not in node_names
