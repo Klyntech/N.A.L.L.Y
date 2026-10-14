@@ -57,19 +57,25 @@ class BridgeRegistry:
         logger.info(f"Bridge registered: {device_id} (platform={platform}, tools={tools})")
         return device
 
+    def _resolve_pending_for_device(self, device: BridgeDevice, device_id: str):
+        """Resolve pending work for one exact connection without affecting other devices."""
+        for rid, (pending_device, fut) in list(self._pending.items()):
+            if pending_device is device:
+                if not fut.done():
+                    fut.set_result((f"Error: Bridge device disconnected: {device_id}", False))
+                self._pending.pop(rid, None)
+
     def unregister(self, device_id: str, expected_device: BridgeDevice | None = None):
         """Remove a bridge device, optionally only if it is still the current connection."""
         current = self._devices.get(device_id)
         if expected_device is not None and current is not expected_device:
+            # A replacement connection already registered. Clean up the old
+            # connection's pending requests, but never remove the replacement.
+            self._resolve_pending_for_device(expected_device, device_id)
             return
         self._devices.pop(device_id, None)
-        # Resolve only requests owned by this device. Disconnecting one bridge
-        # must not disturb unrelated work assigned to another connected bridge.
-        for rid, (pending_device, fut) in list(self._pending.items()):
-            if pending_device is current:
-                if not fut.done():
-                    fut.set_result((f"Error: Bridge device disconnected: {device_id}", False))
-                self._pending.pop(rid, None)
+        if current is not None:
+            self._resolve_pending_for_device(current, device_id)
         logger.info(f"Bridge unregistered: {device_id}")
 
     def get_device(self, device_id: str) -> Optional[BridgeDevice]:
