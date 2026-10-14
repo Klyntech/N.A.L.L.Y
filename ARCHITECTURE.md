@@ -260,17 +260,17 @@ class ClaimVerifier:
 - **Detects**: tool_bypass (claimed action not in receipts), false_success, false_failure
 - **Emits**: `verification` event with verdict details
 
-### Plan-and-Execute (`nally/agent/planner.py`)
+### Active Agent Loop
 
-Optional pipeline (disabled by default, enable with `NALLY_PLAN_ENABLED=true`):
+Nally uses one direct ReAct graph:
 
-1. **Classify**: Regex-based pattern matching — is this a complex multi-step task?
-2. **Plan**: LLM generates structured plan with steps, dependencies, estimates
-3. **Execute**: Each step runs via mini ReAct sub-loop with own iteration budget
-4. **Replan**: On failure, LLM revises plan (up to `NALLY_PLAN_MAX_REVISIONS`)
-5. **Synthesize**: Final LLM call combines step results into coherent response
+`LLM → registered tools → tool results → LLM`
 
-**Config**: `NALLY_PLAN_MAX_STEPS=10`, `NALLY_PLAN_STEP_TIMEOUT=300s`, `NALLY_PLAN_STEP_MAX_ITERATIONS=15`
+Every user request goes through the same model-driven execution path after input guardrails. There is no local pattern-matcher response bypass, keyword-based tool filter, intent-classification Harness, scratchpad pipeline, or Plan-and-Execute graph in the active runtime.
+
+The model receives the schemas for the registered core tools and decides which tools are relevant. Tool execution still passes through the permission gate, retry policy, execution receipts, error handling, abort checks, iteration limits, and wall-clock limits. The graph ends when the model stops requesting tools or a safety limit is reached.
+
+The system prompt describes behavior and truthfulness, but does not decide tool availability. The runtime tool schemas are the source of truth for the tools the model can call.
 
 ### Background Reflector (`nally/memory/reflector.py`)
 
