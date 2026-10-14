@@ -49,6 +49,8 @@ The hard-coded shell deny-list cannot be overridden. It blocks dangerous pattern
 
 ## Tool Execution Safety
 
+The model can call only tools registered by `nally/tools/__init__.py`. The active core set is `run_command`, `read_file`, `file_ops`, `web_search`, `fetch`, `remember`, `recall`, `forget`, `agent`, and `bridge_execute`. External MCP account-linking endpoints do not automatically grant the model additional tools.
+
 ### Command Execution (`run_command`)
 - Cross-platform shell selection (PowerShell on Windows, bash on Linux/macOS)
 - Configurable timeout via `NALLY_CMD_TIMEOUT` (default: 60s)
@@ -59,11 +61,6 @@ The hard-coded shell deny-list cannot be overridden. It blocks dangerous pattern
 - Home directory (`~`) explicitly excluded from write targets
 - Max write size: 500 KB
 - Post-write validation: emoji detection, HTML tag mismatch, CSS brace mismatch, JS truncation
-
-### Code Execution (`run_code`)
-- Runs in isolated `exec()` with stdout/stderr capture
-- Thread-locked to prevent concurrent execution issues
-- Subprocess mode available with timeout
 
 ### File Reading (`read_file`)
 - Blocks sensitive paths (`.ssh`, `.aws`, `.gnupg`, `id_rsa`, etc.)
