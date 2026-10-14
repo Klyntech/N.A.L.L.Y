@@ -9,8 +9,10 @@ import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from cryptography.fernet import Fernet
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
+from nally.mcp import oauth
 from nally.mcp.oauth import (
     SQLiteTokenStorage,
     _pending_pkce,
@@ -28,8 +30,10 @@ from nally.mcp.oauth import (
 
 
 @pytest.fixture
-def tmp_db():
-    """Create a temporary SQLite database."""
+def tmp_db(monkeypatch):
+    """Create a temporary SQLite database with encrypted OAuth storage."""
+    monkeypatch.setattr(oauth, "_FERNET", None)
+    monkeypatch.setenv("NALLY_CRED_KEY", Fernet.generate_key().decode())
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     yield path
