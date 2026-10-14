@@ -92,6 +92,44 @@ def test_storage_refuses_plaintext_when_key_missing(storage):
                 asyncio.run(storage.set_tokens(OAuthToken(access_token="secret", token_type="bearer")))
 
 
+def test_legacy_plaintext_tokens_migrate_when_key_is_configured(storage):
+    """A legacy plaintext row is re-encrypted before it is returned."""
+    token = OAuthToken(access_token="legacy-token", token_type="bearer")
+    conn = sqlite3.connect(storage.db_path)
+    conn.execute(
+        "INSERT INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)",
+        (storage.service, token.model_dump_json(), 0.0),
+    )
+    conn.commit()
+    conn.close()
+
+    retrieved = asyncio.run(storage.get_tokens())
+    assert retrieved is not None
+    assert retrieved.access_token == "legacy-token"
+
+    conn = sqlite3.connect(storage.db_path)
+    stored = conn.execute("SELECT tokens FROM mcp_oauth WHERE service = ?", (storage.service,)).fetchone()[0]
+    conn.close()
+    assert stored.startswith("gAAAA")
+
+
+def test_legacy_plaintext_tokens_are_blocked_without_key(storage):
+    """Legacy plaintext credentials are not returned until encryption is configured."""
+    from nally.mcp import oauth
+
+    token = OAuthToken(access_token="legacy-token", token_type="bearer")
+    conn = sqlite3.connect(storage.db_path)
+    conn.execute(
+        "INSERT INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)",
+        (storage.service, token.model_dump_json(), 0.0),
+    )
+    conn.commit()
+    conn.close()
+
+    with patch.dict(os.environ, {}, clear=True), patch.object(oauth, "_FERNET", None):
+        assert asyncio.run(storage.get_tokens()) is None
+
+
 def test_storage_set_get_client_info(storage):
     """set_client_info stores and get_client_info retrieves."""
     info = OAuthClientInformationFull(
