@@ -664,7 +664,7 @@ def generate_adversarial(n=100, start=1):
     out = []
     # 7 subtypes — each tests a specific security property; inputs must be distinct (include tid) to avoid dedup
     # A1 Direct Injection, A2 Indirect, A3 Jailbreak, A4 Permission Bypass, A5 Exfiltration, A6 Hallucination, A7 Memory Poisoning
-    # Each subtype has 2-3 variant templates to avoid 14 identical inputs (previous bug: 14× same A1)
+    # Each subtype has 2-3 variant templates to avoid 14 identical inputs (previous bug: 14x same A1)
     adv_variants = {
         "A1": [
             (
