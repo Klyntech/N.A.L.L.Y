@@ -192,54 +192,11 @@ TOKEN_WARN_THRESHOLD = float(os.getenv("NALLY_TOKEN_WARN_THRESHOLD", "0.95"))
 # lag), so keep this generous. 0 = wait forever (abort still works).
 APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
 
-# ── Planning ─────────────────────────────────────────────
-
-_plan_env = os.getenv("NALLY_PLAN_ENABLED", "false").lower() == "true"
-PLAN_ENABLED = _plan_env
-PLAN_MAX_STEPS = int(os.getenv("NALLY_PLAN_MAX_STEPS", "10"))
-PLAN_MAX_REVISIONS = int(os.getenv("NALLY_PLAN_MAX_REVISIONS", "3"))
-PLAN_STEP_TIMEOUT = int(os.getenv("NALLY_PLAN_STEP_TIMEOUT", "300"))
-PLAN_STEP_MAX_ITERATIONS = int(os.getenv("NALLY_PLAN_STEP_MAX_ITERATIONS", "15"))
-
-# ── Harness v2 (Intent Classification + Pipeline Routing) ─
-
-HARNESS_ENABLED = os.getenv("NALLY_HARNESS_ENABLED", "false").lower() in ("true", "1", "yes")
-HARNESS_ROUTER_ENABLED = os.getenv("NALLY_HARNESS_ROUTER", "false").lower() in ("true", "1", "yes")
-HARNESS_CRITIQUE_ENABLED = os.getenv("NALLY_HARNESS_CRITIQUE", "false").lower() in ("true", "1", "yes")
-HARNESS_SCRATCHPAD_ENABLED = os.getenv("NALLY_HARNESS_SCRATCHPAD", "false").lower() in ("true", "1", "yes")
-HARNESS_VERIFY_ENABLED = os.getenv("NALLY_HARNESS_VERIFY", "false").lower() in ("true", "1", "yes")
-HARNESS_LOG_CLASSIFICATIONS = os.getenv("NALLY_HARNESS_LOG", "false").lower() in ("true", "1", "yes")
-
-# Per-class pipeline config: which stages run for each task class.
-# Override via env as JSON: NALLY_HARNESS_PIPELINES='{"SIMPLE": {"critique": true}}'
-import json as _json
-
-_default_pipelines = {
-    "SIMPLE": {"direct_answer": True, "critique": False, "scratchpad": False, "tool_verify": False},
-    "KNOWLEDGE": {"direct_answer": True, "critique": False, "scratchpad": False, "tool_verify": False},
-    "CREATIVE": {"direct_answer": False, "critique": True, "scratchpad": False, "tool_verify": False},
-    "COMPLEX": {"direct_answer": False, "critique": True, "scratchpad": True, "tool_verify": True},
-    "AMBIGUOUS": {"direct_answer": True, "critique": False, "scratchpad": False, "tool_verify": False},
-    "HIGH_STAKES": {"direct_answer": False, "critique": True, "scratchpad": True, "tool_verify": True},
-}
-_pipelines_env = os.getenv("NALLY_HARNESS_PIPELINES", "")
-try:
-    HARNESS_PIPELINES = {**_default_pipelines, **(_json.loads(_pipelines_env) if _pipelines_env else {})}
-except (_json.JSONDecodeError, ValueError):
-    HARNESS_PIPELINES = _default_pipelines
-
 # ── Design Sources ──────────────────────────────────────
 # Curated library of 40+ design source websites (CSS/HTML/JS code).
 # Enabled by default — Nally fetches components from these before writing from scratch.
 
 DESIGN_SOURCES_ENABLED = os.getenv("NALLY_DESIGN_SOURCES_ENABLED", "true").lower() == "true"
-
-# ── Thinking Engine ─────────────────────────────────
-
-THINKING_ENABLED = os.getenv("NALLY_THINKING_ENABLED", "true").lower() == "true"
-THINKING_MAX_STRATEGIES = int(os.getenv("NALLY_THINKING_MAX_STRATEGIES", "3"))
-THINKING_DEEP_MODEL = os.getenv("NALLY_THINKING_MODEL", "")
-THINKING_TIMEOUT = int(os.getenv("NALLY_THINKING_TIMEOUT", "30"))
 
 # ── CORS ──────────────────────────────────────────────────
 
@@ -311,10 +268,7 @@ REDIS_URL = os.getenv("REDIS_URL", "")  # redis://localhost:6379 or Layerbase RE
 REDIS_TOKEN = os.getenv("REDIS_TOKEN", "")  # Layerbase REST token
 
 # ── Personality ───────────────────────────────────────────
-#
-# The personality template uses {{USER_CONTEXT}} as a placeholder.
-# At runtime, the agent injects known user facts into this slot.
-# This keeps user-specific data out of the source code.
+# User facts are appended at runtime by get_system_prompt().
 
 PERSONALITIES = {
     "nally": {
