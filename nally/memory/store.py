@@ -19,7 +19,7 @@ import time as _time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from ..config import DATA_DIR, DATABASE_URL, TURSO_TOKEN, TURSO_URL, memory_backend
 from ..utils.logger import logger
@@ -405,7 +405,7 @@ class _LibSQLCursorWrapper:
 class _NoOpCursor:
     """Minimal cursor stub returned when executescript has no real statements."""
 
-    description = []
+    description: ClassVar[list] = []
 
     def fetchone(self):
         return None
