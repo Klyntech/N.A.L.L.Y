@@ -142,3 +142,19 @@ class TestFetchSSRFProtection:
 
         assert "Unsafe redirect blocked" in result
         client.get.assert_called_once()
+
+
+
+def test_production_forces_ssl_verification():
+    import importlib
+
+    import nally.tools.fetch as fetch_mod
+
+    with patch.dict(
+        os.environ,
+        {"NALLY_ENV": "production", "NALLY_VERIFY_SSL": "false", "RENDER": ""},
+    ):
+        importlib.reload(fetch_mod)
+        assert fetch_mod.VERIFY_SSL is True
+
+    importlib.reload(fetch_mod)
