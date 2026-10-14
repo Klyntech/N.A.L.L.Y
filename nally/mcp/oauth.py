@@ -170,7 +170,12 @@ class SQLiteTokenStorage:
         encrypted = _encrypt_token(raw)
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "INSERT OR REPLACE INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)",
+            """
+            INSERT INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(service) DO UPDATE SET
+                tokens = excluded.tokens,
+                updated_at = excluded.updated_at
+            """,
             (self.service, encrypted, time.time()),
         )
         conn.commit()
@@ -198,7 +203,12 @@ class SQLiteTokenStorage:
         encrypted = _encrypt_token(client_info.model_dump_json())
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "INSERT OR REPLACE INTO mcp_oauth (service, client_info, updated_at) VALUES (?, ?, ?)",
+            """
+            INSERT INTO mcp_oauth (service, client_info, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(service) DO UPDATE SET
+                client_info = excluded.client_info,
+                updated_at = excluded.updated_at
+            """,
             (self.service, encrypted, time.time()),
         )
         conn.commit()
