@@ -773,14 +773,10 @@ def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def _execute_step(step: PlanStep, state: Dict[str, Any]) -> str:
     """Execute a single plan step via a mini ReAct sub-loop."""
-    from ..tools.filter import tool_filter
     from ..tools.registry import registry
     from .graph import run_agent
 
-    try:
-        tools = tool_filter.select(step.goal)
-    except Exception:
-        tools = [t.to_openai_schema() for t in registry.tools.values()]
+    tools = [tool.to_openai_schema() for tool in registry.tools.values()]
 
     # Build context from previous step results
     context_lines = []
