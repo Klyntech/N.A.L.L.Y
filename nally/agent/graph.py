@@ -37,7 +37,6 @@ from ..config import (
     SESSION_ID,
     TOKEN_WARN_THRESHOLD,
     TOOL_RETRY_LIMIT,
-    WALL_TIME_OVERRIDES,
     ensure_data_dir,
 )
 from ..core.errors import LLMError
@@ -511,8 +510,6 @@ class AgentState(TypedDict):
     model_override: Optional[str]
     start_time: float
     tool_failures: List[Dict[str, Any]]
-    intent_class: str
-    intent_confidence: float
     wall_time_budget: int
     task_progress: Dict[str, str]
 
@@ -1664,8 +1661,6 @@ def run_agent(
     model: Optional[str] = None,
     _parent_span_id: Optional[str] = None,
     _run_id: Optional[str] = None,
-    intent_class: str = "",
-    intent_confidence: float = 0.0,
 ) -> str:
     """Run the agent graph and return the final response."""
     _ensure_tracer_store()
@@ -1745,9 +1740,7 @@ def run_agent(
         "model_override": model,
         "start_time": time.time(),
         "tool_failures": [],
-        "intent_class": intent_class,
-        "intent_confidence": intent_confidence,
-        "wall_time_budget": WALL_TIME_OVERRIDES.get(intent_class, MAX_AGENT_WALL_TIME) if intent_class else MAX_AGENT_WALL_TIME,
+        "wall_time_budget": MAX_AGENT_WALL_TIME,
         "task_progress": {},
     }
 
