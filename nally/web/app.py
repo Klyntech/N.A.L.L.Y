@@ -171,9 +171,9 @@ class _RateLimiter:
     def __init__(self, rpm: int = 30, burst: int = 5):
         self._rpm = max(1, rpm)
         self._burst = max(1, burst)
-        self._buckets: dict[str, float] = {}
-        self._last_seen: dict[str, float] = {}
-        self._last_refill = time.time()
+        # ip -> (remaining tokens, last refill, last seen)
+        self._buckets: dict[str, tuple[float, float, float]] = {}
+        self._last_cleanup = time.time()
         self._max_buckets = 10000
         self._lock = Lock()
 
@@ -183,30 +183,30 @@ class _RateLimiter:
 
         now = time.time()
         with self._lock:
-            elapsed = max(0.0, now - self._last_refill)
-            if elapsed:
-                tokens_to_add = elapsed * (self._rpm / 60)
-                for client_ip in list(self._buckets):
-                    self._buckets[client_ip] = min(self._burst, self._buckets[client_ip] + tokens_to_add)
-                self._last_refill = now
+            # Cleanup is periodic, not O(number of clients) on every request.
+            if now - self._last_cleanup > 60 or len(self._buckets) >= self._max_buckets:
+                for client_ip, (_, _, last_seen) in list(self._buckets.items()):
+                    if now - last_seen > 3600:
+                        self._buckets.pop(client_ip, None)
+                self._last_cleanup = now
 
-            # Expire idle clients so arbitrary source addresses cannot grow memory forever.
-            for client_ip, last_seen in list(self._last_seen.items()):
-                if now - last_seen > 3600:
-                    self._last_seen.pop(client_ip, None)
-                    self._buckets.pop(client_ip, None)
-
-            if ip not in self._buckets:
+            state = self._buckets.get(ip)
+            if state is None:
                 if len(self._buckets) >= self._max_buckets:
-                    oldest_ip = min(self._last_seen, key=self._last_seen.get)
-                    self._last_seen.pop(oldest_ip, None)
+                    oldest_ip = min(self._buckets, key=lambda key: self._buckets[key][2])
                     self._buckets.pop(oldest_ip, None)
-                self._buckets[ip] = float(self._burst)
+                tokens = float(self._burst)
+                last_refill = now
+            else:
+                tokens, last_refill, _ = state
+                elapsed = max(0.0, now - last_refill)
+                tokens = min(self._burst, tokens + elapsed * (self._rpm / 60))
 
-            self._last_seen[ip] = now
-            if self._buckets[ip] >= 1:
-                self._buckets[ip] -= 1
+            if tokens >= 1:
+                self._buckets[ip] = (tokens - 1, now, now)
                 return True
+
+            self._buckets[ip] = (tokens, now, now)
             return False
 
 _rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
