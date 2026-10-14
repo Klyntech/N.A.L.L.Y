@@ -10,6 +10,7 @@ SQLite-backed PKCE state persistence to survive server restarts.
 import asyncio
 import base64
 import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -371,6 +372,21 @@ def load_oauth_state(db_path: str, service: str) -> dict | None:
         "token_endpoint": row["token_endpoint"],
         "auth_endpoint": row["auth_endpoint"],
     }
+
+
+def validate_oauth_state(service: str, supplied_state: str, db_path: str) -> bool:
+    """Validate the callback state against the one-time state created at OAuth start."""
+    if not supplied_state:
+        return False
+    state_data = _pending_pkce.get(service)
+    if not state_data:
+        try:
+            state_data = load_oauth_state(db_path, service)
+        except Exception:
+            logger.warning("Could not load pending OAuth state for %s", service)
+            return False
+    expected_state = state_data.get("state") if state_data else None
+    return bool(expected_state and hmac.compare_digest(expected_state, supplied_state))
 
 
 def clear_oauth_state(db_path: str, service: str) -> None:
