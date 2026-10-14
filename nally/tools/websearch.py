@@ -219,10 +219,11 @@ def _search_fallback(query: str, num_results: int = 3) -> str:
                 parts.append(f"[{i}] {title.strip()}\n{href}\n{snippet}")
             return "\n\n".join(parts)
 
-        return f"Web search unavailable. Try searching manually for: {query}"
+        return f"Error: Web search unavailable. The fallback request completed but no result links could be parsed. Query: {query}"
 
-    except Exception:
-        return f"Web search unavailable. Try searching manually for: {query}"
+    except Exception as e:
+        logger.warning(f"DuckDuckGo HTML fallback failed: {type(e).__name__}: {e}")
+        return f"Error: Web search fallback failed ({type(e).__name__}). Query: {query}"
 
 
 class WebSearch(Tool):
