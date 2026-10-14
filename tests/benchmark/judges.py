@@ -1,6 +1,6 @@
 """Judges — evaluation functions for each benchmark metric.
 
-Each judge takes a TaskResult and returns a score (0.0–1.0) plus details.
+Each judge takes a TaskResult and returns a score (0.0-1.0) plus details.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from .cases import Task, TaskCategory
 
 @dataclass
 class JudgeResult:
-    score: float  # 0.0 – 1.0
+    score: float  # 0.0 - 1.0
     details: str = ""
     passed: bool = True
     evidence: Dict[str, Any] = field(default_factory=dict)
