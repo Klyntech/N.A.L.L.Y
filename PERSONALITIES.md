@@ -44,7 +44,6 @@ KNOWN USER FACTS:
 This block is appended only when `user_context` is passed (e.g. facts pulled from memory). If no context is available, nothing is appended.
 
 Additional context is appended automatically after the user-facts block, in this order:
-- **Skill manifest**: Available skill names + descriptions (Level 1 manifest)
 - **Current date**: Timestamp for time-aware responses — "CURRENT TIME CONTEXT: Thursday, ... (WAT)"
 - **Platform info**: OS, shell, available tools (from `nally/agent/platform.py`)
 - **Interface label**: Which channel (web, telegram, CLI) — only when an interface is provided
@@ -75,9 +74,9 @@ IDENTITY:
 - You were created by the user to be their digital right hand
 
 AVAILABLE TOOLS:
-- You have 40+ tools at your disposal
-- Use them proactively — don't wait to be asked
-- You can run commands, read files, search the web, and more
+- Use only the tool schemas actually supplied by the runtime
+- Choose the smallest relevant tool set and inspect the results
+- Never claim access to a tool that is not supplied
 
 RULES:
 - Never use emojis in responses
@@ -109,12 +108,13 @@ The final system prompt is built in this order (`nally/config.py` → `get_syste
 
 1. **Personality style** — base template from `PERSONALITIES`
 2. **User context** — appended as a trailing `KNOWN USER FACTS:` block (when user facts are passed)
-3. **Skill manifest** — list of available skill names + descriptions
-4. **Current date** — "CURRENT TIME CONTEXT: <date> (WAT)"
-5. **Platform info** — OS, shell, available tools
-6. **Interface label** — "You are chatting via web/telegram/CLI" (only when an interface is given)
+3. **Platform info** — OS, shell, and installed system commands
+4. **NallyBridge context** — added when devices are connected
+5. **Deployment rules** — added when the environment requires them
+6. **Interface label** — added when an interface is provided
 7. **Trust & honesty rules** — always appended
-8. **Voice capabilities** — appended only when `NALLY_VOICE_CALLS_ENABLED` is true
+8. **Project registry** — added when project locations are available
+9. **Voice capabilities** — added only when `NALLY_VOICE_CALLS_ENABLED` is true
 
 ## Code Style
 
