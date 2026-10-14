@@ -100,7 +100,6 @@ class TestFetchUrlRetry:
             assert "timed out" in result.lower()
 
 
-
 class TestFetchSSRFProtection:
     def test_blocks_loopback_and_private_literal_addresses(self):
         assert _validate_public_url("http://127.0.0.1") is not None
