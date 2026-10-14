@@ -42,3 +42,14 @@ def test_oauth_callback_state_must_match_pending_state(monkeypatch, tmp_path):
     assert oauth.validate_oauth_state("notion", "expected-state", str(tmp_path / "oauth.db"))
     assert not oauth.validate_oauth_state("notion", "attacker-state", str(tmp_path / "oauth.db"))
     assert not oauth.validate_oauth_state("notion", "", str(tmp_path / "oauth.db"))
+
+
+
+def test_local_development_never_writes_plaintext_oauth_tokens(monkeypatch):
+    monkeypatch.setattr(oauth, "_FERNET", None)
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("NALLY_ENV", raising=False)
+    monkeypatch.delenv("NALLY_CRED_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="required to store OAuth tokens"):
+        oauth._encrypt_token('{"access_token":"not-a-real-secret"}')
