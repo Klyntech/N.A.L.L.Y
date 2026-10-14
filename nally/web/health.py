@@ -134,7 +134,7 @@ async def _check_redis() -> dict:
         await _test()
         return {"status": "ok", "engine": "redis", "provider": "self-hosted"}
     except ImportError:
-        return {"status": "ok", "engine": "redis", "note": "redis package not installed"}
+        return {"status": "error", "engine": "redis", "error": "redis package not installed"}
     except Exception as e:
         return {"status": "error", "engine": "redis", "error": type(e).__name__}
 
