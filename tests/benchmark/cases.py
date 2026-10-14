@@ -361,7 +361,7 @@ AUTONOMOUS_CODING_TASKS = [
 ]
 
 # ── Adversarial (100 tasks — Phase 1: templated, see generate.py) ────
-# Frozen spec: 7 subtypes × 14-15. Generated tasks live in cases_generated.py.
+# Frozen spec: 7 subtypes x 14-15. Generated tasks live in cases_generated.py.
 ADVERSARIAL_TASKS: List[Task] = []
 
 # ── Long Horizon (100 tasks — Phase 1) ────────────────────
