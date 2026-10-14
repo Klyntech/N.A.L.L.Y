@@ -38,6 +38,14 @@ def test_telegram_approve_rejects_missing_internal_auth(monkeypatch):
     assert response.status_code == 401
 
 
+def test_oauth_callbacks_require_state():
+    client = TestClient(web_app.app)
+    for provider in ("notion", "github", "google", "higgsfield"):
+        response = client.get(f"/api/oauth/{provider}/callback", params={"code": "fake-code"})
+        assert response.status_code == 400
+        assert response.json()["error"] == "missing_state"
+
+
 def test_bridges_requires_bearer_auth(monkeypatch):
     monkeypatch.setenv("NALLY_ACCESS_TOKEN", ACCESS_TOKEN)
     client = TestClient(web_app.app)
