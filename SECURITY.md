@@ -45,7 +45,7 @@ The hard-coded shell deny-list cannot be overridden. It blocks dangerous pattern
 - Encryption key: `NALLY_CRED_KEY` env var
 - Tokens stored in SQLite `mcp_oauth` table
 - PKCE state persisted to SQLite to survive server restarts
-- New OAuth token writes fail closed unless `NALLY_CRED_KEY` is valid and the `cryptography` package is installed. Existing legacy plaintext rows are not automatically safe merely because new writes are encrypted; rotate/reconnect affected OAuth services after configuring the key.
+- New OAuth token writes fail closed unless `NALLY_CRED_KEY` is valid and the `cryptography` package is installed. Legacy plaintext token rows are blocked when the key is absent and re-encrypted on successful read when a valid key is configured.
 
 ## Tool Execution Safety
 
