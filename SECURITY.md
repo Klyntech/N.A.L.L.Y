@@ -23,21 +23,14 @@ Nally uses a declarative permission gate (`nally/config/permissions.json`) to co
 
 ### Default Permissions
 
-Permissions are declared in `nally/config/permissions.json` and enforced at execution.
+The active core toolset is limited to these registered tools: `run_command`, `read_file`, `file_ops`, `fetch`, `web_search`, `remember`, `recall`, `forget`, `agent`, and `bridge_execute`.
 
-- **Allow by default** (`"run_command": { "*": "allow", ... }`): most shell commands run WITHOUT approval. Also allowed: `read_file`, `system_health`, `code_analysis`, `run_code`, `web_search`, `think`, `mcp_status`, memory tools (`remember`, `recall`, `forget`, `memory_stats`), `agent`, `generate_image`, `get_call_status`, `list_calls`, the Gmail tools, and `mcp_*`
-- **Ask for approval** (ask): `git push` / `git push *`, `file_ops` delete, `engineering_build`, `hangup_call`
-- **Denied** (deny) — a hardcoded deny-list that cannot be overridden:
-  `rm -rf /`, `rm -rf ~`, `rm -rf *`, `sudo rm *`, `git push --force` / `git push -f *`, `git reset --hard`, `git clean -fd`, `chmod 777`, `shutdown`, `reboot`, `format *`, `dd if=`, `kill -9`, `killall`
+- **Allowed directly**: `read_file`, `fetch`, `web_search`, `remember`, `recall`, `forget`, `agent`, and `bridge_execute`.
+- **Shell commands**: `run_command` is allowed by its command rules except for hard-coded denials and configured restrictions. Treat shell execution as a high-impact capability.
+- **File operations**: `file_ops` operations are allowed except `delete`, which requires approval.
+- **Unknown tools**: tools not listed in the permission configuration default to `ask`. Having a name in a prompt does not register a tool; the runtime registry is authoritative.
 
-Note on Gmail: `permissions.json` sets `gmail_send`, `gmail_reply`, and `gmail_delete` to `allow`, so the permission gate lets them execute immediately. The `nally` system prompt (in `nally/config.py`) tells the model these tools "require approval" — a prompt/gate inconsistency. The permission gate is authoritative for enforcement; treating Gmail actions as requiring approval relies on the model, not the gate.
-
-### Skill Override Rules
-
-Skills can request tool allowlisting via `allowed-tools` in SKILL.md frontmatter, but:
-
-- **Explicit `deny` in base config cannot be overridden** — skill permissions are capped at the base config level
-- Skill overrides only grant `allow`, never `deny` bypass
+The hard-coded shell deny-list cannot be overridden. It blocks dangerous patterns such as `rm -rf /`, destructive force-pushes, `git reset --hard`, `git clean -fd`, broad permission changes, shutdown/reboot, disk-formatting commands, and `kill -9`.
 
 ## Authentication
 
