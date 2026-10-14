@@ -1444,64 +1444,6 @@ def tool_executor(state: AgentState) -> AgentState:
         # Checkpoint post-state capture
         _ckpt_record_post(tool_name, tool_args)
 
-        # ── Auto-save task state on ALL tool calls ──
-        # Track files created, read, and executed so Nally can resume without re-reading everything.
-        if success:
-            try:
-                from ..tools.task_state import task_state_manager, TaskState
-                from ..config import SESSION_ID
-
-                state = task_state_manager.get(SESSION_ID)
-                if not state:
-                    state = TaskState(SESSION_ID)
-                    state.task_description = "Auto-tracked work"
-
-                args = tool_args if isinstance(tool_args, dict) else {}
-                fp = args.get("file_path", "")
-                action = args.get("action", "")
-
-                if tool_name == "file_ops":
-                    if action == "write" and fp:
-                        if fp not in state.files_created:
-                            state.files_created.append(fp)
-                        state.current_step = f"Wrote {fp}"
-                        state.last_tool_result = f"Created: {fp}"
-                    elif action == "delete" and fp:
-                        if fp in state.files_created:
-                            state.files_created.remove(fp)
-                        state.current_step = f"Deleted {fp}"
-
-                elif tool_name == "read_file" and fp:
-                    # Track that we've read this file (don't need to re-read)
-                    tag = f"read:{fp}"
-                    if tag not in state.key_decisions:
-                        state.key_decisions.append(tag)
-                    state.current_step = f"Read {fp}"
-
-                elif tool_name == "execute":
-                    code = args.get("code", "")[:100]
-                    state.current_step = f"Executed code: {code}..."
-                    state.last_tool_result = str(result)[:200]
-
-                elif tool_name in ("design_fetch", "design_sources"):
-                    state.current_step = f"Fetched from {tool_name}: {args.get('category', '')}"
-                    state.last_tool_result = str(result)[:200]
-
-                elif tool_name == "web_search":
-                    state.current_step = f"Searched: {args.get('query', '')}"
-                    state.last_tool_result = str(result)[:200]
-
-                elif tool_name == "task_state":
-                    # Don't track task_state tool calls (avoid recursion)
-                    pass
-
-                else:
-                    state.current_step = f"Used {tool_name}"
-
-                task_state_manager.save(state)
-            except Exception as e:
-                logger.debug(f"Auto-save task state skipped: {e}")
-
         # Return up to MAX_TOOL_OUTPUT (50k) for LLM truth; registry already capped.
         # Previous 2000 hid evidence from next LLM turn + verifier.
         _finish(success, str(result)[:MAX_TOOL_OUTPUT])
