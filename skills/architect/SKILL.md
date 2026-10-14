@@ -1,7 +1,7 @@
 ---
 name: architect
 description: System design, architecture decisions, migration planning, performance analysis, trade-off evaluation. Use for designing systems, planning migrations, optimizing bottlenecks, or making technical decisions.
-allowed-tools: read_file file_ops run_command code_analysis
+allowed-tools: read_file file_ops run_command
 ---
 
 # Architect
