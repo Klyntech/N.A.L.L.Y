@@ -386,31 +386,3 @@ class RunCommand(Tool):
             return f"Error: Command timed out after {CMD_TIMEOUT} seconds (exit code: 124)"
         except Exception as e:
             return f"Error: {e!s}"
-
-
-class SystemHealth(Tool):
-    def __init__(self):
-        super().__init__(
-            name="system_health",
-            description="Get system health (CPU, memory, disk usage)",
-            parameters={},
-        )
-
-    def execute(self) -> str:
-        try:
-            import psutil
-
-            cpu = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
-            disk_path = os.path.splitdrive(os.getcwd())[0] + os.sep if os.name == "nt" else "/"
-            disk = psutil.disk_usage(disk_path)
-
-            return (
-                f"CPU: {cpu}% | "
-                f"Memory: {memory.percent}% ({memory.used // (1024**3):.1f}GB / {memory.total // (1024**3):.1f}GB) | "
-                f"Disk: {disk.percent}% ({disk.used // (1024**3):.1f}GB / {disk.total // (1024**3):.1f}GB)"
-            )
-        except ImportError:
-            return "System health requires: pip install psutil"
-        except Exception as e:
-            return f"Error: {e!s}"
