@@ -6,7 +6,7 @@ Nally's repository contains reusable skill documents under `skills/<name>/SKILL.
 
 The simplified core agent does **not** classify every request against skill descriptions, automatically inject a skill manifest into the system prompt, or activate a matching skill before the main model call. Skills are reference documents at present, not a separate reasoning or routing layer.
 
-The `allowed-tools` frontmatter found in older skill files is not a source of tool availability or permission grants for the core agent. The active tool schemas come from the fixed registry in `nally/tools/__init__.py`; permission decisions come from `nally/config/permissions.json` and the permission gate.
+The `allowed-tools` frontmatter found in older skill files is not a source of tool availability or permission grants. The active schemas come from the runtime registry: the default tools are registered in `nally/tools/__init__.py`, and explicitly connected MCP services may add tools. Permission decisions come from `nally/config/permissions.json` and the permission gate.
 
 ## Skill format
 
