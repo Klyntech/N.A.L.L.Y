@@ -141,18 +141,21 @@ async def _check_redis() -> dict:
 def _check_tools() -> dict:
     """Check that the minimum core toolset is registered."""
     try:
+        from .. import tools as tools_module
         from ..tools.registry import registry
 
         registered = {tool["function"]["name"] for tool in registry.get_all_tools()}
         required = {"run_command", "read_file", "file_ops", "fetch"}
         missing = sorted(required - registered)
-        if missing:
+        loader_complete = bool(tools_module._loaded)
+        if missing or not loader_complete:
             return {
                 "status": "not_ready",
                 "count": len(registered),
                 "missing": missing,
+                "loader_complete": loader_complete,
             }
-        return {"status": "ok", "count": len(registered)}
+        return {"status": "ok", "count": len(registered), "loader_complete": True}
     except Exception:
         return {"status": "error", "reason": "tool registry unavailable"}
 
