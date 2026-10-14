@@ -177,8 +177,9 @@ These statuses describe service connection/account-management state. They do not
 - Encrypted with Fernet (AES-128-CBC) using `NALLY_CRED_KEY`
 - Stored in SQLite `mcp_oauth` table
 - PKCE state persisted to survive server restarts
-- **Production fails closed**: OAuth token storage refuses to write or read tokens without a valid `NALLY_CRED_KEY` and the `cryptography` package
-- **Local development only**: legacy plaintext tokens can be read for migration; production rejects them
+- **All environments**: new OAuth token writes require a valid `NALLY_CRED_KEY` and the `cryptography` package; plaintext writes are never permitted
+- **Production fails closed**: missing or invalid keys disable token storage, and unencrypted stored tokens are rejected
+- **Local development only**: legacy plaintext tokens can be read for migration
 
 ## Troubleshooting
 
