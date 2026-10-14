@@ -355,7 +355,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
 
     Args:
         personality: Override personality name. Defaults to ACTIVE_PERSONALITY.
-        user_context: Injected user facts (from memory). Replaces {{USER_CONTEXT}}.
+        user_context: Known user facts from durable memory, appended when available.
         interface: Chat interface label (e.g. "web:default", "telegram:123").
             When provided, Nally is told which channel she's on.
 
@@ -411,7 +411,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
                 "\n- NEVER run: pip install, npm install, cargo build, docker build, apt-get, or any install/compile commands via run_command."
                 "\n- For installs, builds, tests, file edits, or any heavy work: use bridge_execute to route to the user's PC."
                 "\n- If no bridge is connected, tell the user: 'Start NallyBridge on your PC so I can run that there.'"
-                "\n- Safe on Render: chat, planning, web_search, gmail, read_file (small files), memory, API calls."
+                "\n- Safe on Render: chat, web search, small file reads, memory, and lightweight API calls."
                 "\n- The bridge is your execution plane. Your PC has the RAM; Render only thinks."
             )
         elif devices:
@@ -439,7 +439,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
         "\n- If you called no tools, say 'I did not run any tools' — never fabricate an action."
         "\n- Prefer: 'I ran X and got Y' over 'I did X'. Ground every claim in evidence."
         "\n- If uncertain whether something worked, say 'I attempted X' — not 'I did X'."
-        "\\n- Only claim a tool is available if it appears in the tools supplied for this request. If a tool call fails or times out, report the observed failure. Never invent a tool, result, or capability."
+        "\n- Only claim a tool is available if it appears in the tools supplied for this request. If a tool call fails or times out, report the observed failure. Never invent a tool, result, or capability."
     )
 
     # Inject project registry — so LLM knows where projects live on disk
