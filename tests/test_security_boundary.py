@@ -104,7 +104,6 @@ def test_validator_allows_telegram_off_without_internal_token(monkeypatch):
     assert not any(key == "NALLY_INTERNAL_TOKEN" and level == "error" for level, key, _ in errors)
 
 
-
 def test_bearer_auth_reads_token_from_current_environment(monkeypatch):
     monkeypatch.setenv("NALLY_ACCESS_TOKEN", ACCESS_TOKEN)
     client = TestClient(web_app.app)
@@ -113,13 +112,11 @@ def test_bearer_auth_reads_token_from_current_environment(monkeypatch):
     assert response.json()["authenticated"] is True
 
 
-
 def test_sse_endpoint_rejects_missing_token_without_name_error(monkeypatch):
     monkeypatch.delenv("NALLY_ACCESS_TOKEN", raising=False)
     client = TestClient(web_app.app)
     response = client.get("/api/events")
     assert response.status_code == 401
-
 
 
 def test_notion_oauth_callback_rejects_invalid_state(monkeypatch):
