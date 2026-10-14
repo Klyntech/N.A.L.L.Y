@@ -46,7 +46,7 @@ class BridgeTool(Tool):
                 args = {}
 
         # Validate tool name
-        allowed_tools = ["run_command", "file_ops", "read_file", "system_health"]
+        allowed_tools = ["run_command", "file_ops", "read_file"]
         if tool not in allowed_tools:
             return f"Error: Unsupported bridge tool: {tool}. Allowed: {', '.join(allowed_tools)}"
 
