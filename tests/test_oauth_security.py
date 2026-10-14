@@ -23,7 +23,6 @@ def test_production_rejects_invalid_credential_key(monkeypatch):
         oauth._encrypt_token('{"access_token":"not-a-real-secret"}')
 
 
-
 def test_production_rejects_legacy_plaintext_token(monkeypatch):
     from cryptography.fernet import Fernet
 
@@ -35,14 +34,12 @@ def test_production_rejects_legacy_plaintext_token(monkeypatch):
         oauth._decrypt_token('{"access_token":"legacy-plaintext"}')
 
 
-
 def test_oauth_callback_state_must_match_pending_state(monkeypatch, tmp_path):
     monkeypatch.setitem(oauth._pending_pkce, "notion", {"state": "expected-state"})
 
     assert oauth.validate_oauth_state("notion", "expected-state", str(tmp_path / "oauth.db"))
     assert not oauth.validate_oauth_state("notion", "attacker-state", str(tmp_path / "oauth.db"))
     assert not oauth.validate_oauth_state("notion", "", str(tmp_path / "oauth.db"))
-
 
 
 def test_local_development_never_writes_plaintext_oauth_tokens(monkeypatch):
