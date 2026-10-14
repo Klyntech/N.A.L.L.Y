@@ -274,9 +274,9 @@ Nally uses one direct ReAct graph:
 
 Every user request goes through the same model-driven execution path after input guardrails. There is no local pattern-matcher response bypass, keyword-based tool filter, intent-classification Harness, scratchpad pipeline, or Plan-and-Execute graph in the active runtime.
 
-The model receives the schemas for the registered core tools and decides which tools are relevant. Tool execution still passes through the permission gate, retry policy, execution receipts, error handling, abort checks, iteration limits, and wall-clock limits. The graph ends when the model stops requesting tools or a safety limit is reached.
+The model receives the schemas for the tools currently in the runtime registry and decides which tools are relevant. The registry starts with the default core tools; explicitly connected MCP services may add schemas. Tool execution still passes through the permission gate, retry policy, execution receipts, error handling, abort checks, iteration limits, and wall-clock limits. The graph ends when the model stops requesting tools or a safety limit is reached.
 
-The system prompt describes behavior and truthfulness, but does not decide tool availability. The runtime tool schemas are the source of truth for the tools the model can call.
+The system prompt describes behavior and truthfulness, but does not decide tool availability. The runtime registry and the schemas supplied on each request are the source of truth for the tools the model can call.
 
 ### Background Reflector (`nally/memory/reflector.py`)
 
