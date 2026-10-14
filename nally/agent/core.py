@@ -12,25 +12,6 @@ from ..memory import memory_store
 from ..utils.logger import logger
 
 
-def _extract_topics(user_msgs: List[str]) -> List[str]:
-    """Extract conversation topics from user messages."""
-    topic_keywords = {
-        "deployment": ["deploy", "render", "server", "hosting"],
-        "coding": ["code", "function", "class", "import", "api"],
-        "memory": ["memory", "remember", "recall", "forget"],
-        "frontend": ["widget", "ui", "frontend", "css", "html"],
-        "debugging": ["fix", "bug", "error", "issue"],
-        "devops": ["docker", "ci", "pipeline", "git"],
-        "ai": ["agent", "llm", "model", "ai"],
-    }
-    topics = []
-    for msg in user_msgs[-10:]:
-        msg_lower = msg.lower()
-        for topic, keywords in topic_keywords.items():
-            if any(w in msg_lower for w in keywords) and topic not in topics:
-                topics.append(topic)
-    return topics[:3] or ["general"]
-
 
 class NallyAgent:
     def __init__(self, session_id: Optional[str] = None, channel: Optional[str] = None, route_key: Optional[str] = None):
@@ -252,13 +233,12 @@ class NallyAgent:
                     if name not in tools_used:
                         tools_used.append(name)
             recent_context = " | ".join([m[:60] for m in user_msgs[-3:]])
-            topics = _extract_topics(user_msgs)
             memory_store.add_episode(
                 topic=last_user[:50],
                 what_happened=f"Context: {recent_context}",
                 outcome=response[:300] if response else "completed",
                 solution=f"Tools: {','.join(tools_used[:5])}" if tools_used else "direct response",
-                tags=tools_used[:5] + topics,
+                tags=tools_used[:5],
             )
         except Exception as e:
             logger.debug(f"Episode creation failed: {e}")
@@ -269,8 +249,7 @@ class NallyAgent:
             user_msgs = [m["content"] for m in self.messages if m["role"] == "user"]
             if len(user_msgs) >= 3:
                 summary = " | ".join(user_msgs[-5:])
-                topics = _extract_topics(user_msgs)
-                memory_store.save_conversation(summary=summary, topics=topics, message_count=len(user_msgs))
+                memory_store.save_conversation(summary=summary, topics=[], message_count=len(user_msgs))
         except Exception:
             pass
 
@@ -282,14 +261,13 @@ class NallyAgent:
             user_msgs = [m["content"] for m in self.messages if m["role"] == "user"]
             if user_msgs:
                 summary = " | ".join(user_msgs[-5:])
-                topics = _extract_topics(user_msgs)
                 try:
                     memory_store.save_conversation(
                         summary=summary,
-                        topics=topics,
+                        topics=[],
                         message_count=len(user_msgs),
                     )
-                    logger.debug(f"Saved conversation: {topics}")
+                    logger.debug("Saved conversation summary")
                 except Exception as e:
                     logger.warning(f"Failed to save conversation: {e}")
 
