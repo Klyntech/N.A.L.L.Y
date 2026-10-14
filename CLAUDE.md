@@ -18,7 +18,7 @@ N.A.L.L.Y/
 │   ├── config/
 │   │   └── permissions.json # Tool permission rules (allow/ask/deny)
 │   ├── core/
-│   │   ├── errors.py       # Typed error hierarchy (NallyError, ToolError, LLMError, PlanError, etc.)
+│   │   ├── errors.py       # Typed error hierarchy (NallyError, ToolError, LLMError, etc.)
 │   │   ├── validator.py    # Startup config validation, env var checks
 │   │   ├── startup.py      # StartupDisplay + print_banner
 │   │   ├── abort.py        # Thread-safe abort flags (shared between agent/graph and web)
@@ -34,7 +34,7 @@ N.A.L.L.Y/
 │   ├── tools/
 │   │   ├── registry.py     # Tool registry + base Tool class
 │   │   ├── permissions.py  # PermissionGate (allow/ask/deny per tool)
-│   │   ├── system.py       # RunCommand, SystemHealth
+│   │   ├── system.py       # RunCommand
 │   │   ├── files.py        # ReadFile, FileOps
 │   │   ├── websearch.py    # Web search (Parallel.ai primary, DuckDuckGo fallback)
 │   │   ├── fetch.py        # Web page fetch tool
