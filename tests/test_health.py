@@ -16,6 +16,7 @@ def test_tools_are_not_ready_when_core_toolset_is_missing(monkeypatch):
             return []
 
     monkeypatch.setattr("nally.tools.registry.registry", EmptyRegistry())
+    monkeypatch.setattr("nally.tools._loaded", False)
     result = health._check_tools()
     assert result["status"] == "not_ready"
     assert {"run_command", "read_file", "file_ops", "fetch"} <= set(result["missing"])
