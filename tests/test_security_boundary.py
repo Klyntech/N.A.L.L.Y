@@ -1,8 +1,10 @@
 """Regression tests for privileged internal API trust boundaries."""
 
+import asyncio
 import importlib
 import time
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
@@ -36,6 +38,19 @@ def test_telegram_approve_rejects_missing_internal_auth(monkeypatch):
     client = TestClient(web_app.app)
     response = client.post("/api/telegram/approve", json={"tc_id": "tc1", "approved": True})
     assert response.status_code == 401
+
+
+def test_bridge_websocket_rejects_invalid_token(monkeypatch):
+    from nally.web.bridge_handler import bridge_websocket
+
+    monkeypatch.setenv("NALLY_BRIDGE_TOKEN", "expected-bridge-token")
+    websocket = MagicMock()
+    websocket.query_params = {"token": "invalid-token"}
+    websocket.close = AsyncMock()
+
+    asyncio.run(bridge_websocket(websocket, "test-device"))
+
+    websocket.close.assert_awaited_once_with(code=4001, reason="Unauthorized")
 
 
 def test_bridges_requires_bearer_auth(monkeypatch):
