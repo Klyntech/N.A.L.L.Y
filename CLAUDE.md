@@ -86,7 +86,6 @@ N.A.L.L.Y/
 │       └── logger.py       # Structured logging
 ├── web/                    # Frontend (HTML/JS/CSS — Jarvis UI; web/mvp/ = Three.js 3D avatar)
 ├── skills/                 # Skill definitions (skills/*/SKILL.md)
-├── plugins/                # User plugins
 ├── tests/                  # Pytest suite for agent loop, tools, permissions, and integrations
 ├── data/                   # SQLite DB (data/nally.db, data/nally_memory.db), user profile, todos, generated images (runtime, gitignored)
 ├── logs/                   # Application logs (runtime, gitignored)
