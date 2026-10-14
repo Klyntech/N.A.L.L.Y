@@ -5,7 +5,6 @@ allowed-tools:
   - read_file
   - file_ops
   - run_command
-  - run_code
 ---
 
 ## Test Writing Workflow
