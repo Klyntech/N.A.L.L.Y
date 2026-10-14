@@ -53,3 +53,24 @@ def test_health_never_returns_libsql_connection_token(monkeypatch):
     result = asyncio.run(health._check_database())
     assert result["engine"] == "turso"
     assert "secret-value" not in str(result)
+
+
+
+def test_redis_health_does_not_expose_connection_secrets(monkeypatch):
+    class FailingClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, *args, **kwargs):
+            raise RuntimeError("connection failed for https://layerbase.example/secret-value")
+
+    monkeypatch.setenv("REDIS_URL", "https://layerbase.example")
+    monkeypatch.setenv("REDIS_TOKEN", "secret-value")
+    monkeypatch.setattr("httpx.AsyncClient", lambda: FailingClient())
+    result = asyncio.run(health._check_redis())
+
+    assert result["status"] == "error"
+    assert "secret-value" not in str(result)
