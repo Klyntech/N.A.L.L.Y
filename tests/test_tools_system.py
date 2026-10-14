@@ -1,19 +1,14 @@
-"""Tests for nally.tools.system — RunCommand and SystemHealth."""
+"""Tests for nally.tools.system — RunCommand."""
 
 import platform
 import pytest
 from unittest.mock import patch
-from nally.tools.system import RunCommand, SystemHealth, _get_shell, _normalize_powershell
+from nally.tools.system import RunCommand, _get_shell, _normalize_powershell
 
 
 @pytest.fixture
 def run_command():
     return RunCommand()
-
-
-@pytest.fixture
-def system_health():
-    return SystemHealth()
 
 
 class TestGetShell:
@@ -68,10 +63,3 @@ class TestRunCommand:
         result = run_command.execute(command="nonexistent_command_xyz")
         assert "Error" in result or "Exit code" in result
 
-
-class TestSystemHealth:
-    def test_returns_string(self, system_health):
-        result = system_health.execute()
-        assert isinstance(result, str)
-        # Should either have health data or an error/missing dep message
-        assert "CPU" in result or "requires" in result.lower() or "Error" in result
