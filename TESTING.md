@@ -41,14 +41,11 @@ tests/
 ├── test_engineering_review.py             # Engineering review
 ├── test_engineering_scoring.py            # Engineering scoring
 ├── test_event_bus.py                      # Event bus pub/sub
-├── test_graph.py                          # LangGraph agent loop, retry, doom detection
-├── test_harness.py                        # Harness intent classification / pipeline routing
+├── test_graph.py                          # Direct ReAct graph, retry, doom detection
 ├── test_imagegen_router.py                # Image content-type routing
 ├── test_mcp_client.py                     # MCP server connection
 ├── test_mcp_oauth.py                      # OAuth flows (Notion, Google, Higgsfield)
 ├── test_permissions.py                    # Permission gate (allow/ask/deny)
-├── test_planner.py                        # Plan-and-Execute pipeline
-├── test_planner_classify.py               # Planner intent classification
 ├── test_plugin_system.py                  # Plugin loading
 ├── test_profile_migration.py              # User profile DB migration
 ├── test_receipts.py                       # HMAC-signed tool receipts
@@ -56,15 +53,12 @@ tests/
 ├── test_subagent_model.py                 # Sub-agent spawning
 ├── test_success_detection.py              # Tool success detection ((result, success) tuples)
 ├── test_tool_executor.py                  # Tool execution + parallel runs
-├── test_tool_filter.py                    # Keyword-based tool selection
 ├── test_verifier.py                       # Claim verifier (hallucination detection)
 ├── test_voice_formatter.py                # Text→speech formatting
 ├── test_voice_pipeline.py                 # Voice interaction pipeline
 └── test_websearch.py                      # Web search (Parallel.ai + DuckDuckGo)
 
 tests/harness_eval/
-├── runner.py                              # Harness classifier eval runner
-└── test_eval.py                           # Harness eval tests
 ```
 
 ## Test Configuration
