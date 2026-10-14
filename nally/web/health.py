@@ -122,13 +122,34 @@ async def _check_redis() -> dict:
 
 
 def _check_tools() -> dict:
-    """Check loaded tools count."""
+    """Check whether the required core tools have finished registering."""
     try:
+        from ..tools import _loaded
         from ..tools.registry import registry
 
-        return {"status": "ok", "count": len(registry.tools)}
-    except Exception:
-        return {"status": "not_loaded"}
+        with registry._lock:
+            registered = set(registry.tools)
+        required = {
+            "run_command",
+            "read_file",
+            "file_ops",
+            "web_search",
+            "fetch",
+            "remember",
+            "recall",
+            "forget",
+        }
+        missing = sorted(required - registered)
+        if not _loaded or missing:
+            return {
+                "status": "not_ready",
+                "count": len(registered),
+                "missing": missing,
+                "initialization_complete": bool(_loaded),
+            }
+        return {"status": "ok", "count": len(registered), "initialization_complete": True}
+    except Exception as exc:
+        return {"status": "error", "error": type(exc).__name__}
 
 
 # ── Endpoint ───────────────────────────────────────────────
@@ -152,7 +173,7 @@ async def health_check():
     }
 
     # Determine overall status
-    all_ok = all(c.get("status") in ("ok", "not_configured", "not_loaded") for c in checks.values())
+    all_ok = all(c.get("status") in ("ok", "not_configured") for c in checks.values())
     overall = "healthy" if all_ok else "degraded"
 
     response = {
@@ -177,14 +198,18 @@ async def liveness():
 
 @router.get("/health/ready")
 async def readiness():
-    """Kubernetes readiness probe — confirms ready to accept traffic."""
+    """Readiness probe: do not receive work until dependencies and tools are ready."""
     db = await _check_database()
-    if db.get("status") == "error":
+    tools = _check_tools()
+    if db.get("status") != "ok" or tools.get("status") != "ok":
         return JSONResponse(
-            content={"status": "not_ready", "reason": "database unavailable"},
+            content={
+                "status": "not_ready",
+                "checks": {"database": db, "tools": tools},
+            },
             status_code=503,
         )
-    return {"status": "ready"}
+    return {"status": "ready", "checks": {"database": db, "tools": tools}}
 
 
 # ── Helpers ────────────────────────────────────────────────
