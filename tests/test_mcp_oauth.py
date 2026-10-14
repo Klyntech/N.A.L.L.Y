@@ -607,3 +607,35 @@ def test_storage_encrypts_oauth_client_secret_at_rest(storage):
     retrieved = asyncio.run(storage.get_client_info())
     assert retrieved is not None
     assert retrieved.client_secret == "secret_must_not_be_plaintext"
+
+
+
+def test_oauth_pkce_state_is_encrypted_at_rest(tmp_db):
+    verifier = "verifier_must_not_be_plaintext"
+    client_id = "client_id_must_not_be_plaintext"
+    state_value = "state_must_not_be_plaintext"
+    save_oauth_state(
+        tmp_db,
+        "secure_service",
+        verifier,
+        client_id,
+        state_value,
+        "https://token.example",
+        "https://auth.example",
+    )
+
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute(
+        "SELECT code_verifier, client_id, state FROM mcp_oauth_state WHERE service = ?",
+        ("secure_service",),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert verifier not in row[0]
+    assert client_id not in row[1]
+    assert state_value not in row[2]
+    loaded = load_oauth_state(tmp_db, "secure_service")
+    assert loaded["code_verifier"] == verifier
+    assert loaded["client_id"] == client_id
+    assert loaded["state"] == state_value
