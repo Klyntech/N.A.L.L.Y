@@ -158,8 +158,12 @@ class SQLiteTokenStorage:
         if row is None or row["tokens"] is None:
             return None
         try:
-            decrypted = _decrypt_token(row["tokens"])
-            return OAuthToken.model_validate_json(decrypted)
+            stored = row["tokens"]
+            decrypted = _decrypt_token(stored)
+            token = OAuthToken.model_validate_json(decrypted)
+            if not stored.startswith("gAAAA") and _get_fernet() is not None:
+                await self.set_tokens(token)
+            return token
         except Exception:
             return None
 
@@ -168,7 +172,12 @@ class SQLiteTokenStorage:
         encrypted = _encrypt_token(raw)
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "INSERT OR REPLACE INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)",
+            """
+            INSERT INTO mcp_oauth (service, tokens, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(service) DO UPDATE SET
+                tokens = excluded.tokens,
+                updated_at = excluded.updated_at
+            """,
             (self.service, encrypted, time.time()),
         )
         conn.commit()
@@ -180,8 +189,12 @@ class SQLiteTokenStorage:
         if row is None or row["client_info"] is None:
             return None
         try:
-            decrypted = _decrypt_token(row["client_info"])
-            return OAuthClientInformationFull.model_validate_json(decrypted)
+            stored = row["client_info"]
+            decrypted = _decrypt_token(stored)
+            client_info = OAuthClientInformationFull.model_validate_json(decrypted)
+            if not stored.startswith("gAAAA") and _get_fernet() is not None:
+                await self.set_client_info(client_info)
+            return client_info
         except Exception:
             return None
 
@@ -189,7 +202,12 @@ class SQLiteTokenStorage:
         encrypted = _encrypt_token(client_info.model_dump_json())
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "INSERT OR REPLACE INTO mcp_oauth (service, client_info, updated_at) VALUES (?, ?, ?)",
+            """
+            INSERT INTO mcp_oauth (service, client_info, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(service) DO UPDATE SET
+                client_info = excluded.client_info,
+                updated_at = excluded.updated_at
+            """,
             (self.service, encrypted, time.time()),
         )
         conn.commit()
@@ -403,7 +421,10 @@ def validate_oauth_state(service: str, supplied_state: str, db_path: str) -> boo
             logger.warning("Could not load pending OAuth state for %s", service)
             return False
     expected_state = state_data.get("state") if state_data else None
-    return bool(expected_state and hmac.compare_digest(expected_state, supplied_state))
+    return bool(
+        expected_state
+        and hmac.compare_digest(str(expected_state).encode("utf-8"), supplied_state.encode("utf-8"))
+    )
 
 
 def clear_oauth_state(db_path: str, service: str) -> None:
@@ -639,6 +660,9 @@ async def start_google_oauth(service: str, db_path: str) -> str:
         "state": state,
         "service": service,
     }
+    save_oauth_state(
+        db_path, "google", code_verifier, client_id, state, GOOGLE_TOKEN_ENDPOINT, GOOGLE_AUTH_ENDPOINT
+    )
 
     from urllib.parse import urlencode
 
@@ -660,6 +684,8 @@ async def exchange_google_code(code: str, db_path: str) -> bool:
     """Exchange Google authorization code for tokens. Returns True on success."""
 
     state_data = _pending_pkce.pop("google", None)
+    if not state_data:
+        state_data = load_oauth_state(db_path, "google")
     if not state_data:
         logger.warning("No pending Google OAuth state")
         return False
@@ -701,6 +727,7 @@ async def exchange_google_code(code: str, db_path: str) -> bool:
         storage = SQLiteTokenStorage(db_path, svc)
         await storage.set_tokens(token)
 
+    clear_oauth_state(db_path, "google")
     logger.info("Google OAuth successful — token stored for all Workspace services")
     return True
 
