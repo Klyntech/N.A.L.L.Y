@@ -1185,7 +1185,14 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
     # HTTP service — store as OAuthToken
     storage = SQLiteTokenStorage(db, service)
     token = OAuthToken(access_token=body.token, token_type="bearer")
-    await storage.set_tokens(token)
+    try:
+        await storage.set_tokens(token)
+    except RuntimeError as exc:
+        logger.warning("OAuth token storage unavailable (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="OAuth token storage is unavailable; configure NALLY_CRED_KEY.",
+        ) from exc
 
     from nally.mcp.client import connect_http_server
 
