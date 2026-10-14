@@ -1,12 +1,11 @@
-"""Tool Registry and Plugin System"""
+"""Registry for the fixed set of tools exposed to Nally."""
 
-import importlib
 import logging
 import re
 import threading
 from typing import Dict, List, Optional
 
-from ..config import ALLOWED_PLUGINS, MAX_TOOL_OUTPUT, PLUGINS_DIR
+from ..config import MAX_TOOL_OUTPUT
 from ..core.errors import ToolError
 
 VALID_PERMISSIONS = {"safe", "destructive", "read_only", "write"}
@@ -132,36 +131,6 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"Tool '{name}' execution failed: {type(e).__name__}: {e}")
             return f"Error executing {name}: {type(e).__name__}: {e}", False
-
-    def load_plugins(self):
-        """Load plugins from the plugins directory (allowlist-gated, safe import)"""
-        if not PLUGINS_DIR.exists():
-            PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
-            return
-
-        for plugin_file in PLUGINS_DIR.glob("*.py"):
-            if plugin_file.name.startswith("_"):
-                continue
-            if ALLOWED_PLUGINS and plugin_file.name not in ALLOWED_PLUGINS:
-                logger.debug(f"Skipping plugin '{plugin_file.name}' — not in allowlist")
-                continue
-
-            try:
-                spec = importlib.util.spec_from_file_location(f"nally_plugin_{plugin_file.stem}", plugin_file)
-                if not spec or not spec.loader:
-                    logger.warning(f"Cannot load plugin: {plugin_file.name}")
-                    continue
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-
-                if hasattr(module, "register_tools"):
-                    module.register_tools(self)
-                    logger.info(f"Loaded plugin: {plugin_file.name}")
-                else:
-                    logger.debug(f"Plugin {plugin_file.name} has no register_tools()")
-            except Exception as e:
-                logger.error(f"Error loading plugin {plugin_file.name}: {type(e).__name__}: {e}")
-
 
 def _result_is_success(tool_name: str, result: str) -> bool:
     """Decide success from the tool result string.
