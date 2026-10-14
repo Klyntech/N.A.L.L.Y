@@ -21,3 +21,15 @@ def test_production_rejects_invalid_credential_key(monkeypatch):
 
     with pytest.raises(RuntimeError, match="NALLY_CRED_KEY is invalid"):
         oauth._encrypt_token('{"access_token":"not-a-real-secret"}')
+
+
+
+def test_production_rejects_legacy_plaintext_token(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setattr(oauth, "_FERNET", None)
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("NALLY_CRED_KEY", Fernet.generate_key().decode())
+
+    with pytest.raises(RuntimeError, match="not encrypted"):
+        oauth._decrypt_token('{"access_token":"legacy-plaintext"}')
