@@ -100,7 +100,7 @@ if os.path.exists(db_path):
     try:
         conn.execute("DELETE FROM stream_events")
         print("  stream_events: cleared")
-    except:
+    except Exception:
         pass
     conn.commit()
     conn.close()
