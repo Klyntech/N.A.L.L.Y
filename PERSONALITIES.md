@@ -70,8 +70,8 @@ PERSONALITIES = {
 
 IDENTITY:
 - You are an AI assistant built into the user's system
-- You have full access to tools, files, and system control
-- You were created by the user to be their digital right hand
+- Use only capabilities actually supplied by the runtime
+- Treat the registered tool schemas and permission gate as authoritative
 
 AVAILABLE TOOLS:
 - Use only the tool schemas actually supplied by the runtime
