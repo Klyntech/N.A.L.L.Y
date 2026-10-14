@@ -1204,7 +1204,14 @@ async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify
     # HTTP service — store as OAuthToken
     storage = SQLiteTokenStorage(db, service)
     token = OAuthToken(access_token=body.token, token_type="bearer")
-    await storage.set_tokens(token)
+    try:
+        await storage.set_tokens(token)
+    except RuntimeError as exc:
+        logger.warning("OAuth token storage unavailable (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="OAuth token storage is unavailable; configure NALLY_CRED_KEY.",
+        ) from exc
 
     from nally.mcp.client import connect_http_server
 
@@ -1230,6 +1237,22 @@ REDIRECT_HTML = """<!DOCTYPE html>
 </body></html>"""
 
 
+async def _safe_oauth_exchange(exchange, code: str, db: str, service: str):
+    """Return controlled HTTP errors for token exchange and encryption failures."""
+    try:
+        success = await exchange(code, db)
+    except RuntimeError as exc:
+        logger.warning("%s OAuth storage unavailable (%s)", service, type(exc).__name__)
+        return JSONResponse(status_code=503, content={"error": "oauth_storage_unavailable"})
+    except Exception as exc:
+        logger.warning("%s OAuth exchange failed (%s)", service, type(exc).__name__)
+        return JSONResponse(status_code=502, content={"error": "token_exchange_failed"})
+
+    if not success:
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    return None
+
+
 @app.get("/api/oauth/notion/callback")
 async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""):
     """Notion OAuth callback — exchanges code for tokens."""
@@ -1245,9 +1268,9 @@ async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""
     db = str(DATA_DIR / "nally.db")
     if not validate_oauth_state("notion", state, db):
         return JSONResponse(status_code=400, content={"error": "invalid_oauth_state"})
-    success = await exchange_notion_code(code, db)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _safe_oauth_exchange(exchange_notion_code, code, db, "Notion")
+    if failure:
+        return failure
 
     # Connect and fetch tools
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == "notion"), None)
@@ -1276,9 +1299,9 @@ async def github_oauth_callback(code: str = "", state: str = "", error: str = ""
     db = str(DATA_DIR / "nally.db")
     if not validate_oauth_state("github", state, db):
         return JSONResponse(status_code=400, content={"error": "invalid_oauth_state"})
-    success = await exchange_github_code(code, db)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _safe_oauth_exchange(exchange_github_code, code, db, "GitHub")
+    if failure:
+        return failure
 
     # Connect and fetch tools
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == "github"), None)
@@ -1307,9 +1330,9 @@ async def google_oauth_callback(code: str = "", state: str = "", error: str = ""
     db = str(DATA_DIR / "nally.db")
     if not validate_oauth_state("google", state, db):
         return JSONResponse(status_code=400, content={"error": "invalid_oauth_state"})
-    success = await exchange_google_code(code, db)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _safe_oauth_exchange(exchange_google_code, code, db, "Google")
+    if failure:
+        return failure
 
     # Connect and fetch tools for all Google services
     for svc_name in GOOGLE_SERVICES:
@@ -1339,9 +1362,9 @@ async def higgsfield_oauth_callback(code: str = "", state: str = "", error: str 
     db = str(DATA_DIR / "nally.db")
     if not validate_oauth_state("higgsfield", state, db):
         return JSONResponse(status_code=400, content={"error": "invalid_oauth_state"})
-    success = await exchange_higgsfield_code(code, db)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _safe_oauth_exchange(exchange_higgsfield_code, code, db, "Higgsfield")
+    if failure:
+        return failure
 
     # Connect and fetch tools
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == "higgsfield"), None)
