@@ -29,4 +29,4 @@ def test_rate_limiter_bounds_client_state(monkeypatch):
     assert limiter.allow("client-b")
     assert limiter.allow("client-c")
     assert len(limiter._buckets) == 2
-    assert len(limiter._last_seen) == 2
+    assert set(limiter._buckets) == {"client-b", "client-c"}
