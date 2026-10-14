@@ -37,3 +37,11 @@ def test_readiness_returns_503_when_database_is_unavailable(monkeypatch):
     response = asyncio.run(health.readiness())
     assert isinstance(response, JSONResponse)
     assert response.status_code == 503
+
+
+
+def test_health_never_returns_libsql_connection_token(monkeypatch):
+    monkeypatch.setattr(health, "DATABASE_URL", "libsql://db.example?authToken=secret-value")
+    result = asyncio.run(health._check_database())
+    assert result == {"status": "ok", "engine": "libsql"}
+    assert "secret-value" not in str(result)
