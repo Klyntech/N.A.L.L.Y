@@ -36,10 +36,10 @@ NALLY_PROVIDER=opencode          # or "groq"
 OPENCODE_API_KEY=sk-...          # OpenCode Zen API key
 GROQ_API_KEY=gsk_...             # Groq API key (if using groq)
 NALLY_ACCESS_TOKEN=your-secret   # Auth token for API access
-NALLY_CRED_KEY=your-fernet-key   # Required in production for encrypted OAuth tokens
+NALLY_CRED_KEY=your-fernet-key   # Required for encrypted OAuth token storage
 ```
 
-In production, set `NALLY_CRED_KEY` to a valid Fernet key before connecting OAuth services. Keep it stable and backed up securely; changing it makes existing encrypted tokens unreadable. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+Set `NALLY_CRED_KEY` to a valid Fernet key before connecting OAuth services in any environment. New token and PKCE-state writes never use plaintext. Keep the key stable and backed up securely; changing it makes existing encrypted records unreadable. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
 
 See [CLAUDE.md](CLAUDE.md) for full configuration reference.
 
