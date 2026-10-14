@@ -7,7 +7,7 @@ for any missing category so downstream scoring never breaks.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ._json import extract_json
 from .models import Approach, ApproachCategory, EngineeringError
