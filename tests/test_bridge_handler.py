@@ -18,6 +18,31 @@ def test_bridge_auth_missing_token_closes_connection(monkeypatch):
     websocket.accept.assert_not_called()
 
 
+def test_bridge_result_cannot_resolve_another_devices_request():
+    async def scenario():
+        registry = BridgeRegistry()
+        future = asyncio.get_running_loop().create_future()
+        registry._pending["secret-request"] = ("device-a", future)
+
+        registry.resolve_result("secret-request", "forged", True, device_id="device-b")
+        assert not future.done()
+
+        registry.resolve_result("secret-request", "valid", True, device_id="device-a")
+        assert future.result() == ("valid", True)
+
+    asyncio.run(scenario())
+
+
+def test_stale_connection_cleanup_does_not_remove_reconnected_device():
+    registry = BridgeRegistry()
+    old_device = registry.register("same-id", MagicMock(), "old", [])
+    new_device = registry.register("same-id", MagicMock(), "new", [])
+
+    registry.unregister("same-id", expected_device=old_device)
+
+    assert registry.get_device("same-id") is new_device
+
+
 def test_unregister_only_cancels_requests_for_disconnected_device():
     async def scenario():
         registry = BridgeRegistry()
