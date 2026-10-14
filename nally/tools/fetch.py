@@ -108,10 +108,10 @@ def _validate_public_url(url: str) -> str | None:
 
 def _fetch_url(url: str, method: str = "GET", body: str = None, timeout: float = DEFAULT_TIMEOUT) -> str:
     """Fetch a public web URL and return readable text content."""
-    parsed = urlparse(url)
     validation_error = _validate_public_url(url)
     if validation_error:
         return f"Error: {validation_error}"
+    parsed = urlparse(url)
 
     headers = {
         "User-Agent": USER_AGENT,
