@@ -1218,13 +1218,15 @@ async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""
         return JSONResponse(status_code=400, content={"error": error})
     if not code:
         return JSONResponse(status_code=400, content={"error": "missing_code"})
+    if not state:
+        return JSONResponse(status_code=400, content={"error": "missing_state"})
 
     from nally.config import DATA_DIR, MCP_SERVERS
     from nally.mcp.client import connect_http_server
     from nally.mcp.oauth import exchange_notion_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_notion_code(code, db)
+    success = await exchange_notion_code(code, db, state=state)
     if not success:
         return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
 
@@ -1247,13 +1249,15 @@ async def github_oauth_callback(code: str = "", state: str = "", error: str = ""
         return JSONResponse(status_code=400, content={"error": error})
     if not code:
         return JSONResponse(status_code=400, content={"error": "missing_code"})
+    if not state:
+        return JSONResponse(status_code=400, content={"error": "missing_state"})
 
     from nally.config import DATA_DIR, MCP_SERVERS
     from nally.mcp.client import connect_http_server
     from nally.mcp.oauth import exchange_github_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_github_code(code, db)
+    success = await exchange_github_code(code, db, state=state)
     if not success:
         return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
 
@@ -1276,13 +1280,15 @@ async def google_oauth_callback(code: str = "", state: str = "", error: str = ""
         return JSONResponse(status_code=400, content={"error": error})
     if not code:
         return JSONResponse(status_code=400, content={"error": "missing_code"})
+    if not state:
+        return JSONResponse(status_code=400, content={"error": "missing_state"})
 
     from nally.config import DATA_DIR, MCP_SERVERS
     from nally.mcp.client import connect_http_server
     from nally.mcp.oauth import GOOGLE_SERVICES, exchange_google_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_google_code(code, db)
+    success = await exchange_google_code(code, db, state=state)
     if not success:
         return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
 
@@ -1306,13 +1312,15 @@ async def higgsfield_oauth_callback(code: str = "", state: str = "", error: str 
         return JSONResponse(status_code=400, content={"error": error})
     if not code:
         return JSONResponse(status_code=400, content={"error": "missing_code"})
+    if not state:
+        return JSONResponse(status_code=400, content={"error": "missing_state"})
 
     from nally.config import DATA_DIR, MCP_SERVERS
     from nally.mcp.client import connect_http_server
     from nally.mcp.oauth import exchange_higgsfield_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_higgsfield_code(code, db)
+    success = await exchange_higgsfield_code(code, db, state=state)
     if not success:
         return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
 
