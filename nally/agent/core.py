@@ -169,8 +169,9 @@ class NallyAgent:
             logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
             self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
-        # Keep tool selection with the model; expose only registered tools, without keyword filtering.
-        tools = [tool.to_openai_schema() for tool in registry.tools.values()]
+        # The registry is the source of truth; snapshot schemas under its lock.
+        # The model chooses tools directly. No keyword-based pre-filtering.
+        tools = registry.get_all_tools()
 
         try:
             final_response = run_agent(
