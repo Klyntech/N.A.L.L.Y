@@ -169,6 +169,13 @@ class NallyAgent:
             logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
             self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
+        # Tool loading is serialized and idempotent. The web server may bind
+        # its port before background initialization finishes, so every agent
+        # turn must wait for the same loader before taking the schema snapshot.
+        from ..tools import load_all_tools
+
+        load_all_tools()
+
         # The registry is the source of truth; snapshot schemas under its lock.
         # The model chooses tools directly. No keyword-based pre-filtering.
         tools = registry.get_all_tools()
