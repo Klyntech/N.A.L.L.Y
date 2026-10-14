@@ -132,6 +132,7 @@ class ToolRegistry:
             logger.error(f"Tool '{name}' execution failed: {type(e).__name__}: {e}")
             return f"Error executing {name}: {type(e).__name__}: {e}", False
 
+
 def _result_is_success(tool_name: str, result: str) -> bool:
     """Decide success from the tool result string.
 
