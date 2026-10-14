@@ -10,17 +10,9 @@ from ..utils.logger import logger
 from ..core.tracing import tracer
 
 
-def _get_filtered_tools(query: str) -> List[Dict]:
-    """Get tool schemas filtered for the given query."""
-    try:
-        from ..tools.filter import tool_filter
-
-        if not tool_filter._ready:
-            tool_filter.build_index(registry.tools)
-        return tool_filter.select(query)
-    except ImportError:
-        return [t.to_openai_schema() for t in registry.tools.values()]
-
+def _get_available_tools() -> List[Dict]:
+    """Expose all registered tools so the model can choose from real capabilities."""
+    return [tool.to_openai_schema() for tool in registry.tools.values()]
 
 class SubAgent:
     """An autonomous sub-agent that can think, use tools, and return results"""
@@ -217,7 +209,7 @@ class SubAgent:
         """Run the agent loop using LangGraph."""
         from ..agent.graph import run_agent
 
-        tools = _get_filtered_tools(self.goal)
+        tools = _get_available_tools()
         selected_names = [t["function"]["name"] for t in tools]
         logger.debug(f"SubAgent {self.id}: selected {len(tools)} tools: {selected_names}")
 
