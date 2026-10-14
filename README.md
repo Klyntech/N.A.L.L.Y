@@ -41,6 +41,11 @@ NALLY_CRED_KEY=your-fernet-key   # Required for encrypted OAuth token storage
 
 Set `NALLY_CRED_KEY` to a valid Fernet key before connecting OAuth services in any environment. New token and PKCE-state writes never use plaintext. Keep the key stable and backed up securely; changing it makes existing encrypted records unreadable. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
 
+Health endpoints:
+- `GET /health/live` checks that the process is running.
+- `GET /health/ready` checks the database, core tools, and availability of at least one web-search provider path.
+- Web-search health checks inspect configuration and installed fallback dependencies; they do not claim that external search providers are reachable.
+
 See [CLAUDE.md](CLAUDE.md) for full configuration reference.
 
 ## Architecture
@@ -54,7 +59,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, patterns, and data flo
 | Backend | Python, FastAPI, LangGraph |
 | Frontend | Vanilla JS, HTML, CSS |
 | LLM | OpenCode Zen or Groq |
-| Database | SQLite (`data/nally.db` + `data/nally_memory.db`); PostgreSQL/Redis reachability health probes only |
+| Database | SQLite by default; optional PostgreSQL (Neon/Supabase) or Turso/LibSQL for durable memory; Redis is an optional health probe |
 | Streaming | SSE + WebSocket |
 | Integrations | OAuth account-management flows; MCP servers are not added to the agent's tool registry |
 

@@ -139,6 +139,46 @@ async def _check_redis() -> dict:
         return {"status": "error", "engine": "redis", "error": type(e).__name__}
 
 
+def _check_web_search() -> dict:
+    """Report whether at least one web-search provider path is configured.
+
+    This is a configuration/dependency check, not a live network probe. It
+    never exposes API keys and avoids making external requests on every health check.
+    """
+    try:
+        from ..tools import websearch
+
+        providers = []
+        if os.getenv("TAVILY_API_KEY", "").strip():
+            providers.append("tavily")
+        if os.getenv("BRAVE_SEARCH_API_KEY", "").strip():
+            providers.append("brave")
+        if websearch.DDGS is not None:
+            providers.append("duckduckgo")
+        else:
+            try:
+                import bs4  # noqa: F401
+            except ImportError:
+                pass
+            else:
+                providers.append("html_fallback")
+
+        if not providers:
+            return {
+                "status": "error",
+                "providers": [],
+                "error": "No web-search provider or HTML fallback is available",
+                "connectivity": "not_probed",
+            }
+        return {
+            "status": "ok",
+            "providers": providers,
+            "connectivity": "not_probed",
+        }
+    except Exception as exc:
+        return {"status": "error", "providers": [], "error": type(exc).__name__, "connectivity": "not_probed"}
+
+
 def _check_tools() -> dict:
     """Check that the minimum core toolset is registered."""
     try:
@@ -146,7 +186,7 @@ def _check_tools() -> dict:
         from ..tools.registry import registry
 
         registered = {tool["function"]["name"] for tool in registry.get_all_tools()}
-        required = {"run_command", "read_file", "file_ops", "fetch"}
+        required = {"run_command", "read_file", "file_ops", "web_search", "fetch"}
         missing = sorted(required - registered)
         loader_complete = bool(tools_module._loaded)
         if missing or not loader_complete:
@@ -179,6 +219,7 @@ async def health_check():
         "database": await _check_database(),
         "redis": await _check_redis(),
         "tools": _check_tools(),
+        "web_search": _check_web_search(),
     }
 
     # Determine overall status
@@ -210,15 +251,16 @@ async def readiness():
     """Readiness requires database connectivity and the minimum core toolset."""
     db = await _check_database()
     tools = _check_tools()
-    if db.get("status") != "ok" or tools.get("status") != "ok":
+    web_search = _check_web_search()
+    if db.get("status") != "ok" or tools.get("status") != "ok" or web_search.get("status") != "ok":
         return JSONResponse(
             content={
                 "status": "not_ready",
-                "checks": {"database": db, "tools": tools},
+                "checks": {"database": db, "tools": tools, "web_search": web_search},
             },
             status_code=503,
         )
-    return {"status": "ready", "checks": {"database": db, "tools": tools}}
+    return {"status": "ready", "checks": {"database": db, "tools": tools, "web_search": web_search}}
 
 
 # ── Helpers ────────────────────────────────────────────────

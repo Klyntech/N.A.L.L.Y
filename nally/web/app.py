@@ -209,6 +209,7 @@ class _RateLimiter:
             self._buckets[ip] = (tokens, now, now)
             return False
 
+
 _rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
 _internal_rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
 

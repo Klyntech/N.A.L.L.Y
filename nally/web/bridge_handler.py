@@ -8,6 +8,7 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Optional
@@ -43,7 +44,7 @@ class BridgeRegistry:
 
     def __init__(self):
         self._devices: dict[str, BridgeDevice] = {}
-        self._pending: dict[str, asyncio.Future] = {}  # request_id -> Future
+        self._pending: dict[str, tuple[BridgeDevice, asyncio.Future]] = {}  # request_id -> (device, Future)
 
     @property
     def devices(self) -> dict[str, BridgeDevice]:
@@ -56,14 +57,25 @@ class BridgeRegistry:
         logger.info(f"Bridge registered: {device_id} (platform={platform}, tools={tools})")
         return device
 
-    def unregister(self, device_id: str):
-        """Remove a bridge device."""
-        self._devices.pop(device_id, None)
-        # Cancel any pending requests for this device
-        for rid, fut in list(self._pending.items()):
-            if not fut.done():
-                fut.cancel()
+    def _resolve_pending_for_device(self, device: BridgeDevice, device_id: str):
+        """Resolve pending work for one exact connection without affecting other devices."""
+        for rid, (pending_device, fut) in list(self._pending.items()):
+            if pending_device is device:
+                if not fut.done():
+                    fut.set_result((f"Error: Bridge device disconnected: {device_id}", False))
                 self._pending.pop(rid, None)
+
+    def unregister(self, device_id: str, expected_device: BridgeDevice | None = None):
+        """Remove a bridge device, optionally only if it is still the current connection."""
+        current = self._devices.get(device_id)
+        if expected_device is not None and current is not expected_device:
+            # A replacement connection already registered. Clean up the old
+            # connection's pending requests, but never remove the replacement.
+            self._resolve_pending_for_device(expected_device, device_id)
+            return
+        self._devices.pop(device_id, None)
+        if current is not None:
+            self._resolve_pending_for_device(current, device_id)
         logger.info(f"Bridge unregistered: {device_id}")
 
     def get_device(self, device_id: str) -> Optional[BridgeDevice]:
@@ -88,7 +100,7 @@ class BridgeRegistry:
 
         request_id = str(uuid.uuid4())[:12]
         future = asyncio.get_event_loop().create_future()
-        self._pending[request_id] = future
+        self._pending[request_id] = (device, future)
 
         try:
             await device.websocket.send_json(
@@ -110,11 +122,13 @@ class BridgeRegistry:
         finally:
             self._pending.pop(request_id, None)
 
-    def resolve_result(self, request_id: str, result: str, success: bool):
-        """Resolve a pending tool request with its result."""
-        future = self._pending.get(request_id)
-        if future and not future.done():
-            future.set_result((result, success))
+    def resolve_result(self, request_id: str, result: str, success: bool, device: BridgeDevice | None):
+        """Resolve a request only when the result comes from its assigned connection."""
+        pending = self._pending.get(request_id)
+        if pending:
+            pending_device, future = pending
+            if pending_device is device and device is not None and not future.done():
+                future.set_result((result, success))
 
 
 # Singleton
@@ -172,7 +186,7 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
                 request_id = msg.get("request_id", "")
                 result = msg.get("result", "")
                 success = msg.get("success", False)
-                bridge_registry.resolve_result(request_id, result, success)
+                bridge_registry.resolve_result(request_id, result, success, device=device)
 
             elif msg_type == "pong":
                 if device:
@@ -190,4 +204,4 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
         logger.error(f"Bridge WebSocket error: {e}")
     finally:
         if device:
-            bridge_registry.unregister(device_id)
+            bridge_registry.unregister(device_id, expected_device=device)
