@@ -59,16 +59,15 @@ _pending_codes: dict[str, str | None] = {}
 
 # ── Token encryption ──────────────────────────────────────
 # Always uses NALLY_CRED_KEY. Never couples to NALLY_ACCESS_TOKEN.
-# Plaintext fallback only for first run before .env is loaded.
+# Legacy plaintext rows are migrated only after encryption is configured.
 _FERNET = None
 
 
 def _get_fernet():
     """Get or create Fernet instance from NALLY_CRED_KEY.
 
-    Lazy-loaded, cached. If NALLY_CRED_KEY is missing, generates
-    a key and logs a warning — tokens will be re-encrypted once
-    the key is set.
+    Lazy-loaded and cached. Returns None when cryptography or a valid
+    NALLY_CRED_KEY is unavailable. Callers must fail closed for writes.
     """
     global _FERNET
     if _FERNET is not None:
