@@ -162,18 +162,8 @@ MAX_AGENT_WALL_TIME = int(os.getenv("NALLY_MAX_AGENT_WALL_TIME", "300"))
 RECURSION_LIMIT = int(os.getenv("NALLY_RECURSION_LIMIT", "50"))
 DUPLICATE_TOOL_THRESHOLD = int(os.getenv("NALLY_DUPLICATE_TOOL_THRESHOLD", "3"))
 
-# Per-class wall time overrides (seconds). Falls back to MAX_AGENT_WALL_TIME.
-WALL_TIME_OVERRIDES = {
-    "COMPLEX": 600,
-    "CREATIVE": 300,
-    "HIGH_STAKES": 300,
-    "KNOWLEDGE": 300,
-    "SIMPLE": 120,
-    "AMBIGUOUS": 300,
-}
-
 # Daily token budget (resets at midnight UTC). 0 = unlimited.
-# Gates plan-and-execute and other token-heavy features.
+# Zero means unlimited; enforcement depends on provider token accounting.
 DAILY_TOKEN_BUDGET = int(os.getenv("NALLY_DAILY_TOKEN_BUDGET", "0"))
 
 # Hard circuit breakers (kill infinite loops / runaway spawns)
@@ -191,12 +181,6 @@ TOKEN_WARN_THRESHOLD = float(os.getenv("NALLY_TOKEN_WARN_THRESHOLD", "0.95"))
 # before declining. Telegram inline buttons can arrive late (polling/webhook
 # lag), so keep this generous. 0 = wait forever (abort still works).
 APPROVAL_TIMEOUT = int(os.getenv("NALLY_APPROVAL_TIMEOUT", "1800"))
-
-# ── Design Sources ──────────────────────────────────────
-# Curated library of 40+ design source websites (CSS/HTML/JS code).
-# Enabled by default — Nally fetches components from these before writing from scratch.
-
-DESIGN_SOURCES_ENABLED = os.getenv("NALLY_DESIGN_SOURCES_ENABLED", "true").lower() == "true"
 
 # ── CORS ──────────────────────────────────────────────────
 
