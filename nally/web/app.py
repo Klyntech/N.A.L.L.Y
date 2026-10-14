@@ -1426,7 +1426,7 @@ async def telegram_webhook(token: str, request: Request):
     from ..config import TELEGRAM_BOT_TOKEN
 
     # Verify token matches
-    if token != TELEGRAM_BOT_TOKEN:
+    if not TELEGRAM_BOT_TOKEN or not hmac.compare_digest(token, TELEGRAM_BOT_TOKEN):
         raise HTTPException(status_code=403, detail="Invalid token")
 
     # Get the Telegram bot app
