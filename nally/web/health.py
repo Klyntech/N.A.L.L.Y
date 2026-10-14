@@ -126,7 +126,7 @@ def _check_tools() -> dict:
     try:
         from ..tools.registry import registry
 
-        registered = set(registry.tools)
+        registered = {tool["function"]["name"] for tool in registry.get_all_tools()}
         required = {"run_command", "read_file", "file_ops", "fetch"}
         missing = sorted(required - registered)
         if missing:
