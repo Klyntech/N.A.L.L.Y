@@ -29,8 +29,10 @@ def test_unregister_only_cancels_requests_for_disconnected_device():
 
         registry.unregister("device-a")
 
-        assert a.cancelled()
-        assert not b.cancelled()
+        assert a.done()
+        assert not a.cancelled()
+        assert a.result() == ("Error: Bridge device disconnected: device-a", False)
+        assert not b.done()
         assert "request-a" not in registry._pending
         assert registry._pending["request-b"] == ("device-b", b)
 
