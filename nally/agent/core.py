@@ -125,6 +125,7 @@ class NallyAgent:
 
     def _llm_process(self, user_input: str, emit: Optional[Callable] = None) -> str:
         """Process using LLM with LangGraph agent loop."""
+        from ..tools import load_all_tools
         from ..tools.registry import registry
         from .context import context_manager
         from .graph import run_agent
@@ -169,9 +170,17 @@ class NallyAgent:
             logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
             self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
+        # Tool registration may run in a background startup thread so the HTTP
+        # port binds quickly. Acquire the loader's lock here before building the
+        # model schema; otherwise an early request can reach the model with an
+        # incomplete (or empty) tool list for the entire turn.
+        load_all_tools()
+
         # The registry is the source of truth; snapshot schemas under its lock.
         # The model chooses tools directly. No keyword-based pre-filtering.
         tools = registry.get_all_tools()
+        if not tools:
+            raise RuntimeError("Nally tools failed to initialize; refusing to run an agent turn without tools.")
 
         try:
             final_response = run_agent(
