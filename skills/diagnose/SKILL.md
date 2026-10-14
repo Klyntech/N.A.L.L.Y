@@ -1,7 +1,7 @@
 ---
 name: diagnose
 description: Combined bug hunting and security auditing. Find root causes, trace errors, identify vulnerabilities, and assess risk. Use when something is broken, throwing errors, or needs a security review.
-allowed-tools: read_file file_ops run_command code_analysis
+allowed-tools: read_file file_ops run_command
 ---
 
 # Diagnose
