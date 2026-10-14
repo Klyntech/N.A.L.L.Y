@@ -63,34 +63,41 @@ _FERNET = None
 
 
 def _get_fernet():
-    """Get or create Fernet instance from NALLY_CRED_KEY.
-
-    Lazy-loaded, cached. If NALLY_CRED_KEY is missing, generates
-    a key and logs a warning — tokens will be re-encrypted once
-    the key is set.
-    """
+    """Get the configured Fernet instance, failing closed in production."""
     global _FERNET
     if _FERNET is not None:
         return _FERNET
+
+    production = os.getenv("NALLY_ENV", "").lower() == "production" or bool(os.getenv("RENDER"))
+    key = os.getenv("NALLY_CRED_KEY", "").strip()
+
+    if not key:
+        message = "NALLY_CRED_KEY is required to store OAuth credentials securely"
+        if production:
+            raise RuntimeError(message)
+        logger.warning("%s; local development will use legacy plaintext storage", message)
+        return None
+
     try:
         from cryptography.fernet import Fernet
-    except ImportError:
-        logger.warning("cryptography package not installed — tokens stored in plaintext")
+    except ImportError as exc:
+        if production:
+            raise RuntimeError("cryptography is required for production OAuth credential storage") from exc
+        logger.warning("cryptography package not installed; local development will use legacy plaintext storage")
         return None
-    key = os.getenv("NALLY_CRED_KEY", "")
-    if not key:
-        logger.warning("NALLY_CRED_KEY not set — tokens stored in plaintext until key is provided")
-        return None
+
     try:
-        _FERNET = Fernet(key.encode() if isinstance(key, str) else key)
+        _FERNET = Fernet(key.encode())
         return _FERNET
-    except Exception as e:
-        logger.error(f"Invalid NALLY_CRED_KEY: {e}")
+    except Exception as exc:
+        logger.error("NALLY_CRED_KEY is invalid")
+        if production:
+            raise RuntimeError("NALLY_CRED_KEY is invalid; OAuth credential storage is disabled") from exc
         return None
 
 
 def _encrypt_token(plaintext: str) -> str:
-    """Encrypt a token string. Returns plaintext if encryption unavailable."""
+    """Encrypt tokens; plaintext compatibility is restricted to local development."""
     fernet = _get_fernet()
     if fernet is None:
         return plaintext
