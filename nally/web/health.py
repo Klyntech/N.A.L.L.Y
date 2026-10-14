@@ -146,7 +146,7 @@ def _check_tools() -> dict:
         from ..tools.registry import registry
 
         registered = {tool["function"]["name"] for tool in registry.get_all_tools()}
-        required = {"run_command", "read_file", "file_ops", "fetch"}
+        required = {"run_command", "read_file", "file_ops", "web_search", "fetch"}
         missing = sorted(required - registered)
         loader_complete = bool(tools_module._loaded)
         if missing or not loader_complete:
