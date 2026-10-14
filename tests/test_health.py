@@ -84,6 +84,19 @@ def test_readiness_returns_503_until_tools_are_registered(monkeypatch):
     assert response.status_code == 503
 
 
+def test_readiness_returns_503_when_web_search_has_no_provider(monkeypatch):
+    async def database_ok():
+        return {"status": "ok", "engine": "sqlite"}
+
+    monkeypatch.setattr(health, "_check_database", database_ok)
+    monkeypatch.setattr(health, "_check_tools", lambda: {"status": "ok", "count": 8})
+    monkeypatch.setattr(health, "_check_web_search", lambda: {"status": "error", "providers": []})
+
+    response = asyncio.run(health.readiness())
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 503
+
+
 def test_readiness_returns_503_when_database_is_unavailable(monkeypatch):
     async def database_error():
         return {"status": "error"}
