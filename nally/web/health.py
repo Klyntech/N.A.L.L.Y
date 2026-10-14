@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from ..config import ACTIVE_MODEL, DATA_DIR, DATABASE_URL, PROVIDER
+from ..config import ACTIVE_MODEL, DATA_DIR, DATABASE_URL, PROVIDER, TURSO_TOKEN, TURSO_URL, memory_backend
 
 router = APIRouter()
 
@@ -39,30 +39,47 @@ def _get_version() -> str:
 
 
 async def _check_database() -> dict:
-    """Check database connectivity."""
-    # PostgreSQL via Layerbase or self-hosted
-    if DATABASE_URL and DATABASE_URL.startswith(("postgresql://", "postgres://")):
+    """Check the configured memory backend without exposing credentials."""
+    backend = memory_backend()
+    database_url = os.getenv("DATABASE_URL", "") or DATABASE_URL
+
+    if backend == "postgres":
+        url = database_url.strip()
+        if not url.startswith(("postgresql://", "postgres://")):
+            return {"status": "error", "engine": "postgresql", "error": "DATABASE_URL is missing or invalid"}
         try:
             import asyncpg
 
-            async def _test():
-                conn = await asyncpg.connect(DATABASE_URL, timeout=5)
+            conn = await asyncpg.connect(url, timeout=5)
+            try:
                 await conn.fetchval("SELECT 1")
+            finally:
                 await conn.close()
-
-            await _test()
             return {"status": "ok", "engine": "postgresql"}
         except ImportError:
             return {"status": "error", "engine": "postgresql", "error": "asyncpg not installed"}
-        except Exception as e:
-            return {"status": "error", "engine": "postgresql", "error": str(e)[:100]}
+        except Exception as exc:
+            return {"status": "error", "engine": "postgresql", "error": type(exc).__name__}
 
-    # Turso/LibSQL
-    if DATABASE_URL and DATABASE_URL.startswith("libsql://"):
-        # Never expose the connection URL: LibSQL URLs may carry auth tokens.
-        return {"status": "ok", "engine": "libsql"}
+    if backend == "turso":
+        url = os.getenv("TURSO_URL", "") or TURSO_URL
+        token = os.getenv("TURSO_TOKEN", "") or TURSO_TOKEN
+        if not url or not token:
+            return {"status": "error", "engine": "turso", "error": "TURSO_URL and TURSO_TOKEN are required"}
+        try:
+            import libsql_experimental as libsql
 
-    # SQLite (default)
+            conn = libsql.connect(url, auth_token=token)
+            try:
+                conn.execute("SELECT 1")
+            finally:
+                conn.close()
+            return {"status": "ok", "engine": "turso"}
+        except ImportError:
+            return {"status": "error", "engine": "turso", "error": "libsql-experimental not installed"}
+        except Exception as exc:
+            return {"status": "error", "engine": "turso", "error": type(exc).__name__}
+
     db_path = DATA_DIR / "nally_memory.db"
     if db_path.exists():
         size_mb = db_path.stat().st_size / (1024 * 1024)
@@ -73,7 +90,6 @@ async def _check_database() -> dict:
             "size_mb": round(size_mb, 2),
         }
     return {"status": "ok", "engine": "sqlite", "note": "will be created on first use"}
-
 
 async def _check_redis() -> dict:
     """Check Redis connectivity if configured."""
