@@ -59,7 +59,7 @@ _pending_codes: dict[str, str | None] = {}
 
 # ── Token encryption ──────────────────────────────────────
 # Always uses NALLY_CRED_KEY. Never couples to NALLY_ACCESS_TOKEN.
-# Plaintext fallback only for first run before .env is loaded.
+# Never write plaintext tokens. Local reads support migration of legacy records.
 _FERNET = None
 
 
@@ -76,7 +76,7 @@ def _get_fernet():
         message = "NALLY_CRED_KEY is required to store OAuth credentials securely"
         if production:
             raise RuntimeError(message)
-        logger.warning("%s; local development will use legacy plaintext storage", message)
+        logger.warning("%s; legacy plaintext records may be read locally, but new writes are disabled", message)
         return None
 
     try:
@@ -84,7 +84,7 @@ def _get_fernet():
     except ImportError as exc:
         if production:
             raise RuntimeError("cryptography is required for production OAuth credential storage") from exc
-        logger.warning("cryptography package not installed; local development will use legacy plaintext storage")
+        logger.warning("cryptography package not installed; legacy records may be read locally, but new writes are disabled")
         return None
 
     try:
@@ -98,10 +98,10 @@ def _get_fernet():
 
 
 def _encrypt_token(plaintext: str) -> str:
-    """Encrypt tokens; plaintext compatibility is restricted to local development."""
+    """Encrypt tokens and refuse to persist them when encryption is unavailable."""
     fernet = _get_fernet()
     if fernet is None:
-        return plaintext
+        raise RuntimeError("NALLY_CRED_KEY and cryptography are required to store OAuth tokens")
     return fernet.encrypt(plaintext.encode()).decode()
 
 
