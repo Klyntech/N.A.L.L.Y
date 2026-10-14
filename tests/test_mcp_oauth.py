@@ -27,6 +27,17 @@ from nally.mcp.oauth import (
 )
 
 
+@pytest.fixture(autouse=True)
+def oauth_encryption_key():
+    """Keep token-storage tests on the encrypted path."""
+    from nally.mcp import oauth
+
+    with patch.dict(os.environ, {"NALLY_CRED_KEY": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="}):
+        oauth._FERNET = None
+        yield
+        oauth._FERNET = None
+
+
 @pytest.fixture
 def tmp_db():
     """Create a temporary SQLite database."""
@@ -69,6 +80,16 @@ def test_storage_set_get_tokens(storage):
     retrieved = asyncio.run(storage.get_tokens())
     assert retrieved is not None
     assert retrieved.access_token == "test_token_123"
+
+
+def test_storage_refuses_plaintext_when_key_missing(storage):
+    """Token writes fail closed instead of silently storing credentials in plaintext."""
+    from nally.mcp import oauth
+
+    with patch.dict(os.environ, {}, clear=True), patch.object(oauth, "_FERNET", None):
+        with patch.object(oauth, "_get_fernet", return_value=None):
+            with pytest.raises(RuntimeError, match="requires cryptography"):
+                asyncio.run(storage.set_tokens(OAuthToken(access_token="secret", token_type="bearer")))
 
 
 def test_storage_set_get_client_info(storage):
