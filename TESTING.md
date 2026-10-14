@@ -1,6 +1,6 @@
 # Testing
 
-Nally uses **pytest** with 30 test files (29 in `tests/` + 1 in `tests/harness_eval/`) covering tools, agent logic, MCP, permissions, engineering loop, and more.
+Nally uses **pytest** for the agent loop, tools, permissions, MCP client helpers, memory, and engineering components.
 
 ## Run Tests
 
@@ -42,7 +42,6 @@ tests/
 ├── test_engineering_scoring.py            # Engineering scoring
 ├── test_event_bus.py                      # Event bus pub/sub
 ├── test_graph.py                          # Direct ReAct graph, retry, doom detection
-├── test_imagegen_router.py                # Image content-type routing
 ├── test_mcp_client.py                     # MCP server connection
 ├── test_mcp_oauth.py                      # OAuth flows (Notion, Google, Higgsfield)
 ├── test_permissions.py                    # Permission gate (allow/ask/deny)
@@ -57,8 +56,6 @@ tests/
 ├── test_voice_formatter.py                # Text→speech formatting
 ├── test_voice_pipeline.py                 # Voice interaction pipeline
 └── test_websearch.py                      # Web search (Parallel.ai + DuckDuckGo)
-
-tests/harness_eval/
 ```
 
 ## Test Configuration
