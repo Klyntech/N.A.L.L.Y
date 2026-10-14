@@ -91,6 +91,7 @@ async def _check_database() -> dict:
         }
     return {"status": "ok", "engine": "sqlite", "note": "will be created on first use"}
 
+
 async def _check_redis() -> dict:
     """Check Redis connectivity if configured."""
     redis_url = os.getenv("REDIS_URL", "")
