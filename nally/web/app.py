@@ -722,7 +722,8 @@ async def sse_events(request: Request):
     Uses query param auth since EventSource doesn't support headers."""
     # Auth via query param (EventSource can't set headers)
     token = request.query_params.get("token", "")
-    if not NALLY_ACCESS_TOKEN or not hmac.compare_digest(token, NALLY_ACCESS_TOKEN):
+    expected_token = os.getenv("NALLY_ACCESS_TOKEN", "")
+    if not expected_token or not hmac.compare_digest(token, expected_token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     from ..agent.identity import resolve_session
