@@ -14,7 +14,7 @@ class BridgeTool(Tool):
             description=(
                 "Execute a command on a connected remote device via NallyBridge. "
                 "The device must have NallyBridge running and connected. "
-                "Supported tools: run_command, file_ops, read_file, system_health."
+                "Supported tools: run_command, file_ops, read_file."
             ),
             parameters={
                 "device": {
@@ -23,7 +23,7 @@ class BridgeTool(Tool):
                 },
                 "tool": {
                     "type": "string",
-                    "enum": ["run_command", "file_ops", "read_file", "system_health"],
+                    "enum": ["run_command", "file_ops", "read_file"],
                     "description": "Tool to execute on the bridge device.",
                 },
                 "args": {
