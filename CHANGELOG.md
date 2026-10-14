@@ -107,7 +107,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added — Tools
 
 - Image generation: Pollinations API (free, no key), smart model router, LLM prompt enhancement, 8-metric CLIP scoring, critique loop
-- Web search (Parallel.ai primary, DuckDuckGo fallback) with freshness injection for time-sensitive queries
+- Web search with Tavily and Brave API providers plus DuckDuckGo fallback
 - Tool filtering — core-only on generic/empty queries
 - Permission gate with configurable allow/ask/deny rules per tool
 - Diff preview in approval flow + memory_stats tool
