@@ -127,3 +127,20 @@ def test_notion_oauth_callback_rejects_invalid_state(monkeypatch):
     response = client.get("/api/oauth/notion/callback?code=attacker-code&state=attacker-state")
     assert response.status_code == 400
     assert response.json()["error"] == "invalid_oauth_state"
+
+
+
+def test_internal_auth_replay_cache_is_bounded(monkeypatch):
+    monkeypatch.setenv("NALLY_INTERNAL_TOKEN", INTERNAL_TOKEN)
+    monkeypatch.setattr(web_app, "_MAX_INTERNAL_NONCES", 1)
+    web_app._internal_nonces.clear()
+    web_app._internal_nonces["existing-nonce"] = time.time()
+
+    client = TestClient(web_app.app)
+    response = client.post(
+        "/api/telegram/approve",
+        json={"tc_id": "tc1", "approved": False},
+        headers=_internal_headers(nonce="new-nonce-value"),
+    )
+    assert response.status_code == 429
+    web_app._internal_nonces.clear()
