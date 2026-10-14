@@ -143,6 +143,11 @@ def test_storage_set_get_client_info(storage):
     assert retrieved is not None
     assert retrieved.client_id == "client_abc"
 
+    conn = sqlite3.connect(storage.db_path)
+    stored = conn.execute("SELECT client_info FROM mcp_oauth WHERE service = ?", (storage.service,)).fetchone()[0]
+    conn.close()
+    assert stored.startswith("gAAAA")
+
 
 def test_storage_service_isolation(tmp_db):
     """Different services have separate token storage."""
