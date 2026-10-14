@@ -182,15 +182,24 @@ class SQLiteTokenStorage:
         if row is None or row["client_info"] is None:
             return None
         try:
-            return OAuthClientInformationFull.model_validate_json(row["client_info"])
+            stored = row["client_info"]
+            decrypted = _decrypt_token(stored)
+            client_info = OAuthClientInformationFull.model_validate_json(decrypted)
+            if not stored.startswith("gAAAA"):
+                if _get_fernet() is None:
+                    logger.error("Legacy plaintext OAuth client info blocked until NALLY_CRED_KEY is configured")
+                    return None
+                await self.set_client_info(client_info)
+            return client_info
         except Exception:
             return None
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        encrypted = _encrypt_token(client_info.model_dump_json())
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             "INSERT OR REPLACE INTO mcp_oauth (service, client_info, updated_at) VALUES (?, ?, ?)",
-            (self.service, client_info.model_dump_json(), time.time()),
+            (self.service, encrypted, time.time()),
         )
         conn.commit()
         conn.close()
