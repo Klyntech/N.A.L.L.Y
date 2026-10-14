@@ -33,7 +33,6 @@ from ..config import (
     MAX_AGENT_WALL_TIME,
     MAX_TOOL_FAILURES_PER_TURN,
     MAX_TOOL_CALLS,
-    PLAN_ENABLED,
     RECURSION_LIMIT,
     SESSION_ID,
     TOKEN_WARN_THRESHOLD,
@@ -1385,56 +1384,6 @@ def tool_executor(state: AgentState) -> AgentState:
                 logger.warning(f"Tool validation: {tool_name} reported success but output is empty")
                 result = "(empty result — tool executed but produced no output)"
 
-        # ── Harness v2: Tool-Result Verification (Phase 4) ──
-        try:
-            from ..config import HARNESS_ENABLED, HARNESS_VERIFY_ENABLED, HARNESS_SCRATCHPAD_ENABLED
-            if HARNESS_ENABLED and HARNESS_VERIFY_ENABLED:
-                from .harness import verify_tool_result, _TOOL_VERIFY_MAX_RETRIES
-                # Get objective from state if available
-                _objective = ""
-                _intent = state.get("intent_class", "")
-                if _intent in ("COMPLEX", "CREATIVE", "HIGH_STAKES"):
-                    # Try to extract objective from the last human message
-                    for msg in reversed(state.get("messages", [])):
-                        if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
-                            _objective = msg.content[:200]
-                            break
-
-                verification = verify_tool_result(
-                    tool_name=tool_name,
-                    tool_args=tool_args if isinstance(tool_args, dict) else {},
-                    tool_result=str(result),
-                    tool_success=success,
-                    objective=_objective,
-                )
-                if not verification.satisfies_objective and success:
-                    logger.warning(
-                        f"Tool verification: {tool_name} passed but may not satisfy objective "
-                        f"(confidence={verification.confidence:.2f})"
-                    )
-                    if emit:
-                        try:
-                            emit("tool_verification", verification.to_dict())
-                        except Exception:
-                            pass
-
-            # ── Harness v2: Scratchpad update after tool ──
-            if (
-                HARNESS_ENABLED
-                and HARNESS_SCRATCHPAD_ENABLED
-                and "_scratchpad" in state
-                and state["_scratchpad"]
-            ):
-                _sp = state["_scratchpad"]
-                if tool_success:
-                    _sp.add_action(tool_name, str(tool_args)[:100])
-                    _sp.add_result(str(result)[:200])
-                else:
-                    _sp.add_action(tool_name, str(tool_args)[:100], error=True)
-                state["_scratchpad"] = _sp
-        except Exception as e:
-            logger.debug(f"Tool verification skipped: {e}")
-
         # ── Hooks: PostToolUse (can append additionalContext) ──
         try:
             from ..core.hooks.manager import get_hook_manager
@@ -1743,93 +1692,16 @@ def _create_checkpointer():
 
 
 def create_agent_graph():
-    """Create the LangGraph state machine for the agent with checkpointing.
-
-    When PLAN_ENABLED, adds planner topology:
-        classify -> (planner | llm)
-        planner -> critique -> (execute_step | planner)
-        execute_step -> replan -> (execute_step | planner | synthesize | llm)
-        synthesize -> END
-    """
+    """Create the single ReAct agent loop: model -> tools -> model until done."""
     graph = StateGraph(AgentState)
-
-    # ── ReAct nodes (always present) ──
     graph.add_node("llm", llm_call)
     graph.add_node("tools", tool_executor)
-
-    # ── Planning nodes (optional) ──
-    if PLAN_ENABLED:
-        from .planner import (
-            classify_node,
-            critique_node,
-            execute_step_node,
-            planner_node,
-            replan_node,
-            route_after_classify,
-            route_after_critique,
-            route_after_replan,
-            synthesize_node,
-        )
-        from .human_checkpoint import human_checkpoint_node
-
-        graph.add_node("classify", classify_node)
-        graph.add_node("planner", planner_node)
-        graph.add_node("critique", critique_node)
-        graph.add_node("human_checkpoint", human_checkpoint_node)
-        graph.add_node("execute_step", execute_step_node)
-        graph.add_node("replan", replan_node)
-        graph.add_node("synthesize", synthesize_node)
-
-        # classify decides: planner or ReAct?
-        graph.add_conditional_edges(
-            "classify",
-            route_after_classify,
-            {"planner": "planner", "llm": "llm"},
-        )
-
-        # planner -> critique (review before execution)
-        graph.add_edge("planner", "critique")
-
-        # critique routes: revise plan or proceed to human checkpoint
-        graph.add_conditional_edges(
-            "critique",
-            route_after_critique,
-            {"execute_step": "human_checkpoint", "planner": "planner"},
-        )
-
-        # human_checkpoint -> execute_step (after user approves)
-        graph.add_edge("human_checkpoint", "execute_step")
-
-        # execute_step -> replan (always)
-        graph.add_edge("execute_step", "replan")
-
-        # replan routes based on plan status
-        graph.add_conditional_edges(
-            "replan",
-            route_after_replan,
-            {
-                "execute_step": "execute_step",
-                "planner": "planner",
-                "synthesize": "synthesize",
-            },
-        )
-
-        # synthesize -> END
-        graph.add_edge("synthesize", END)
-
-        # Entry point is classify
-        graph.set_entry_point("classify")
-    else:
-        # Pure ReAct (no planning) — entry point is llm
-        graph.set_entry_point("llm")
-
-    # ReAct loop edges (always present)
+    graph.set_entry_point("llm")
     graph.add_conditional_edges("llm", should_continue, {"tools": "tools", "end": END})
     graph.add_edge("tools", "llm")
 
     checkpointer = _create_checkpointer()
     return graph.compile(checkpointer=checkpointer)
-
 
 # Lazy singleton
 _agent_graph = None
