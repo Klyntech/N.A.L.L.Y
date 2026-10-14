@@ -95,7 +95,7 @@ if os.path.exists(db_path):
     try:
         conn.execute("DELETE FROM pending_approvals")
         print("  pending_approvals: cleared")
-    except:
+    except Exception:
         pass
     try:
         conn.execute("DELETE FROM stream_events")
