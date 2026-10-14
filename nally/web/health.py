@@ -131,6 +131,9 @@ def _check_tools() -> dict:
             registered = set(registry.tools)
         required = {
             "run_command",
+            "shell_sessions",
+            "shell_output",
+            "shell_stdin",
             "read_file",
             "file_ops",
             "web_search",
@@ -138,6 +141,8 @@ def _check_tools() -> dict:
             "remember",
             "recall",
             "forget",
+            "agent",
+            "bridge_execute",
         }
         missing = sorted(required - registered)
         if not _loaded or missing:
