@@ -129,7 +129,6 @@ def test_notion_oauth_callback_rejects_invalid_state(monkeypatch):
     assert response.json()["error"] == "invalid_oauth_state"
 
 
-
 def test_internal_auth_replay_cache_is_bounded(monkeypatch):
     monkeypatch.setenv("NALLY_INTERNAL_TOKEN", INTERNAL_TOKEN)
     monkeypatch.setattr(web_app, "_MAX_INTERNAL_NONCES", 1)
