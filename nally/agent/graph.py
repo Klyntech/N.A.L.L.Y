@@ -324,7 +324,7 @@ _RETRYABLE_CODES = {"500", "502", "503", "429"}
 # Tools whose side effects are NOT safe to repeat get no automatic retry.
 # Retries only fire on transient-looking failures (timeouts, 5xx, rate limits),
 # so a definitive "file not found" / "permission denied" returns immediately.
-_NON_RETRYABLE_TOOLS = {"run_command", "run_code"}
+_NON_RETRYABLE_TOOLS = {"run_command"}
 _RETRYABLE_ERROR_HINTS = (
     "timeout", "timed out", "429", "503", "502", "500",
     "temporarily", "connection reset", "try again", "rate limit",
@@ -1072,7 +1072,7 @@ def tool_executor(state: AgentState) -> AgentState:
                         paths.append(tool_args["destination"])
                 elif act == "mkdir" and tool_args.get("file_path"):
                     paths.append(tool_args["file_path"])
-            elif tool_name in ("run_command", "run_code", "code_analysis"):
+            elif tool_name == "run_command":
                 # run_command snapshot is coarse; record at least cwd files via project diff later
                 pass
             # Also capture any explicit file_path/content path
