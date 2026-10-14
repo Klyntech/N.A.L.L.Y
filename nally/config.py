@@ -38,8 +38,8 @@ else:
     ]
 
 # MCP servers (Model Context Protocol)
-# Gmail uses direct REST API tools (nally/tools/gmail.py) but shares the same
-# OAuth token storage — listed here so the web UI can initiate the OAuth flow.
+# OAuth providers remain configured for account-linking UI flows. The core agent
+# does not register external MCP/Gmail tools in its model-callable toolset.
 MCP_SERVERS: list[dict] = [
     {
         "name": "github",
@@ -519,9 +519,6 @@ def resolve_telegram_mode() -> str:
         return "polling"
     # auto: prefer webhook when a URL is configured, else polling
     return "webhook" if TELEGRAM_WEBHOOK_URL else "polling"
-PLIVO_AUTH_ID = os.getenv("PLIVO_AUTH_ID", "")
-PLIVO_AUTH_TOKEN = os.getenv("PLIVO_AUTH_TOKEN", "")
-PLIVO_PHONE_NUMBER = os.getenv("PLIVO_PHONE_NUMBER", "")
 
 
 # ── Validation ─────────────────────────────────────────────
