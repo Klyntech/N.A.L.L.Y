@@ -588,3 +588,23 @@ def test_exchange_google_code_success(tmp_db):
         token = asyncio.run(storage.get_tokens())
         assert token is not None
         assert token.access_token == "google_token_abc"
+
+
+
+def test_storage_encrypts_oauth_client_secret_at_rest(storage):
+    info = OAuthClientInformationFull(
+        client_id="client_for_encryption_test",
+        client_secret="secret_must_not_be_plaintext",
+        redirect_uris=["http://localhost:5000/api/oauth/callback"],
+        client_name="Nally (encryption test)",
+    )
+    asyncio.run(storage.set_client_info(info))
+
+    conn = sqlite3.connect(storage.db_path)
+    raw = conn.execute("SELECT client_info FROM mcp_oauth WHERE service = ?", (storage.service,)).fetchone()[0]
+    conn.close()
+
+    assert "secret_must_not_be_plaintext" not in raw
+    retrieved = asyncio.run(storage.get_client_info())
+    assert retrieved is not None
+    assert retrieved.client_secret == "secret_must_not_be_plaintext"
