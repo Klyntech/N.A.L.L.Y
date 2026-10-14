@@ -57,8 +57,11 @@ class BridgeRegistry:
         logger.info(f"Bridge registered: {device_id} (platform={platform}, tools={tools})")
         return device
 
-    def unregister(self, device_id: str):
-        """Remove a bridge device."""
+    def unregister(self, device_id: str, expected_device: BridgeDevice | None = None):
+        """Remove a bridge device, optionally only if it is still the current connection."""
+        current = self._devices.get(device_id)
+        if expected_device is not None and current is not expected_device:
+            return
         self._devices.pop(device_id, None)
         # Cancel only requests owned by this device. Disconnecting one bridge
         # must not cancel unrelated work assigned to another connected bridge.
@@ -113,12 +116,12 @@ class BridgeRegistry:
         finally:
             self._pending.pop(request_id, None)
 
-    def resolve_result(self, request_id: str, result: str, success: bool):
-        """Resolve a pending tool request with its result."""
+    def resolve_result(self, request_id: str, result: str, success: bool, device_id: str):
+        """Resolve a request only when the result comes from its assigned device."""
         pending = self._pending.get(request_id)
         if pending:
-            _, future = pending
-            if not future.done():
+            pending_device_id, future = pending
+            if pending_device_id == device_id and not future.done():
                 future.set_result((result, success))
 
 
@@ -177,7 +180,7 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
                 request_id = msg.get("request_id", "")
                 result = msg.get("result", "")
                 success = msg.get("success", False)
-                bridge_registry.resolve_result(request_id, result, success)
+                bridge_registry.resolve_result(request_id, result, success, device_id=device_id)
 
             elif msg_type == "pong":
                 if device:
@@ -195,4 +198,4 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
         logger.error(f"Bridge WebSocket error: {e}")
     finally:
         if device:
-            bridge_registry.unregister(device_id)
+            bridge_registry.unregister(device_id, expected_device=device)
