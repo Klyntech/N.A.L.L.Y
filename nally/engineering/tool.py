@@ -9,6 +9,8 @@ toolbox + sandboxed workspace) and runs it, returning a short summary string
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from .loop import EngineeringLoop
 from .models import EngineeringError
 from .protocol import NallyLLMBackend
@@ -26,7 +28,7 @@ class EngineeringBuild:
         "-> score -> design -> test plan -> implement -> test -> self-critique -> refine "
         "-> README). Use only for explicit 'build/create a project/system/app' requests."
     )
-    parameters = {
+    parameters: ClassVar[dict] = {
         "task": {
             "type": "string",
             "description": "The high-level task, e.g. 'Build a CLI tool that organizes files by extension'.",
