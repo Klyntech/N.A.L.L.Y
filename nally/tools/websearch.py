@@ -1,6 +1,6 @@
-"""Web search tool: Tavily primary, DuckDuckGo fallback.
+"""Web search tool: Tavily primary, Brave secondary, DuckDuckGo fallback.
 
-Tavily is used when TAVILY_API_KEY is configured. DuckDuckGo is the
+Tavily and Brave are used when their API keys are configured. DuckDuckGo is the
 keyless fallback, with a lightweight HTML fallback if its Python client fails.
 """
 import logging
@@ -21,6 +21,7 @@ from .registry import Tool
 
 logger = logging.getLogger("nally.tools.websearch")
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 
 
 def _format_results(results: list[dict], num_results: int) -> str:
@@ -34,6 +35,7 @@ def _format_results(results: list[dict], num_results: int) -> str:
         url = result.get("url") or result.get("href") or result.get("link") or ""
         snippet = (
             result.get("content")
+            or result.get("description")
             or result.get("body")
             or result.get("snippet")
             or (result.get("excerpts") or [""])[0]
@@ -46,7 +48,7 @@ def _search_tavily(query: str, num_results: int = 3) -> str | None:
     """Search Tavily. Return None when unconfigured or unavailable."""
     api_key = os.getenv("TAVILY_API_KEY", "").strip()
     if not api_key:
-        logger.info("Tavily API key is not configured; using DuckDuckGo")
+        logger.info("Tavily API key is not configured; trying Brave")
         return None
 
     try:
@@ -62,15 +64,44 @@ def _search_tavily(query: str, num_results: int = 3) -> str | None:
             timeout=15.0,
         )
         response.raise_for_status()
-        payload = response.json()
-        results = payload.get("results", [])
+        results = response.json().get("results", [])
         if not results:
-            logger.info("Tavily returned zero results; trying DuckDuckGo")
+            logger.info("Tavily returned zero results; trying Brave")
             return None
         return _format_results(results, num_results)
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
-        logger.warning("Tavily search failed (%s, HTTP %s); trying DuckDuckGo", type(exc).__name__, status)
+        logger.warning("Tavily search failed (%s, HTTP %s); trying Brave", type(exc).__name__, status)
+        return None
+
+
+def _search_brave(query: str, num_results: int = 3) -> str | None:
+    """Search Brave Search API. Return None when unconfigured or unavailable."""
+    api_key = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
+    if not api_key:
+        logger.info("Brave Search API key is not configured; using DuckDuckGo if needed")
+        return None
+
+    try:
+        response = httpx.get(
+            BRAVE_SEARCH_URL,
+            headers={
+                "X-Subscription-Token": api_key,
+                "Accept": "application/json",
+            },
+            params={"q": query, "count": num_results},
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = payload.get("web", {}).get("results", [])
+        if not results:
+            logger.info("Brave returned zero results; trying DuckDuckGo")
+            return None
+        return _format_results(results, num_results)
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        logger.warning("Brave search failed (%s, HTTP %s); trying DuckDuckGo", type(exc).__name__, status)
         return None
 
 
@@ -122,15 +153,15 @@ def _search_fallback(query: str, num_results: int = 3) -> str:
 
 
 class WebSearch(Tool):
-    """Search the web using Tavily with DuckDuckGo fallbacks."""
+    """Search the web using Tavily, Brave, and DuckDuckGo fallbacks."""
 
     def __init__(self):
         super().__init__(
             name="web_search",
             description=(
-                "Search the web for current information using Tavily when configured, "
-                "then DuckDuckGo as a free fallback. Use for factual questions, news, "
-                "events, or anything you're unsure about. Returns titles, URLs, and snippets."
+                "Search the web for current information using Tavily first, Brave Search when configured, "
+                "then DuckDuckGo as a free fallback. Use for factual questions, news, events, or anything "
+                "you're unsure about. Returns titles, URLs, and snippets."
             ),
             permission="safe",
             parameters={
@@ -148,9 +179,12 @@ class WebSearch(Tool):
         )
 
     def execute(self, query: str, num_results: int = 3) -> str:
-        """Try Tavily, then DuckDuckGo and its HTML fallback."""
+        """Try Tavily, then Brave, then DuckDuckGo and its HTML fallback."""
         num_results = max(1, min(5, num_results))
         result = _search_tavily(query, num_results)
+        if result:
+            return result
+        result = _search_brave(query, num_results)
         if result:
             return result
         logger.info("Using DuckDuckGo fallback for web search")
