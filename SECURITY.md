@@ -45,7 +45,9 @@ The hard-coded shell deny-list cannot be overridden. It blocks dangerous pattern
 - Encryption key: `NALLY_CRED_KEY` env var
 - Tokens stored in SQLite `mcp_oauth` table
 - PKCE state persisted to SQLite to survive server restarts
-- If `NALLY_CRED_KEY` is unset, `_get_fernet()` logs a warning and tokens are stored in PLAINTEXT until a key is provided; encryption also requires the `cryptography` package to be installed
+- Production OAuth token storage fails closed if `NALLY_CRED_KEY` is missing or invalid, or if `cryptography` is unavailable
+- Legacy plaintext-token migration is restricted to local development; production rejects unencrypted stored tokens
+- Keep `NALLY_CRED_KEY` stable and backed up securely; changing it makes existing encrypted tokens unreadable
 
 ## Tool Execution Safety
 
