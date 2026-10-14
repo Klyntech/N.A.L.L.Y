@@ -4,10 +4,12 @@ Fetches web pages and returns their content. Strips HTML to clean text
 using readability for article extraction, falls back to basic tag stripping.
 """
 
+import ipaddress
 import logging
 import os
 import re
-from urllib.parse import urlparse
+import socket
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -69,11 +71,43 @@ def _extract_with_readability(html: str) -> str | None:
         return None
 
 
+def _validate_public_url(url: str) -> str | None:
+    """Reject URL targets that could expose local or private network services."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return "Only http/https URLs are supported"
+        if not parsed.hostname or parsed.username is not None or parsed.password is not None:
+            return "URL must contain a hostname and must not include credentials"
+        try:
+            port = parsed.port
+        except ValueError:
+            return "URL contains an invalid port"
+        if port is not None and not 1 <= port <= 65535:
+            return "URL contains an invalid port"
+
+        hostname = parsed.hostname.rstrip(".")
+        try:
+            addresses = [ipaddress.ip_address(hostname)]
+        except ValueError:
+            records = socket.getaddrinfo(hostname, port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+            addresses = [ipaddress.ip_address(record[4][0].split("%", 1)[0]) for record in records]
+
+        if not addresses:
+            return "Hostname did not resolve to an address"
+        if any(not address.is_global for address in addresses):
+            return "Private, local, and non-public network targets are blocked"
+        return None
+    except (OSError, ValueError, socket.gaierror):
+        return "Hostname could not be safely resolved"
+
+
 def _fetch_url(url: str, method: str = "GET", body: str = None, timeout: float = DEFAULT_TIMEOUT) -> str:
-    """Fetch a URL and return readable text content."""
+    """Fetch a public web URL and return readable text content."""
     parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return f"Error: Only http/https URLs supported, got '{parsed.scheme or 'none'}'"
+    validation_error = _validate_public_url(url)
+    if validation_error:
+        return f"Error: {validation_error}"
 
     headers = {
         "User-Agent": USER_AGENT,
@@ -92,15 +126,37 @@ def _fetch_url(url: str, method: str = "GET", body: str = None, timeout: float =
     def _do_fetch():
         with httpx.Client(
             timeout=timeout,
-            follow_redirects=True,
+            follow_redirects=False,
             proxy=proxy,
             verify=VERIFY_SSL,
         ) as client:
-            if method.upper() == "POST" and body is not None:
+            current_url = url
+            current_method = method.upper()
+            if current_method == "POST" and body is not None:
                 headers["Content-Type"] = "application/json"
-                resp = client.post(url, headers=headers, content=body)
+                resp = client.post(current_url, headers=headers, content=body)
             else:
-                resp = client.get(url, headers=headers)
+                resp = client.get(current_url, headers=headers)
+
+            # Validate every redirect destination before making another request.
+            # Redirecting POST requests is rejected rather than risking a body leak.
+            for _ in range(6):
+                status = getattr(resp, "status_code", None)
+                if not isinstance(status, int) or not 300 <= status < 400:
+                    break
+                location = resp.headers.get("location", "")
+                if not location:
+                    break
+                if current_method == "POST":
+                    return "Error: POST redirects are not followed"
+                next_url = urljoin(current_url, location)
+                redirect_error = _validate_public_url(next_url)
+                if redirect_error:
+                    return f"Error: Unsafe redirect blocked: {redirect_error}"
+                current_url = next_url
+                resp = client.get(current_url, headers=headers)
+            else:
+                return "Error: Too many redirects"
 
             resp.raise_for_status()
 
@@ -120,7 +176,7 @@ def _fetch_url(url: str, method: str = "GET", body: str = None, timeout: float =
                 text = _strip_html(html)
 
             # Add source info
-            source = parsed.netloc
+            source = urlparse(current_url).netloc
             if len(text) > MAX_OUTPUT:
                 text = text[:MAX_OUTPUT] + f"\n... [truncated, {len(text)} chars total]"
 
