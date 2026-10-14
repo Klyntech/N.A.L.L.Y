@@ -21,9 +21,9 @@ Then open http://localhost:5000 in your browser.
 ## What It Does
 
 - **Chat** — Talk to Nally via web UI, CLI, or Telegram bot
-- **Tools** — Run commands, read/write files, analyze code, control system, generate images
+- **Tools** — Run shell commands, read/write files, search/fetch web pages, use memory, delegate tasks, and execute through connected NallyBridge devices
 - **Memory** — Remembers facts, episodes, and conversation history across sessions
-- **MCP Integrations** — GitHub, Notion, Gmail via Model Context Protocol; Google Drive/Calendar + Higgsfield via OAuth flows
+- **Connected services** — OAuth account-management flows remain in the web UI; external MCP tools are not loaded into the core agent
 - **Sub-agents** — Spawn parallel sub-agents for complex tasks
 - **Streaming** — Real-time SSE and WebSocket streaming for responsive feel
 
@@ -53,7 +53,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, patterns, and data flo
 | LLM | OpenCode Zen or Groq |
 | Database | SQLite (`data/nally.db` + `data/nally_memory.db`); PostgreSQL/Redis reachability health probes only |
 | Streaming | SSE + WebSocket |
-| MCP | GitHub, Notion, Gmail (default servers); Google Drive/Calendar + Higgsfield via OAuth; Context7/Meta/Telegram via npm packages |
+| Integrations | OAuth account-management flows; MCP servers are not added to the agent's tool registry |
 
 ## Project Structure
 
@@ -64,17 +64,17 @@ nally/
 │   ├── errors.py       # Typed error hierarchy
 │   ├── startup.py      # StartupDisplay + print_banner
 │   └── validator.py    # Startup config validation
-├── agent/              # Agent orchestrator + LangGraph (incl. harness, scratchpad)
+├── agent/              # Agent orchestrator + direct LangGraph ReAct loop
 ├── tools/              # Tool registry + implementations
-│   ├── system.py       # RunCommand, SystemHealth
+
 │   ├── files.py        # ReadFile, FileOps
-│   ├── code.py         # RunCode, CodeAnalysis
-│   ├── imagegen.py     # Image generation (Pollinations)
-│   ├── gmail.py        # Gmail direct API tools
+
+
+
 │   ├── websearch.py    # Web search (Parallel.ai + DuckDuckGo)
 │   ├── fetch.py        # Web page fetch tool
-│   ├── phone.py        # Plivo telephony tool
-│   └── mcp.py          # MCP server status
+
+
 ├── memory/             # Memory repository + models
 ├── subagent/           # Sub-agent spawning
 ├── engineering/        # Autonomous engineering loop (python main.py --engineer)
@@ -128,8 +128,8 @@ python main.py --verbose
 # Run on custom port
 python main.py --port 8080
 
-# Evaluate the Harness intent classifier against test cases
-python -m tests.harness_eval.runner
+
+
 ```
 
 ## VoIP / Live Voice (Phone Calls)
