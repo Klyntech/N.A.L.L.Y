@@ -1,6 +1,5 @@
 """Nally Core Agent - The Brain"""
 
-import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -11,62 +10,6 @@ from ..config import MAX_ITERATIONS_PER_TURN, SESSION_ID, get_system_prompt
 from ..core.errors import LLMError, NallyError
 from ..memory import memory_store
 from ..utils.logger import logger
-from .router import matcher
-
-
-def _strip_emojis(text: str) -> str:
-    """Remove emojis and special unicode symbols from text"""
-    emoji_pattern = re.compile(
-        "["
-        "\U0001f600-\U0001f64f"
-        "\U0001f300-\U0001f5ff"
-        "\U0001f680-\U0001f6ff"
-        "\U0001f1e0-\U0001f1ff"
-        "\U00002702-\U000027b0"
-        "\U000024c2-\U0001f251"
-        "\U0001f926-\U0001f937"
-        "\U00010000-\U0010ffff"
-        "\u200d"
-        "\ufe0f"
-        "\u2640-\u2642"
-        "\u2600-\u2b55"
-        "\u23cf"
-        "\u23e9"
-        "\u231a"
-        "\u3030"
-        "\u2934"
-        "\u2935"
-        "]+",
-        flags=re.UNICODE,
-    )
-    return emoji_pattern.sub("", text).strip()
-
-
-def _capitalize_sentences(text: str) -> str:
-    """Capitalize the first letter of every sentence."""
-    return re.sub(
-        r"(^|[.!?]\s+)([a-z])",
-        lambda m: m.group(1) + m.group(2).upper(),
-        text,
-    )
-
-
-_TIME_SENSITIVE_PATTERNS = [
-    r"this\s+(season|year|month|week|weekend)",
-    r"(20\d{2})\s*[-–]\s*(20\d{2})",
-    r"(match|matches|result|score|fixture|standing|league|table|rank)",
-    r"(news|latest|recent|current|update)",
-    r"(price|stock|rate|weather|temperature|forecast)",
-    r"(who\s+won|final\s+score)",
-    r"(upcoming|next|schedule)",
-    r"(release\s+date|when\s+does)",
-]
-
-
-def _needs_web_search(query: str) -> bool:
-    """Check if query looks time-sensitive and needs web search context."""
-    q = query.lower()
-    return any(re.search(p, q) for p in _TIME_SENSITIVE_PATTERNS)
 
 
 def _extract_topics(user_msgs: List[str]) -> List[str]:
@@ -198,37 +141,6 @@ class NallyAgent:
     def process(self, user_input: str, emit: Optional[Callable] = None) -> str:
         """Process user input and return response."""
         logger.user_input(user_input)
-        start = time.time()
-
-        # Skip local patterns for compound requests and research commands
-        compound_indicators = [" and ", " then ", " also ", " plus ", " with "]
-        research_commands = ["deep research", "quick search", "read article", "list reports"]
-        is_compound = any(ind in user_input.lower() for ind in compound_indicators)
-        is_research = any(cmd in user_input.lower() for cmd in research_commands)
-
-        if not is_compound and not is_research:
-            handler = matcher.match(user_input)
-            if handler:
-                try:
-                    result = handler()
-                except NallyError as e:
-                    logger.error_with_context("Local handler error", e)
-                    result = e.to_llm_format()
-                except Exception as e:
-                    logger.error_with_context("Local handler error", e)
-                    result = f"Error: {e!s}"
-
-                if result == "__EXIT__":
-                    self._save_history()
-                    return "__EXIT__"
-
-                elapsed = (time.time() - start) * 1000
-                result = _capitalize_sentences(_strip_emojis(result))
-                logger.nally_response(result)
-                logger.debug(f"Response time: {elapsed:.0f}ms (local)")
-                self._save_history()
-                return result
-
         return self._llm_process(user_input, emit)
 
     def _llm_process(self, user_input: str, emit: Optional[Callable] = None) -> str:
@@ -262,53 +174,6 @@ class NallyAgent:
 
         self.messages.append({"role": "user", "content": ts_prefix + user_input})
 
-        # ── Harness v2: Intent Classification ──
-        _classification = None
-        _scratchpad = None
-        try:
-            from ..config import HARNESS_ENABLED, HARNESS_LOG_CLASSIFICATIONS, HARNESS_SCRATCHPAD_ENABLED
-            if HARNESS_ENABLED:
-                from .harness import classify_intent, get_pipeline_config
-                from .llm import llm as _harness_llm
-                def _harness_llm_call(messages, temperature=0.0, **kwargs):
-                    # messages is OpenAI-style list; extract last user + first system
-                    try:
-                        user_msg = messages[-1].get("content", "") if messages else user_input
-                        sys_prompt = None
-                        if messages and messages[0].get("role") == "system":
-                            sys_prompt = messages[0].get("content")
-                        return _harness_llm.simple_chat(
-                            user_message=user_msg,
-                            system_prompt=sys_prompt,
-                        )
-                    except Exception as e:
-                        logger.warning(f"Harness LLM call failed: {e}")
-                        raise
-                _classification = classify_intent(user_input, llm_call_fn=_harness_llm_call)
-                if HARNESS_LOG_CLASSIFICATIONS:
-                    logger.info(
-                        f"Intent classified: {_classification.task_class.value} "
-                        f"(conf={_classification.confidence:.2f}, method={_classification.method})"
-                    )
-                self._last_classification = _classification
-
-                # Create scratchpad per pipeline config
-                if HARNESS_ENABLED and _classification:
-                    from .harness import get_pipeline_config
-                    pipeline_cfg = get_pipeline_config(_classification.task_class)
-                    if (
-                        HARNESS_SCRATCHPAD_ENABLED
-                        and pipeline_cfg.scratchpad
-                        and _classification.task_class.value
-                        in ("COMPLEX", "CREATIVE", "HIGH_STAKES")
-                    ):
-                        from .scratchpad import Scratchpad, scratchpad_store
-                        _scratchpad = Scratchpad(objective=user_input)
-                        scratchpad_store.save(_scratchpad)
-                        logger.info(f"Scratchpad created: {_scratchpad.id}")
-        except Exception as e:
-            logger.warning(f"Harness classification failed: {e}")
-
         # Skill activation (Level 2): check if a skill matches this request
         try:
             from ..skills.registry import skill_registry
@@ -333,66 +198,6 @@ class NallyAgent:
         except Exception as e:
             logger.warning(f"Skill activation failed: {e}")
 
-        # Gate skill injection: only for creation requests, not questions
-        def _is_creation_request(text: str) -> bool:
-            """Check if user is asking to create/build something vs asking a question."""
-            question_patterns = [
-                r"what('s| is| are) your",
-                r"how (long|much|would)",
-                r"timeline",
-                r"cost",
-                r"price",
-                r"recommend",
-                r"tech stack",
-                r"hire you",
-                r"estimated",
-                r"budget",
-                r"what (do|would) you (charge|suggest|advise)",
-            ]
-            text_lower = text.lower()
-            for pattern in question_patterns:
-                if re.search(pattern, text_lower):
-                    return False
-            return True
-
-        # Auto-inject design skills for code/creative tasks (skip for questions)
-        _CODE_KEYWORDS = [
-            "create",
-            "build",
-            "make",
-            "design",
-            "frontend",
-            "website",
-            "page",
-            "html",
-            "css",
-            "javascript",
-            "component",
-            "landing",
-            "ui",
-            "interface",
-            "layout",
-            "page",
-            "form",
-            "dashboard",
-            "app",
-            "template",
-        ]
-        if _is_creation_request(user_input) and any(kw in user_input.lower() for kw in _CODE_KEYWORDS):
-            try:
-                from ..skills.registry import skill_registry
-
-                if not skill_registry._loaded:
-                    skill_registry.load()
-                for skill_name in ["ui-design", "design-system"]:
-                    skill_obj = skill_registry.get(skill_name)
-                    if skill_obj and skill_obj.body:
-                        self.messages.insert(
-                            1, {"role": "system", "content": f"[SKILL REFERENCE: {skill_name}]\n\n{skill_obj.body}"}
-                        )
-            except Exception as e:
-                logger.warning(f"Design skill injection failed: {e}")
-
         # Smart context management — single pass
         self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
         self.messages = context_manager.compact(self.messages)
@@ -407,155 +212,15 @@ class NallyAgent:
             logger.warning(f"Context over limit after injections ({estimated} tokens), final prune")
             self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
 
-        # Build tool set — pass task class for broader selection on complex tasks
         try:
-            from ..tools.filter import tool_filter
-
-            if not tool_filter._ready:
-                tool_filter.build_index(registry.tools)
-            _task_class = _classification.task_class.value if _classification else ""
-            tools = tool_filter.select(user_input, task_class=_task_class)
-        except ImportError:
-            tools = [t.to_openai_schema() for t in registry.tools.values()]
-
-        # Auto-search for time-sensitive queries — inject fresh web data
-        # so the LLM sees real results regardless of whether it calls web_search
-        # Skip for benchmark sessions so the test can measure explicit web_search tool use
-        if _needs_web_search(user_input) and not self._session_id.startswith("bench_"):
-            try:
-                from ..tools.websearch import WebSearch
-
-                ws = WebSearch()
-                results = ws.execute(query=user_input, num_results=3)
-                if results:
-                    self.messages.insert(
-                        1, {"role": "system", "content": f"[Auto-searched web for '{user_input}']:\n{results}"}
-                    )
-            except Exception:
-                pass  # fallback to LLM's own knowledge
-
-        try:
-            _intent_class = ""
-            _intent_confidence = 0.0
-            if _classification:
-                _intent_class = _classification.task_class.value
-                _intent_confidence = _classification.confidence
-
-            # Inject scratchpad context for COMPLEX/HIGH_STAKES tasks
-            if _scratchpad and _classification.task_class.value in ("COMPLEX", "HIGH_STAKES"):
-                self.messages.insert(
-                    1,
-                    {"role": "system", "content": f"[SCRATCHPAD] Objective: {_scratchpad.objective}\nConstraints: {_scratchpad.constraints or ''}"},
-                )
-
-            # Confirmation gate: force plan-before-execute for complex tasks
-            if _classification and _classification.task_class.value in ("COMPLEX", "HIGH_STAKES"):
-                self.messages.insert(
-                    1,
-                    {
-                        "role": "system",
-                        "content": (
-                            "[EXECUTION MODE: PLAN FIRST]\n"
-                            "This task is classified as COMPLEX or HIGH_STAKES.\n"
-                            "BEFORE executing any tool calls, you MUST:\n"
-                            "1. Present a brief plan (3-5 bullet points) of what you will do\n"
-                            "2. Ask the user: 'Should I proceed?'\n"
-                            "3. WAIT for user confirmation before executing\n"
-                            "4. If the user says yes/proceed/go, execute the plan\n"
-                            "5. If the user says no/cancel/stop, stop and ask what they want instead\n\n"
-                            "Do NOT start executing tools until the user confirms. "
-                            "The plan should be concise — one line per step."
-                        ),
-                    },
-                )
-
-            # ── Auto-inject task state on "continue" ──
-            # When the user says continue/resume/pick up, check for saved task state
-            # and inject it so Nally doesn't re-read everything from scratch.
-            _continue_patterns = [
-                r"^(continue|resume|pick up|keep going|go on|where (was|i was|we were) i|what (was|i was|were) (i|we) (doing|working on))",
-                r"^( carry on| proceed| keep going)",
-            ]
-            _is_continue = any(re.search(p, user_input.lower().strip()) for p in _continue_patterns)
-            if _is_continue:
-                try:
-                    from ..tools.task_state import task_state_manager
-                    saved_state = task_state_manager.get(self._session_id)
-                    if saved_state and saved_state.status == "in_progress":
-                        state_context = task_state_manager.format_for_prompt(saved_state)
-                        self.messages.insert(
-                            1,
-                            {"role": "system", "content": state_context},
-                        )
-                        logger.info(
-                            f"Task state injected for resume: {saved_state.task_description[:60]} "
-                            f"({len(saved_state.files_created)} files, {len(saved_state.pending_steps)} pending steps)"
-                        )
-                except Exception as e:
-                    logger.debug(f"Task state auto-injection skipped: {e}")
-
             final_response = run_agent(
                 messages=self.messages,
                 tools=tools,
                 emit=emit,
                 max_iterations=MAX_ITERATIONS_PER_TURN,
                 thread_id=self._thread_id,
-                intent_class=_intent_class,
-                intent_confidence=_intent_confidence,
             )
 
-            # ── Harness v2: Critique Pipeline (Phase 2) ──
-            try:
-                from ..config import HARNESS_ENABLED, HARNESS_CRITIQUE_ENABLED
-                if (
-                    HARNESS_ENABLED
-                    and HARNESS_CRITIQUE_ENABLED
-                    and _classification
-                    and _classification.task_class.value in ("COMPLEX", "CREATIVE")
-                ):
-                    from .harness import (
-                        TaskClass,
-                        run_critique_pipeline,
-                    )
-                    from .llm import llm as _harness_llm
-
-                    def _harness_llm_call(messages, temperature=0.7, **kwargs):
-                        try:
-                            user_msg = messages[-1].get("content", "") if messages else ""
-                            sys_prompt = None
-                            if messages and messages[0].get("role") == "system":
-                                sys_prompt = messages[0].get("content")
-                            return _harness_llm.simple_chat(
-                                user_message=user_msg,
-                                system_prompt=sys_prompt,
-                            )
-                        except Exception as e:
-                            logger.warning(f"Harness LLM critique call failed: {e}")
-                            raise
-
-                    critique_result = run_critique_pipeline(
-                        user_request=user_input,
-                        task_class=_classification.task_class,
-                        llm_call_fn=_harness_llm_call,
-                        existing_response=final_response,
-                        context_messages=self.messages[:-1],
-                    )
-                    if critique_result.was_revised:
-                        final_response = critique_result.response
-                        logger.info(
-                            f"Critique pipeline revised response "
-                            f"(stages={critique_result.stages_fired}, "
-                            f"latency={critique_result.cost_latency_ms:.0f}ms)"
-                        )
-                    if emit:
-                        try:
-                            emit("critique", critique_result.to_dict())
-                        except Exception:
-                            pass
-            except Exception as e:
-                logger.warning(f"Critique pipeline failed: {e}")
-
-            final_response = _capitalize_sentences(_strip_emojis(final_response))
             self.messages.append({"role": "assistant", "content": final_response})
 
             # Clear skill overrides after task completion
@@ -570,35 +235,8 @@ class NallyAgent:
             logger.nally_response(final_response)
             logger.debug(f"Total response time: {elapsed:.0f}ms")
 
-            # ── Harness v2: Scratchpad Write-back (Phase 3) ──
-            if _scratchpad:
-                try:
-                    from .scratchpad import scratchpad_store
-                    _scratchpad.add_result(f"Task completed: {final_response[:200]}")
-                    _scratchpad.status = "completed"
-                    scratchpad_store.save(_scratchpad)
-
-                    # Deliberate write-back to long-term memory
-                    suggestions = _scratchpad.suggest_long_term_writes()
-                    for s in suggestions:
-                        try:
-                            from ..memory import memory_store as _scratch_mem
-                            _scratch_mem.remember(
-                                key=s["key"],
-                                value=s["value"],
-                                category=s.get("category", "auto_fact"),
-                                confidence=0.6,
-                            )
-                        except Exception:
-                            pass
-                    if suggestions:
-                        logger.info(f"Scratchpad write-back: {len(suggestions)} items to long-term memory")
-                except Exception as e:
-                    logger.warning(f"Scratchpad write-back failed: {e}")
-
             self._save_history()
             self._maybe_create_episode(user_input, final_response)
-            self._maybe_extract_facts(user_input)
 
             # Periodic auto-save summary every 20 messages
             if len(self.messages) % 20 == 0 and len(self.messages) > 10:
@@ -653,41 +291,6 @@ class NallyAgent:
             )
         except Exception as e:
             logger.debug(f"Episode creation failed: {e}")
-
-    _ENTITY_PATTERNS = [
-        (r"(?:built|created|made|developed|designed|built)\s+(?:a\s+|an\s+|the\s+)?(.+?)(?:\s+called|\s+named|\s+for|\s+that|\s+which|\s*[,.]|$)", "project"),
-        (r"(?:my|the)\s+(project|app|bot|tool|site|platform|system)\s+(?:is\s+)?(.+?)(?:\s*[,.]|$)", "project"),
-        (r"(?:working on|building|developing)\s+(?:a\s+|an\s+|the\s+)?(.+?)(?:\s+[,.]|$)", "project"),
-    ]
-
-    def _maybe_extract_facts(self, user_input: str):
-        """Lightweight per-turn fact extraction — no LLM call, just regex."""
-        if not user_input or len(user_input) < 10:
-            return
-        try:
-            import re
-            text = user_input.lower()
-            # Only trigger on entity-mention keywords
-            trigger_words = ("built", "created", "made", "project", "app", "bot", "tool", "site",
-                             "working on", "building", "developing", "launched", "renamed", "called")
-            if not any(w in text for w in trigger_words):
-                return
-
-            for pattern, category in self._ENTITY_PATTERNS:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    groups = [g.strip() for g in match.groups() if g and len(g.strip()) > 2]
-                    if groups:
-                        key = groups[0][:80]
-                        value = " ".join(groups)[:200]
-                        # Don't duplicate if already stored
-                        existing = memory_store.recall(key=key)
-                        if not existing:
-                            memory_store.remember(key=key, value=value, category=category, confidence=0.7)
-                            logger.debug(f"Auto-stored fact: {key} = {value}")
-                        break
-        except Exception as e:
-            logger.debug(f"Fact extraction failed: {e}")
 
     def _auto_save_summary(self):
         """Periodically save conversation summary without clearing."""
