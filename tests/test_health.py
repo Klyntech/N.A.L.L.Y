@@ -1,6 +1,7 @@
 """Regression tests for honest readiness reporting."""
 
 import asyncio
+import importlib
 import sys
 
 from fastapi.responses import JSONResponse
@@ -16,7 +17,7 @@ def test_tools_are_not_ready_when_core_toolset_is_missing(monkeypatch):
         def get_all_tools(self):
             return []
 
-    monkeypatch.setattr("nally.tools.registry.registry", EmptyRegistry())
+    monkeypatch.setattr(importlib.import_module("nally.tools.registry"), "registry", EmptyRegistry())
     monkeypatch.setattr("nally.tools._loaded", False)
     result = health._check_tools()
     assert result["status"] == "not_ready"
@@ -28,7 +29,7 @@ def test_tools_are_not_ready_when_web_search_is_missing(monkeypatch):
         def get_all_tools(self):
             return [{"function": {"name": name}} for name in ("run_command", "read_file", "file_ops", "fetch")]
 
-    monkeypatch.setattr("nally.tools.registry.registry", RegistryWithoutWebSearch())
+    monkeypatch.setattr(importlib.import_module("nally.tools.registry"), "registry", RegistryWithoutWebSearch())
     monkeypatch.setattr("nally.tools._loaded", True)
     result = health._check_tools()
     assert result["status"] == "not_ready"
