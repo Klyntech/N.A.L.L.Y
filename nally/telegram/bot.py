@@ -14,6 +14,7 @@ import io
 # ── DNS 11001 spam filter: collapse httpx getaddrinfo failures to one warning ──
 import logging as _logging
 import os
+import re
 import secrets
 import threading
 import time
