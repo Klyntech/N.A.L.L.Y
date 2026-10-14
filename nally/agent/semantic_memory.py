@@ -229,7 +229,7 @@ class SemanticMemoryEngine:
 
         # Update last_accessed for recalled memories
         result = []
-        for mem, score in scored[:limit]:
+        for mem, _score in scored[:limit]:
             mem.last_accessed = now
             result.append(mem)
 
