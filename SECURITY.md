@@ -49,7 +49,7 @@ The hard-coded shell deny-list cannot be overridden. It blocks dangerous pattern
 
 ## Tool Execution Safety
 
-The model can call only tools registered by `nally/tools/__init__.py`. The active core set is `run_command`, `read_file`, `file_ops`, `web_search`, `fetch`, `remember`, `recall`, `forget`, `agent`, and `bridge_execute`. External MCP account-linking endpoints do not automatically grant the model additional tools.
+The default core set is `run_command`, `read_file`, `file_ops`, `web_search`, `fetch`, `remember`, `recall`, `forget`, `agent`, and `bridge_execute`. Explicitly connecting an MCP service can add that service's tools to the runtime registry. The runtime registry, not a hardcoded tool count in documentation, determines which tools the model receives.
 
 ### Command Execution (`run_command`)
 - Cross-platform shell selection (PowerShell on Windows, bash on Linux/macOS)
