@@ -102,3 +102,12 @@ def test_validator_allows_telegram_off_without_internal_token(monkeypatch):
     monkeypatch.delenv("NALLY_INTERNAL_TOKEN", raising=False)
     errors = validate_config(strict=False)
     assert not any(key == "NALLY_INTERNAL_TOKEN" and level == "error" for level, key, _ in errors)
+
+
+
+def test_bearer_auth_reads_token_from_current_environment(monkeypatch):
+    monkeypatch.setenv("NALLY_ACCESS_TOKEN", ACCESS_TOKEN)
+    client = TestClient(web_app.app)
+    response = client.get("/api/me", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
+    assert response.status_code == 200
+    assert response.json()["authenticated"] is True
