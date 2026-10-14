@@ -43,7 +43,7 @@ def test_stale_connection_cleanup_does_not_remove_reconnected_device():
     assert registry.get_device("same-id") is new_device
 
 
-def test_unregister_only_cancels_requests_for_disconnected_device():
+def test_unregister_only_resolves_requests_for_disconnected_device():
     async def scenario():
         registry = BridgeRegistry()
         loop = asyncio.get_running_loop()
