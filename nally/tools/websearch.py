@@ -180,6 +180,7 @@ def _search_fallback(query: str, num_results: int = 3) -> str:
     detail = "; ".join(errors)
     return f"Error: Web search fallback providers failed ({detail}). Query: {query}"
 
+
 class WebSearch(Tool):
     """Search the web using Tavily, Brave, and DuckDuckGo fallbacks."""
 
