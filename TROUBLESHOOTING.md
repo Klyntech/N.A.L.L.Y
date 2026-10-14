@@ -141,8 +141,7 @@ Note: Even when streaming fails, Nally falls back to non-streaming — you'll st
 ### Slow responses
 - Reduce `NALLY_MAX_ITERATIONS` (default: 25)
 - Reduce `NALLY_MAX_TOOL_CALLS` (default: 50)
-- Use a faster model via `NALLY_PROVIDER` or `NALLY_THINKING_MODEL`
-- Disable thinking: `NALLY_THINKING_ENABLED=false`
+- Use a faster model via `NALLY_PROVIDER`
 
 ### Rate limiting yourself
 - Default: 30 req/min, burst 60
