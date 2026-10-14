@@ -177,8 +177,8 @@ These statuses describe service connection/account-management state. They do not
 - Encrypted with Fernet (AES-128-CBC) using `NALLY_CRED_KEY`
 - Stored in SQLite `mcp_oauth` table
 - PKCE state persisted to survive server restarts
-- **Plaintext fallback**: if `NALLY_CRED_KEY` is unset (or the `cryptography`
-  package is missing), tokens are stored in **plaintext** until a key is set
+- **Production fails closed**: OAuth token storage refuses to write or read tokens without a valid `NALLY_CRED_KEY` and the `cryptography` package
+- **Local development only**: legacy plaintext tokens can be read for migration; production rejects them
 
 ## Troubleshooting
 
