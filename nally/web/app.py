@@ -163,33 +163,48 @@ async def verify_internal_auth(request: Request):
 
 
 class _RateLimiter:
-    """Simple token bucket rate limiter."""
+    """Thread-safe token bucket with bounded per-client state."""
 
     def __init__(self, rpm: int = 30, burst: int = 5):
-        self._rpm = rpm
-        self._burst = burst
-        self._buckets: dict = {}
+        self._rpm = max(1, rpm)
+        self._burst = max(1, burst)
+        self._buckets: dict[str, float] = {}
+        self._last_seen: dict[str, float] = {}
         self._last_refill = time.time()
-
-    def _refill(self):
-        now = time.time()
-        elapsed = now - self._last_refill
-        tokens_to_add = elapsed * (self._rpm / 60)
-        for ip in list(self._buckets):
-            self._buckets[ip] = min(self._burst, self._buckets[ip] + tokens_to_add)
-        self._last_refill = now
+        self._max_buckets = 10000
+        self._lock = Lock()
 
     def allow(self, ip: str) -> bool:
         if not RATE_LIMIT_ENABLED:
             return True
-        self._refill()
-        if ip not in self._buckets:
-            self._buckets[ip] = self._burst
-        if self._buckets[ip] >= 1:
-            self._buckets[ip] -= 1
-            return True
-        return False
 
+        now = time.time()
+        with self._lock:
+            elapsed = max(0.0, now - self._last_refill)
+            if elapsed:
+                tokens_to_add = elapsed * (self._rpm / 60)
+                for client_ip in list(self._buckets):
+                    self._buckets[client_ip] = min(self._burst, self._buckets[client_ip] + tokens_to_add)
+                self._last_refill = now
+
+            # Expire idle clients so arbitrary source addresses cannot grow memory forever.
+            for client_ip, last_seen in list(self._last_seen.items()):
+                if now - last_seen > 3600:
+                    self._last_seen.pop(client_ip, None)
+                    self._buckets.pop(client_ip, None)
+
+            if ip not in self._buckets:
+                if len(self._buckets) >= self._max_buckets:
+                    oldest_ip = min(self._last_seen, key=self._last_seen.get)
+                    self._last_seen.pop(oldest_ip, None)
+                    self._buckets.pop(oldest_ip, None)
+                self._buckets[ip] = float(self._burst)
+
+            self._last_seen[ip] = now
+            if self._buckets[ip] >= 1:
+                self._buckets[ip] -= 1
+                return True
+            return False
 
 _rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
 _internal_rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST)
