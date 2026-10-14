@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Model Context Protocol (MCP) connects Nally to external services like GitHub, Notion, Gmail, and more. This guide covers setup, configuration, and troubleshooting.
+Model Context Protocol (MCP) and OAuth integrations support account connection and service management in Nally's web UI. The simplified core agent currently uses a fixed tool registry and does not load external MCP server tools into model calls. Configuring or connecting a service here does not make its tools callable by the agent.
 
 ## What is MCP?
 
@@ -15,11 +15,9 @@ MCP is a standard protocol for AI assistants to interact with external tools and
 
 ## Configured Services
 
-The default `MCP_SERVERS` list in `nally/config.py` registers only three servers.
-The other services below exist as OAuth flows / examples but are **not** auto-loaded until
-you add them to `MCP_SERVERS` manually.
+The `MCP_SERVERS` list in `nally/config.py` describes services used by integration/account-management code. The core tool loader intentionally does not register MCP tools with the model. Editing this list alone does not expand the agent's callable tools.
 
-### Default Servers (registered in `MCP_SERVERS`)
+### Configured Services
 
 | Service | Name | What It Does |
 |---------|------|-------------|
@@ -27,7 +25,7 @@ you add them to `MCP_SERVERS` manually.
 | Notion | `notion` | Pages, databases, content |
 | Google Gmail | `gmail` | Read, search, compose emails |
 
-### OAuth-Only (add manually)
+### Other OAuth integrations
 
 OAuth flows and callback endpoints exist, but are **not** registered servers by default.
 Add them to `MCP_SERVERS` (`auth_mode: "oauth"`) to use them.
@@ -38,9 +36,9 @@ Add them to `MCP_SERVERS` (`auth_mode: "oauth"`) to use them.
 | Google Calendar | `gcalendar` | Events, scheduling |
 | Higgsfield | `higgsfield` | AI video generation (Kling, Sora, Veo, Seedance) |
 
-### npm Packages (add manually)
+### External MCP server examples
 
-These are meant to be added as `stdio` MCP servers by uncommenting/adding entries.
+These rows are reference examples only. Adding an entry does not expose a server's tools to the core agent.
 
 | Service | Name | What It Does |
 |---------|------|-------------|
@@ -79,7 +77,7 @@ These are meant to be added as `stdio` MCP servers by uncommenting/adding entrie
 
 ## Adding a Custom MCP Server
 
-Edit `nally/config.py` → `MCP_SERVERS` list:
+Edit `nally/config.py` → `MCP_SERVERS` for service-connection metadata and account-management flows. This does not register tools with the core agent.
 
 ### HTTP Server (Remote)
 
@@ -154,10 +152,7 @@ Status values:
 | `timeout` | Connection timed out |
 | `error` | Connection failed |
 
-These statuses come from the `/api/mcp/services` list built by
-`connect_mcp_servers`. Note that the **`mcp_status` tool** (in the agent) uses a
-different vocabulary: `Connected`, `Ready`, `Token stored (tools not loaded)`,
-`Token set (not connected)`, `Disconnected`, `Unknown`.
+These statuses describe service connection/account-management state. They do not indicate that a connected server's tools are exposed to the model.
 
 ## OAuth Internals
 
@@ -189,10 +184,9 @@ different vocabulary: `Connected`, `Ready`, `Token stored (tools not loaded)`,
 - Check network connectivity to the MCP server URL
 - For stdio: verify the command exists (`which npx`, `which python`)
 
-### Tools not appearing after connect
-- Check server logs for tool registration errors
-- Some MCP servers emit noisy logs during connection (suppressed by default)
-- Try disconnecting and reconnecting
+### MCP tools not appearing in chat
+- This is expected with the current fixed core toolset: external MCP tool registration is disabled
+- The account connection UI does not expand the model-callable tool registry
 
 ### OAuth token expired
 - Disconnect: `POST /api/mcp/disconnect/{service}`
