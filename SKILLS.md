@@ -1,133 +1,54 @@
 # Skills
 
-Skills provide specialized instructions and workflows for specific tasks. They use a two-level progressive disclosure system to balance context efficiency with capability.
+Nally's repository contains reusable skill documents under `skills/<name>/SKILL.md`. They describe domain-specific workflows and can be inspected through the skill catalog endpoints in the web UI.
 
-## How Skills Work
+## Current runtime behavior
 
-### Level 1: Manifest (Always Active)
+The simplified core agent does **not** classify every request against skill descriptions, automatically inject a skill manifest into the system prompt, or activate a matching skill before the main model call. Skills are reference documents at present, not a separate reasoning or routing layer.
 
-At startup, Nally scans `skills/*/SKILL.md`, extracts each skill's name and description (~100 tokens per skill), and injects them into the system prompt. This is cheap enough to include all skills.
+The `allowed-tools` frontmatter found in older skill files is not a source of tool availability or permission grants for the core agent. The active tool schemas come from the fixed registry in `nally/tools/__init__.py`; permission decisions come from `nally/config/permissions.json` and the permission gate.
 
-### Level 2: Activation (On Demand)
+## Skill format
 
-When Nally identifies a matching skill for a user's request, it loads the full SKILL.md body into the current context. This provides detailed instructions only when needed.
-
-## Skill Format
-
-Each skill lives in `skills/<name>/SKILL.md` with YAML frontmatter + markdown body:
+A skill document may use YAML frontmatter and a Markdown body:
 
 ```markdown
 ---
 name: my-skill
-description: What this skill does and when to use it. Use for X, Y, Z tasks.
-allowed-tools: read_file file_ops run_command
+description: What the workflow covers and when it is relevant
 ---
 
 # My Skill
 
-Detailed instructions for the agent...
-
-## Phase 1: Do This
-- Step one
-- Step two
-
-## Phase 2: Do That
-...
+Explain the workflow, constraints, expected outputs, and common mistakes.
 ```
 
-### Frontmatter Fields
+Keep each skill focused, actionable, and consistent with the actual tools in the core registry. Do not assume a tool mentioned in a skill exists or is callable.
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Skill name (hyphenated, e.g. `code-review`) |
-| `description` | Yes | What it does — used for intent matching |
-| `allowed-tools` | No | Tools this skill needs (overrides permission gate to `allow`) |
+## Available reference documents
 
-### Body Guidelines
+| Skill | Purpose |
+|---|---|
+| `api-design` | REST and GraphQL API review |
+| `architect` | System design and migrations |
+| `backend-api` | Backend API implementation reference |
+| `build` | Autonomous engineering workflow documentation |
+| `code-review` | Bug and security review |
+| `creative` | Business and marketing writing |
+| `data` | Data-analysis reference |
+| `design-system` | Design tokens and UI components |
+| `devops` | Deployment and infrastructure |
+| `diagnose` | Troubleshooting and security audits |
+| `docs` | READMEs, API docs, and tutorials |
+| `image-gen` | Image-generation prompt guidance |
+| `plan` | Task decomposition reference |
+| `productivity` | General productivity and templates |
+| `refactor` | Code quality and maintainability |
+| `research` | Web research and synthesis |
+| `ship` | Git and deployment workflow guidance |
+| `test-writer` | Unit-test authoring reference |
+| `ui-design` | Layout, accessibility, and UI design |
+| `video-edit` | Higgsfield video-editing reference |
 
-- Write clear, actionable instructions for the agent
-- Include phases/steps for complex workflows
-- Specify output formats with examples
-- Add anti-patterns and common mistakes
-- Keep it focused — one skill = one domain
+A reference document may mention tools that are not available in the current core registry. The live registry and permission gate take precedence over the document.
 
-## Intent Matching
-
-Nally matches skills to user messages using:
-
-1. **Keyword overlap**: 3+ words from the skill description appear in the message
-2. **Full name match**: All hyphenated parts of the skill name appear in the message (e.g. "ui-design" requires both "ui" AND "design")
-
-Substring matching is intentionally avoided to prevent false positives (e.g. "ui" alone won't match `ui-design`).
-
-## Security Validation
-
-Before loading, each skill is checked for:
-
-- **Prompt injection patterns**: "ignore previous instructions", "you are now", etc.
-- **Suspicious URLs**: ngrok, webhook, requestbin, pipedream, hookbin
-- **Env var reads**: Attempts to access environment variables
-
-Skills with warnings are loaded but flagged in logs and `/api/skills`.
-
-## Permission Rules
-
-The `allowed-tools` field grants `allow` permission for those tools during skill execution. However:
-
-- **Explicit `deny` in `permissions.json` cannot be overridden** — if a command is denied at the base level, skill overrides can't escalate past it
-- Skill overrides only grant `allow`, never bypass `deny`
-
-## Available Skills
-
-| Skill | Purpose | Tools |
-|-------|---------|-------|
-| `api-design` | REST/GraphQL API review | read_file |
-| `architect` | System design, migrations | read_file, file_ops, run_command, code_analysis |
-| `backend-api` | Express.js, PostgreSQL, JWT | read_file, file_ops, run_command, code_analysis |
-| `build` | Autonomous full-project engineering (build/scaffold/generate a project, system, app, CLI, tool, library) | engineering_build |
-| `code-review` | Bug hunting, security audits | read_file, file_ops, run_command |
-| `creative` | Business writing, marketing | web_search, read_file |
-| `data` | Data analysis tasks | read_file |
-| `design-system` | Design tokens, components | read_file, file_ops |
-| `devops` | Docker, CI/CD, Terraform | run_command, file_ops |
-| `diagnose` | Bug hunting + security audits | read_file, file_ops, run_command, code_analysis |
-| `docs` | READMEs, API docs, tutorials | read_file, file_ops |
-| `image-gen` | Image generation prompts | generate_image |
-| `plan` | Task decomposition | (no tools — pure reasoning) |
-| `productivity` | Regex, templates, explanations | read_file, file_ops, run_code |
-| `refactor` | Code quality improvement | read_file, file_ops, run_command |
-| `research` | Web research, synthesis | web_search, read_file |
-| `ship` | Git workflow, deployment | run_command, file_ops |
-| `test-writer` | Unit test generation | read_file, file_ops, run_command, run_code |
-| `ui-design` | Layout, color, accessibility | read_file |
-| `video-edit` | Higgsfield AI video editing | MCP Higgsfield tools |
-
-## Creating a New Skill
-
-1. Create a directory: `skills/my-skill/`
-2. Create `SKILL.md` with frontmatter + body
-3. Restart the server (or use hot-reload via `skill_registry.reload()`)
-4. Test by asking Nally about the skill's topic
-
-### Hot-Reload
-
-Skills can be reloaded without restarting:
-
-```python
-from nally.skills.registry import skill_registry
-skill_registry.reload()
-```
-
-## Self-Creation
-
-Nally can create skills from successful workflows:
-
-```python
-skill_registry.create_skill(
-    name="my-new-skill",
-    description="What this skill does",
-    body="# My New Skill\n\nInstructions..."
-)
-```
-
-This creates the `SKILL.md` file and hot-reloads the registry.
