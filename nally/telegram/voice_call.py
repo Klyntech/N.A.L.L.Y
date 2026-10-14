@@ -16,7 +16,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 
 import numpy as np
 
@@ -47,7 +47,7 @@ class GreetingCache:
     process-lifetime singleton.
     """
 
-    _GREETINGS = {
+    _GREETINGS: ClassVar[dict[str, str]] = {
         "morning": "Good morning! This is Nally. How can I help you today?",
         "afternoon": "Hey, this is Nally. What's going on?",
         "evening": "Hey! Nally here. What's up?",
