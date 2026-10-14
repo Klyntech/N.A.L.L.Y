@@ -1211,6 +1211,22 @@ REDIRECT_HTML = """<!DOCTYPE html>
 </body></html>"""
 
 
+async def _exchange_oauth_code(exchange, code: str, db: str, state: str, service: str):
+    """Normalize OAuth callback failures without leaking provider or storage details."""
+    try:
+        success = await exchange(code, db, state=state)
+    except RuntimeError as exc:
+        logger.warning("%s OAuth storage unavailable (%s)", service, type(exc).__name__)
+        return JSONResponse(status_code=503, content={"error": "oauth_storage_unavailable"})
+    except Exception as exc:
+        logger.warning("%s OAuth exchange failed (%s)", service, type(exc).__name__)
+        return JSONResponse(status_code=502, content={"error": "token_exchange_failed"})
+
+    if not success:
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    return None
+
+
 @app.get("/api/oauth/notion/callback")
 async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""):
     """Notion OAuth callback — exchanges code for tokens."""
@@ -1226,9 +1242,9 @@ async def notion_oauth_callback(code: str = "", state: str = "", error: str = ""
     from nally.mcp.oauth import exchange_notion_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_notion_code(code, db, state=state)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _exchange_oauth_code(exchange_notion_code, code, db, state, "Notion")
+    if failure:
+        return failure
 
     # Connect and fetch tools
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == "notion"), None)
@@ -1257,9 +1273,9 @@ async def github_oauth_callback(code: str = "", state: str = "", error: str = ""
     from nally.mcp.oauth import exchange_github_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_github_code(code, db, state=state)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _exchange_oauth_code(exchange_github_code, code, db, state, "GitHub")
+    if failure:
+        return failure
 
     # Connect and fetch tools
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == "github"), None)
@@ -1288,9 +1304,9 @@ async def google_oauth_callback(code: str = "", state: str = "", error: str = ""
     from nally.mcp.oauth import GOOGLE_SERVICES, exchange_google_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_google_code(code, db, state=state)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _exchange_oauth_code(exchange_google_code, code, db, state, "Google")
+    if failure:
+        return failure
 
     # Connect and fetch tools for all Google services
     for svc_name in GOOGLE_SERVICES:
@@ -1320,9 +1336,9 @@ async def higgsfield_oauth_callback(code: str = "", state: str = "", error: str 
     from nally.mcp.oauth import exchange_higgsfield_code
 
     db = str(DATA_DIR / "nally.db")
-    success = await exchange_higgsfield_code(code, db, state=state)
-    if not success:
-        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+    failure = await _exchange_oauth_code(exchange_higgsfield_code, code, db, state, "Higgsfield")
+    if failure:
+        return failure
 
     # Connect and fetch tools
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == "higgsfield"), None)
