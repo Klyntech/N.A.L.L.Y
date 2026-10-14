@@ -7,7 +7,6 @@ remember, recall, forget, agent, bridge_execute.
 MCP servers and user plugins are intentionally not loaded here.
 """
 
-import json
 import threading
 
 from .registry import Tool, registry
