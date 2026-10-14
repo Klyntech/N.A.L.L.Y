@@ -27,18 +27,8 @@ requests>=2.31.0
 Pillow>=10.0.0
 numpy>=1.24.0
 
-# Windows audio control (used by agent/router.py volume control; Windows-only)
-pycaw>=20230407; sys_platform == 'win32'
-comtypes>=1.4.0; sys_platform == 'win32'
-
-# Phone calls (Plivo API — nally/tools/phone.py)
-plivo>=4.0
-
 # Fetch tool readability extraction (nally/tools/fetch.py; has fallback if absent)
 readability-lxml>=0.8
-
-# Window focus control (nally/agent/router.py)
-pygetwindow>=0.0.9
 
 # Torch runtime for Silero VAD in the voice pipeline (nally/voice/pipeline.py)
 # Heavy dependency — only required for streaming voice/VAD paths.
