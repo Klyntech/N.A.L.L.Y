@@ -536,7 +536,7 @@ async def exchange_notion_code(code: str, db_path: str, state: str) -> bool:
     if not state_data:
         logger.warning("No pending Notion OAuth state (memory or SQLite)")
         return False
-    if not state or not hmac.compare_digest(str(state_data.get("state", "")), state):
+    if not state or not hmac.compare_digest(str(state_data.get("state", "")).encode("utf-8"), state.encode("utf-8")):
         logger.warning("Rejected Notion OAuth callback with mismatched state")
         return False
     _pending_pkce.pop("notion", None)
