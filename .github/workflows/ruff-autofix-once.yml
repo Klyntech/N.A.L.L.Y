@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   autofix:
-    if: github.event.head_commit.message == 'Run one-time Ruff cleanup'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
