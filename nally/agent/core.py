@@ -174,30 +174,6 @@ class NallyAgent:
 
         self.messages.append({"role": "user", "content": ts_prefix + user_input})
 
-        # Skill activation (Level 2): check if a skill matches this request
-        try:
-            from ..skills.registry import skill_registry
-            from ..tools.permissions import gate as perm_gate
-
-            if not skill_registry._loaded:
-                skill_registry.load()
-            matched = skill_registry.find_by_intent(user_input)
-            if matched:
-                skill_body = skill_registry.activate(matched[0])
-                skill_obj = skill_registry.get(matched[0])
-                if skill_body:
-                    self.messages.append(
-                        {
-                            "role": "system",
-                            "content": f"[SKILL ACTIVATED: {matched[0]}]\n\n{skill_body}\n\nFollow these instructions for this task.",
-                        }
-                    )
-                    # Grant skill's allowed-tools temporarily
-                    if skill_obj and skill_obj.allowed_tools:
-                        perm_gate.set_skill_overrides(matched[0], skill_obj.allowed_tools)
-        except Exception as e:
-            logger.warning(f"Skill activation failed: {e}")
-
         # Smart context management — single pass
         self.messages = context_manager.prune(self.messages, max_tokens=MAX_CONTEXT_TOKENS)
         self.messages = context_manager.compact(self.messages)
@@ -225,14 +201,6 @@ class NallyAgent:
             )
 
             self.messages.append({"role": "assistant", "content": final_response})
-
-            # Clear skill overrides after task completion
-            try:
-                from ..tools.permissions import gate as perm_gate
-
-                perm_gate.clear_all_skill_overrides()
-            except Exception as e:
-                logger.warning(f"Failed to clear skill overrides: {e}")
 
             elapsed = (time.time() - start) * 1000
             logger.nally_response(final_response)
