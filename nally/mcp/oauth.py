@@ -75,11 +75,11 @@ def _get_fernet():
     try:
         from cryptography.fernet import Fernet
     except ImportError:
-        logger.warning("cryptography package not installed — tokens stored in plaintext")
+        logger.warning("cryptography package not installed — OAuth token storage disabled")
         return None
     key = os.getenv("NALLY_CRED_KEY", "")
     if not key:
-        logger.warning("NALLY_CRED_KEY not set — tokens stored in plaintext until key is provided")
+        logger.warning("NALLY_CRED_KEY not set — OAuth token storage disabled until a key is provided")
         return None
     try:
         _FERNET = Fernet(key.encode() if isinstance(key, str) else key)
