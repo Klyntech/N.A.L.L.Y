@@ -1,7 +1,7 @@
 ---
 name: productivity
 description: Quick helpers: build regex patterns, explain concepts at any level, generate boilerplate/template code. Use when you need a regex, want something explained, or need project scaffolding.
-allowed-tools: read_file file_ops run_code
+allowed-tools: read_file file_ops run_command
 ---
 
 # Productivity
