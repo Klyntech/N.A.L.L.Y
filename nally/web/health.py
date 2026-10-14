@@ -102,7 +102,7 @@ async def _check_redis() -> dict:
             ok = await _test()
             return {"status": "ok" if ok else "error", "engine": "redis", "provider": "layerbase"}
         except Exception as e:
-            return {"status": "error", "engine": "redis", "provider": "layerbase", "error": str(e)[:100]}
+            return {"status": "error", "engine": "redis", "provider": "layerbase", "error": type(e).__name__}
 
     # Self-hosted Redis
     try:
@@ -118,7 +118,7 @@ async def _check_redis() -> dict:
     except ImportError:
         return {"status": "ok", "engine": "redis", "note": "redis package not installed"}
     except Exception as e:
-        return {"status": "error", "engine": "redis", "error": str(e)[:100]}
+        return {"status": "error", "engine": "redis", "error": type(e).__name__}
 
 
 def _check_tools() -> dict:
