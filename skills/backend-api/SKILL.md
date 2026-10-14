@@ -1,7 +1,7 @@
 ---
 name: backend-api
 description: Backend API development patterns: Express.js, PostgreSQL, JWT auth, Socket.IO, input validation, security. Use when building REST APIs, real-time features, or database-backed services.
-allowed-tools: read_file file_ops run_command code_analysis
+allowed-tools: read_file file_ops run_command
 ---
 
 # Backend API
