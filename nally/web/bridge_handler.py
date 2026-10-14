@@ -5,6 +5,7 @@ They register themselves and then receive tool execution requests.
 """
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -135,7 +136,7 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
     """
     # Auth via query param
     token = websocket.query_params.get("token", "")
-    if not NALLY_BRIDGE_TOKEN or token != NALLY_BRIDGE_TOKEN:
+    if not NALLY_BRIDGE_TOKEN or not hmac.compare_digest(token, NALLY_BRIDGE_TOKEN):
         logger.warning(f"Bridge auth failed for device: {device_id}")
         await websocket.close(code=4001, reason="Unauthorized")
         return
