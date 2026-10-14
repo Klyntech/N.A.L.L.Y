@@ -79,6 +79,21 @@ class TestVerifySSL:
 
 
 class TestFetchUrlRetry:
+    def test_redirect_to_private_ip_is_blocked(self):
+        with patch("nally.tools.fetch.httpx.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
+            mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
+            response = MagicMock()
+            response.status_code = 302
+            response.headers = {"location": "http://127.0.0.1:8000/private"}
+            mock_client.get.return_value = response
+
+            result = _fetch_url("https://example.com/redirect")
+
+        assert "Redirect blocked" in result
+        mock_client.get.assert_called_once()
+
     def test_retry_on_500(self):
         """500 errors should be retried then fail."""
         with patch("nally.tools.fetch.httpx.Client") as mock_client_cls:
