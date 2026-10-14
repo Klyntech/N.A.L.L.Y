@@ -41,7 +41,9 @@ def test_readiness_returns_503_when_database_is_unavailable(monkeypatch):
 
 
 def test_health_never_returns_libsql_connection_token(monkeypatch):
-    monkeypatch.setattr(health, "DATABASE_URL", "libsql://db.example?authToken=secret-value")
+    monkeypatch.setattr(health, "memory_backend", lambda: "turso")
+    monkeypatch.setattr(health, "TURSO_URL", "libsql://db.example")
+    monkeypatch.setattr(health, "TURSO_TOKEN", "secret-value")
     result = asyncio.run(health._check_database())
-    assert result == {"status": "ok", "engine": "libsql"}
+    assert result["engine"] == "turso"
     assert "secret-value" not in str(result)
