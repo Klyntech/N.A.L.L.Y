@@ -36,18 +36,21 @@ def test_bridge_result_cannot_resolve_another_devices_request():
 
 
 def test_stale_connection_cleanup_does_not_remove_reconnected_device():
-    registry = BridgeRegistry()
-    old_device = registry.register("same-id", MagicMock(), "old", [])
-    pending = asyncio.get_event_loop_policy().new_event_loop().create_future()
-    registry._pending["old-request"] = (old_device, pending)
-    new_device = registry.register("same-id", MagicMock(), "new", [])
+    async def scenario():
+        registry = BridgeRegistry()
+        old_device = registry.register("same-id", MagicMock(), "old", [])
+        pending = asyncio.get_running_loop().create_future()
+        registry._pending["old-request"] = (old_device, pending)
+        new_device = registry.register("same-id", MagicMock(), "new", [])
 
-    registry.unregister("same-id", expected_device=old_device)
+        registry.unregister("same-id", expected_device=old_device)
 
-    assert registry.get_device("same-id") is new_device
-    assert pending.done()
-    assert pending.result() == ("Error: Bridge device disconnected: same-id", False)
-    assert "old-request" not in registry._pending
+        assert registry.get_device("same-id") is new_device
+        assert pending.done()
+        assert pending.result() == ("Error: Bridge device disconnected: same-id", False)
+        assert "old-request" not in registry._pending
+
+    asyncio.run(scenario())
 
 
 def test_unregister_only_resolves_requests_for_disconnected_device():
