@@ -609,7 +609,6 @@ def test_storage_encrypts_oauth_client_secret_at_rest(storage):
     assert retrieved.client_secret == "secret_must_not_be_plaintext"
 
 
-
 def test_oauth_pkce_state_is_encrypted_at_rest(tmp_db):
     verifier = "verifier_must_not_be_plaintext"
     client_id = "client_id_must_not_be_plaintext"
