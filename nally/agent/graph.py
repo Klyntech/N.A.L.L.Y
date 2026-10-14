@@ -508,10 +508,6 @@ class AgentState(TypedDict):
     last_error: Optional[str]
     tool_calls_total: int
     thread_id: str
-    plan: Optional[Dict[str, Any]]
-    plan_status: str
-    step_results: Dict[str, str]
-    current_step_index: int
     model_override: Optional[str]
     start_time: float
     tool_failures: List[Dict[str, Any]]
@@ -1746,10 +1742,6 @@ def run_agent(
         "last_error": None,
         "tool_calls_total": 0,
         "thread_id": fresh_thread,
-        "plan": None,
-        "plan_status": "",
-        "step_results": {},
-        "current_step_index": 0,
         "model_override": model,
         "start_time": time.time(),
         "tool_failures": [],
