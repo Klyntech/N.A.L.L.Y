@@ -92,7 +92,7 @@ GROQ_MODELS = {
 NIM_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NIM_MODELS = {
-    "fast": "minimaxai/minimax-m3",                     # 0.77s TTFT, 95% coding, 1M context
+    "fast": "nvidia/nemotron-3-super-120b-a12b",       # Nally v3 primary NIM model
     "balanced": "nvidia/nemotron-3-super-120b-a12b",    # 2.44s TTFT, 81% LiveCodeBench, agentic
     "powerful": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # 2.48s TTFT, reasoning mode
     "frontier": "nvidia/nemotron-3-super-120b-a12b",    # same as balanced — best available
