@@ -39,9 +39,6 @@ from ..core.errors import NallyError
 
 logger = logging.getLogger("nally.ws")
 
-# Read from env (same as app.py)
-NALLY_ACCESS_TOKEN = os.environ.get("NALLY_ACCESS_TOKEN", "")
-
 
 class ConnectionManager:
     """Manages WebSocket connections for multi-tab sync."""
@@ -118,7 +115,8 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     """
     # Auth via query param
     token = websocket.query_params.get("token", "")
-    if not NALLY_ACCESS_TOKEN or not hmac.compare_digest(token, NALLY_ACCESS_TOKEN):
+    expected_token = os.getenv("NALLY_ACCESS_TOKEN", "")
+    if not expected_token or not hmac.compare_digest(token, expected_token):
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
