@@ -116,6 +116,30 @@ def test_storage_service_isolation(tmp_db):
     assert asyncio.run(s2.get_tokens()) is None
 
 
+def test_oauth_code_exchange_rejects_mismatched_state(tmp_db):
+    """A callback with the wrong state must not consume the valid pending flow."""
+    from nally.mcp import oauth
+
+    state_data = {
+        "code_verifier": "verifier",
+        "client_id": "client",
+        "state": "expected-state",
+        "token_endpoint": "https://example.com/token",
+        "auth_endpoint": "https://example.com/authorize",
+    }
+    for service in ("notion", "google", "higgsfield", "github"):
+        oauth._pending_pkce[service] = dict(state_data)
+        with (
+            patch.object(oauth, "_get_google_credentials", return_value=("id", "secret")),
+            patch.object(oauth, "_get_github_credentials", return_value=("id", "secret")),
+        ):
+            exchange = getattr(oauth, f"exchange_{service}_code")
+            result = asyncio.run(exchange("fake-code", tmp_db, state="wrong-state"))
+        assert result is False
+        assert oauth._pending_pkce[service]["state"] == "expected-state"
+        oauth._pending_pkce.pop(service, None)
+
+
 # ── Callback Flow ──────────────────────────────────────
 
 
