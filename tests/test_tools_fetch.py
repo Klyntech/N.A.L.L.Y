@@ -32,9 +32,9 @@ class TestFetchTool:
 
 
 class TestVerifySSL:
-    def test_default_is_false(self):
-        """SSL verification is disabled by default."""
-        assert VERIFY_SSL is False
+    def test_default_is_true(self):
+        """SSL verification is enabled by default."""
+        assert VERIFY_SSL is True
 
     def test_env_var_true(self):
         """NALLY_VERIFY_SSL=true enables verification."""
