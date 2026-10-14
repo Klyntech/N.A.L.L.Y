@@ -55,7 +55,7 @@ tests/
 ├── test_verifier.py                       # Claim verifier (hallucination detection)
 ├── test_voice_formatter.py                # Text→speech formatting
 ├── test_voice_pipeline.py                 # Voice interaction pipeline
-└── test_websearch.py                      # Web search (Parallel.ai + DuckDuckGo)
+└── test_websearch.py                      # Web search (Tavily, Brave, DuckDuckGo fallback)
 ```
 
 ## Test Configuration
