@@ -71,7 +71,7 @@ nally/
 
 
 
-│   ├── websearch.py    # Web search (Parallel.ai + DuckDuckGo)
+│   ├── websearch.py    # Web search (Tavily + Brave + DuckDuckGo + Bing fallback)
 │   ├── fetch.py        # Web page fetch tool
 
 
