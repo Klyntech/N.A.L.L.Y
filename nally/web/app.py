@@ -114,7 +114,7 @@ security = HTTPBearer(auto_error=False)
 
 
 async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    if credentials and NALLY_ACCESS_TOKEN and hmac.compare_digest(credentials.credentials, NALLY_ACCESS_TOKEN):
+    if credentials and NALLY_ACCESS_TOKEN and hmac.compare_digest(credentials.credentials.encode("utf-8"), NALLY_ACCESS_TOKEN.encode("utf-8")):
         return True
     raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -134,7 +134,7 @@ async def verify_internal_auth(request: Request):
     nonce = request.headers.get("X-NALLY-INTERNAL-NONCE", "")
     client_ip = request.client.host if request.client else "unknown"
 
-    if not expected or not token or not hmac.compare_digest(token, expected):
+    if not expected or not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Unauthorized")
     try:
         issued_at = int(timestamp)
@@ -719,7 +719,7 @@ async def sse_events(request: Request):
     Uses query param auth since EventSource doesn't support headers."""
     # Auth via query param (EventSource can't set headers)
     token = request.query_params.get("token", "")
-    if not NALLY_ACCESS_TOKEN or not hmac.compare_digest(token, NALLY_ACCESS_TOKEN):
+    if not NALLY_ACCESS_TOKEN or not hmac.compare_digest(token.encode("utf-8"), NALLY_ACCESS_TOKEN.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     from ..agent.identity import resolve_session
@@ -1449,7 +1449,7 @@ async def telegram_webhook(token: str, request: Request):
     from ..config import TELEGRAM_BOT_TOKEN
 
     # Verify token matches
-    if not TELEGRAM_BOT_TOKEN or not hmac.compare_digest(token, TELEGRAM_BOT_TOKEN):
+    if not TELEGRAM_BOT_TOKEN or not hmac.compare_digest(token.encode("utf-8"), TELEGRAM_BOT_TOKEN.encode("utf-8")):
         raise HTTPException(status_code=403, detail="Invalid token")
 
     # Get the Telegram bot app
