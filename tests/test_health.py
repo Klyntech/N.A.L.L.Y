@@ -44,7 +44,6 @@ def test_web_search_health_reports_available_provider_without_exposing_keys(monk
     monkeypatch.setenv("TAVILY_API_KEY", "secret-tavily-key")
     monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "")
     monkeypatch.setattr(websearch, "DDGS", None)
-    monkeypatch.setattr("builtins.__import__", __import__)
     result = health._check_web_search()
     assert result["status"] == "ok"
     assert "tavily" in result["providers"]
@@ -53,12 +52,13 @@ def test_web_search_health_reports_available_provider_without_exposing_keys(monk
 
 
 def test_web_search_health_errors_when_no_provider_or_fallback_exists(monkeypatch):
+    import builtins
+
     from nally.tools import websearch
 
     monkeypatch.setenv("TAVILY_API_KEY", "")
     monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "")
     monkeypatch.setattr(websearch, "DDGS", None)
-    import builtins
 
     real_import = builtins.__import__
 
