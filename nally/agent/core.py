@@ -131,9 +131,10 @@ class NallyAgent:
                 pass
 
     def process(self, user_input: str, emit: Optional[Callable] = None) -> str:
-        """Process user input and return response."""
-        logger.user_input(user_input)
-        return self._llm_process(user_input, emit)
+        """Process one turn at a time to protect mutable conversation history."""
+        with self._lock:
+            logger.user_input(user_input)
+            return self._llm_process(user_input, emit)
 
     def _llm_process(self, user_input: str, emit: Optional[Callable] = None) -> str:
         """Process using LLM with LangGraph agent loop."""
@@ -267,6 +268,11 @@ class NallyAgent:
 
     def clear_history(self):
         """Clear conversation history and save summary."""
+        with self._lock:
+            self._clear_history_locked()
+
+    def _clear_history_locked(self):
+        """Clear history while the caller holds the agent lock."""
         self._save_history()
 
         if len(self.messages) > 2:
@@ -287,8 +293,9 @@ class NallyAgent:
         self._init_conversation()
 
     def get_history(self) -> List[dict]:
-        """Get conversation history."""
-        return self.messages
+        """Return a snapshot of conversation history."""
+        with self._lock:
+            return list(self.messages)
 
 
 # Lazy singleton — use get_agent() instead of importing agent directly
