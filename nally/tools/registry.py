@@ -79,8 +79,9 @@ class ToolRegistry:
                 del self.tools[name]
 
     def get(self, name: str) -> Optional[Tool]:
-        """Get a tool by name"""
-        return self.tools.get(name)
+        """Get a tool by name."""
+        with self._lock:
+            return self.tools.get(name)
 
     def get_all_tools(self) -> List[dict]:
         """Get all tools as OpenAI schemas"""
@@ -96,7 +97,8 @@ class ToolRegistry:
             success is determined by the tool itself returning normally (no exception)
             OR by checking if the result starts with "Error" as a fallback.
         """
-        tool = self.tools.get(name)
+        with self._lock:
+            tool = self.tools.get(name)
         if not tool:
             # Lazy-load: if tools haven't been loaded yet (e.g., early agent call
             # before web lifespan), try to load now. This prevents the
@@ -106,7 +108,8 @@ class ToolRegistry:
 
                 if not _loaded:
                     load_all_tools()
-                    tool = self.tools.get(name)
+                    with self._lock:
+                        tool = self.tools.get(name)
             except Exception:
                 pass
         if not tool:
