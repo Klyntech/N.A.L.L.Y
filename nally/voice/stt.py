@@ -275,9 +275,9 @@ class DeepgramStreamingSTT:
 
                             _orig_sync = _sync_ws.connect
 
-                            def _sync_no_proxy(url, additional_headers=None, **k):
+                            def _sync_no_proxy(url, additional_headers=None, _connect=_orig_sync, **k):
                                 k["proxy"] = None
-                                return _orig_sync(url, additional_headers=additional_headers, **k)
+                                return _connect(url, additional_headers=additional_headers, **k)
 
                             # Best-effort: patch sync client if present.
                             pass
