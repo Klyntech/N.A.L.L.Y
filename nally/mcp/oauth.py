@@ -90,10 +90,13 @@ def _get_fernet():
 
 
 def _encrypt_token(plaintext: str) -> str:
-    """Encrypt a token string. Returns plaintext if encryption unavailable."""
+    """Encrypt a token string; never persist a new OAuth token in plaintext."""
     fernet = _get_fernet()
     if fernet is None:
-        return plaintext
+        raise RuntimeError(
+            "OAuth token storage requires cryptography and a valid NALLY_CRED_KEY; "
+            "configure the key before connecting an OAuth service."
+        )
     return fernet.encrypt(plaintext.encode()).decode()
 
 
