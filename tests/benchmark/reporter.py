@@ -101,7 +101,7 @@ def generate_json_report(
             key = (r["task_id"], base)
             paired[key][m] = r["score"]
         lifts = []
-        for (_tid, base), scores in paired.items():
+        for (_, _base), scores in paired.items():
             if "nally" in scores and "raw" in scores:
                 lifts.append(scores["nally"] - scores["raw"])
         if lifts:
