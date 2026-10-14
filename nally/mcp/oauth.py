@@ -500,7 +500,7 @@ async def start_notion_oauth(db_path: str) -> str:
     return f"{auth_endpoint}?{urlencode(params)}"
 
 
-async def exchange_notion_code(code: str, db_path: str, state: str | None = None) -> bool:
+async def exchange_notion_code(code: str, db_path: str, state: str) -> bool:
     """Exchange Notion authorization code for tokens. Returns True on success."""
 
     # Try in-memory first (same-process fast path), fall back to SQLite
@@ -508,7 +508,7 @@ async def exchange_notion_code(code: str, db_path: str, state: str | None = None
     if not state_data:
         logger.warning("No pending Notion OAuth state (memory or SQLite)")
         return False
-    if state is not None and not hmac.compare_digest(str(state_data.get("state", "")), state):
+    if not state or not hmac.compare_digest(str(state_data.get("state", "")), state):
         logger.warning("Rejected Notion OAuth callback with mismatched state")
         return False
     _pending_pkce.pop("notion", None)
@@ -620,14 +620,14 @@ async def start_google_oauth(service: str, db_path: str) -> str:
     return f"{GOOGLE_AUTH_ENDPOINT}?{urlencode(params)}"
 
 
-async def exchange_google_code(code: str, db_path: str, state: str | None = None) -> bool:
+async def exchange_google_code(code: str, db_path: str, state: str) -> bool:
     """Exchange Google authorization code for tokens. Returns True on success."""
 
     state_data = _pending_pkce.get("google") or load_oauth_state(db_path, "google")
     if not state_data:
         logger.warning("No pending Google OAuth state")
         return False
-    if state is not None and not hmac.compare_digest(str(state_data.get("state", "")), state):
+    if not state or not hmac.compare_digest(str(state_data.get("state", "")), state):
         logger.warning("Rejected Google OAuth callback with mismatched state")
         return False
     _pending_pkce.pop("google", None)
@@ -739,14 +739,14 @@ async def start_higgsfield_oauth(db_path: str) -> str:
     return f"{HIGGSFIELD_AUTH_ENDPOINT}?{urlencode(params)}"
 
 
-async def exchange_higgsfield_code(code: str, db_path: str, state: str | None = None) -> bool:
+async def exchange_higgsfield_code(code: str, db_path: str, state: str) -> bool:
     """Exchange Higgsfield authorization code for tokens. Returns True on success."""
 
     state_data = _pending_pkce.get("higgsfield") or load_oauth_state(db_path, "higgsfield")
     if not state_data:
         logger.warning("No pending Higgsfield OAuth state (memory or SQLite)")
         return False
-    if state is not None and not hmac.compare_digest(str(state_data.get("state", "")), state):
+    if not state or not hmac.compare_digest(str(state_data.get("state", "")), state):
         logger.warning("Rejected Higgsfield OAuth callback with mismatched state")
         return False
     _pending_pkce.pop("higgsfield", None)
@@ -840,7 +840,7 @@ async def start_github_oauth(db_path: str) -> str:
     return f"{GITHUB_AUTH_ENDPOINT}?{urlencode(params)}"
 
 
-async def exchange_github_code(code: str, db_path: str, state: str | None = None) -> bool:
+async def exchange_github_code(code: str, db_path: str, state: str) -> bool:
     """Exchange GitHub authorization code for tokens. Returns True on success."""
 
     creds = _get_github_credentials()
@@ -852,7 +852,7 @@ async def exchange_github_code(code: str, db_path: str, state: str | None = None
     if not state_data:
         logger.warning("No pending GitHub OAuth state (memory or SQLite)")
         return False
-    if state is not None and not hmac.compare_digest(str(state_data.get("state", "")), state):
+    if not state or not hmac.compare_digest(str(state_data.get("state", "")), state):
         logger.warning("Rejected GitHub OAuth callback with mismatched state")
         return False
     _pending_pkce.pop("github", None)
