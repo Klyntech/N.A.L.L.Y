@@ -125,33 +125,60 @@ def _search_duckduckgo(query: str, num_results: int = 3) -> str:
 
 
 def _search_fallback(query: str, num_results: int = 3) -> str:
-    """Last-resort DuckDuckGo Lite HTML search."""
-    url = f"https://lite.duckduckgo.com/lite/?q={urllib.parse.quote_plus(query)}"
-    try:
-        with httpx.Client(timeout=12.0, follow_redirects=True) as client:
-            response = client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Nally/1.0)"})
-            response.raise_for_status()
+    """Last resort: try DuckDuckGo Lite, then an independent Bing HTML endpoint."""
+    encoded_query = urllib.parse.quote_plus(query)
+    providers = [
+        (
+            "DuckDuckGo Lite",
+            f"https://lite.duckduckgo.com/lite/?q={encoded_query}",
+            ("a.result-link", "a.result__a"),
+        ),
+        (
+            "Bing",
+            f"https://www.bing.com/search?q={encoded_query}",
+            (".b_algo h2 a",),
+        ),
+    ]
+    errors = []
 
-        from bs4 import BeautifulSoup
+    for provider, url, selectors in providers:
+        try:
+            with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+                response = client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Nally/1.0)"})
+                response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        results = []
-        for anchor in soup.select("a.result-link, a.result__a"):
-            href = anchor.get("href", "")
-            title = anchor.get_text(" ", strip=True)
-            if title and href.startswith(("http://", "https://")):
-                results.append({"title": title, "url": href, "content": ""})
-            if len(results) >= num_results:
-                break
+            from bs4 import BeautifulSoup
 
-        if results:
-            return _format_results(results, num_results)
-        logger.warning("DuckDuckGo Lite returned HTML but no parseable result links")
-        return f"Error: Web search returned no parseable results for query: {query}"
-    except Exception as exc:
-        logger.warning("DuckDuckGo HTML fallback failed (%s)", type(exc).__name__)
-        return f"Error: All web search providers failed ({type(exc).__name__}). Query: {query}"
+            soup = BeautifulSoup(response.text, "html.parser")
+            results = []
+            seen_urls = set()
+            for selector in selectors:
+                for anchor in soup.select(selector):
+                    href = anchor.get("href", "")
+                    title = anchor.get_text(" ", strip=True)
+                    if (
+                        title
+                        and href.startswith(("http://", "https://"))
+                        and href not in seen_urls
+                    ):
+                        results.append({"title": title, "url": href, "content": ""})
+                        seen_urls.add(href)
+                    if len(results) >= num_results:
+                        break
+                if len(results) >= num_results:
+                    break
 
+            if results:
+                logger.info("Web search fallback succeeded with %s", provider)
+                return _format_results(results, num_results)
+            errors.append(f"{provider}: no parseable results")
+            logger.warning("%s fallback returned no parseable result links", provider)
+        except Exception as exc:
+            errors.append(f"{provider}: {type(exc).__name__}")
+            logger.warning("%s fallback failed (%s)", provider, type(exc).__name__)
+
+    detail = "; ".join(errors)
+    return f"Error: Web search fallback providers failed ({detail}). Query: {query}"
 
 class WebSearch(Tool):
     """Search the web using Tavily, Brave, and DuckDuckGo fallbacks."""
