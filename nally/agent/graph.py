@@ -1458,7 +1458,7 @@ def tool_executor(state: AgentState) -> AgentState:
         # Return up to MAX_TOOL_OUTPUT (50k) for LLM truth; registry already capped.
         # Previous 2000 hid evidence from next LLM turn + verifier.
         _finish(success, str(result)[:50_000])
-        return ToolMessage(content=str(result)[:MAX_TOOL_OUTPUT], tool_call_id=tool_id)
+        return ToolMessage(content=str(result)[:50_000], tool_call_id=tool_id)
 
     tool_messages = []
 
