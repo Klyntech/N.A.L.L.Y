@@ -26,7 +26,6 @@ class EventType(StrEnum):
     # Tool lifecycle
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
-    TOOL_VERIFICATION = "tool_verification"
     CONFIRMATION_REQUIRED = "confirmation_required"
 
     # System
@@ -36,7 +35,6 @@ class EventType(StrEnum):
 
     # Verification
     VERIFICATION = "verification"
-    CRITIQUE = "critique"
 
     # Errors
     ERROR = "error"
@@ -181,10 +179,6 @@ class EventEmitter:
     def verification(self, findings: dict):
         """Emit claim verification results."""
         self.emit(EventType.VERIFICATION, findings, namespace="system")
-
-    def critique(self, critique_data: dict):
-        """Emit critique pipeline results."""
-        self.emit(EventType.CRITIQUE, critique_data, namespace="system")
 
     # ── Error Events ───────────────────────────────────
 
