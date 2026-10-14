@@ -590,7 +590,6 @@ def test_exchange_google_code_success(tmp_db):
         assert token.access_token == "google_token_abc"
 
 
-
 def test_storage_encrypts_oauth_client_secret_at_rest(storage):
     info = OAuthClientInformationFull(
         client_id="client_for_encryption_test",
