@@ -36,7 +36,7 @@ N.A.L.L.Y/
 │   │   ├── permissions.py  # PermissionGate (allow/ask/deny per tool)
 │   │   ├── system.py       # RunCommand
 │   │   ├── files.py        # ReadFile, FileOps
-│   │   ├── websearch.py    # Web search (Parallel.ai primary, DuckDuckGo fallback)
+│   │   ├── websearch.py    # Web search (Tavily, Brave, DuckDuckGo fallback)
 │   │   ├── fetch.py        # Web page fetch tool
 │   │   ├── receipts.py     # HMAC-signed tool execution receipts (tamper-evident audit trail)
 │   │   └── __init__.py     # load_all_tools() — fixed core toolset only
@@ -183,7 +183,8 @@ REDIS_TOKEN=...                  # Layerbase REST token
 # Integrations
 GOOGLE_CREDENTIALS_FILE=...      # Path to Google credentials JSON (Gmail/Drive/Calendar MCP)
 TELEGRAM_BOT_TOKEN=...           # Telegram bot token
-PARALLEL_API_KEY=...             # Parallel.ai API key (web search)
+TAVILY_API_KEY=...               # Optional Tavily web search API key
+BRAVE_SEARCH_API_KEY=...         # Optional Brave Search API key
 SLACK_BOT_TOKEN=...              # Slack bot token
 SLACK_WEBHOOK_URL=...            # Slack webhook URL
 DISCORD_BOT_TOKEN=...            # Discord bot token
