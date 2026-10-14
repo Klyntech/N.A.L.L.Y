@@ -84,7 +84,7 @@ class BridgeTool(Tool):
         import asyncio
 
         try:
-            result, success = asyncio.run(bridge_registry.send_tool_request(device_id, tool, args))
+            result, _success = asyncio.run(bridge_registry.send_tool_request(device_id, tool, args))
         except Exception as e:
             return f"Error communicating with bridge: {e}"
 

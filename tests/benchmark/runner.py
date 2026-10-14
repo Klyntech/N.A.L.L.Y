@@ -450,7 +450,7 @@ def main():
             by_cat.setdefault(t.category, []).append(t)
         sampled = []
         per_cat = max(1, args.pilot // len(by_cat))
-        for cat, lst in by_cat.items():
+        for _cat, lst in by_cat.items():
             k = min(len(lst), per_cat)
             sampled.extend(_rnd.sample(lst, k))
         # Fill remainder

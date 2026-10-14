@@ -288,7 +288,6 @@ async def save_bot_media(bot, message, session_id: str) -> tuple[Optional[Path],
     try:
         inbox = _get_inbox_dir(session_id)
         file_obj = None
-        ext = ""
         name = ""
 
         if message.photo:
@@ -296,7 +295,6 @@ async def save_bot_media(bot, message, session_id: str) -> tuple[Optional[Path],
             photo = message.photo[-1]
             file_obj = await photo.get_file()
             name = f"photo_{int(time.time())}.jpg"
-            ext = ".jpg"
         elif message.document:
             doc = message.document
             if doc.file_size and doc.file_size > MAX_FILE_SIZE:
@@ -304,7 +302,7 @@ async def save_bot_media(bot, message, session_id: str) -> tuple[Optional[Path],
             file_obj = await doc.get_file()
             name = doc.file_name or f"file_{int(time.time())}.bin"
             if "." in name:
-                ext = "." + name.rsplit(".", 1)[-1].lower()
+                "." + name.rsplit(".", 1)[-1].lower()
             safe_name_input = name
             name = re.sub(r"[^a-zA-Z0-9._-]", "_", safe_name_input)
         else:
@@ -398,9 +396,7 @@ def _should_use_vision() -> bool:
         if any(k in m for k in vision_keywords):
             return True
         # Muse Spark 1.2 family is multimodal (text+image+video+audio+pdf) per Meta
-        if "muse" in m:
-            return True
-        return False
+        return "muse" in m
     except Exception:
         return False
 

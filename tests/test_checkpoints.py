@@ -66,10 +66,10 @@ def test_checkpointer_begin_seal_and_rewind(tmp_path: Path):
     assert p.read_text() == "v2"
 
     # Rewind before first (turn 0) should restore v1
-    plan0 = cp.restore_plan(0)  # not found -> before first
+    cp.restore_plan(0)  # not found -> before first
     # For our simplified logic, target < first goes to earliest before
     # Instead drop from turn 1
-    cp2 = Checkpointer(max_turns=10)
+    Checkpointer(max_turns=10)
     # Test drop
     cp.drop_turns_from(2)
     assert len(cp.list_turns()) == 1

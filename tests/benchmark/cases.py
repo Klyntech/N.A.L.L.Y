@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Callable, List, Optional
 
 
-class TaskCategory(str, Enum):
+class TaskCategory(StrEnum):
     TOOL_SELECTION = "tool_selection"
     MULTI_STEP = "multi_step"
     FAILURE_RECOVERY = "failure_recovery"

@@ -376,7 +376,6 @@ def _make_emit(chat_id: int):
         safe_tc_id = tc_id[:max_tc_len] if len(tc_id) > max_tc_len else tc_id
 
         approve_cb = f"approve:{safe_tc_id}"
-        deny_cb = f"deny:{safe_tc_id}"
 
         # Always store mapping so callback handler can resolve IDs
         with _callback_id_lock:
@@ -431,7 +430,7 @@ def _make_emit_standalone(chat_id: int, session_id: str = ""):
     thoughts) are written to SQLite so the bot process can poll and edit
     the Telegram message progressively.
     """
-    loop = asyncio.get_running_loop()
+    asyncio.get_running_loop()
 
     def emit(event: str, data: dict):
         # Write ALL streaming events to SQLite for the bot process to pick up.

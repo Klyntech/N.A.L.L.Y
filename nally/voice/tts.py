@@ -253,9 +253,9 @@ class ElevenLabsBackend(TTSBackend):
                 #    chunk and keep leftover input samples for the next cycle.
                 input_acc = np.array([], dtype=np.int16)
                 out_chunk = int(target_sample_rate * 0.02)  # 960 samples @48k — exact 20ms, do not drift
-                ratio = eleven_sr / target_sample_rate  # ~0.459
+                eleven_sr / target_sample_rate  # ~0.459
                 # Exact input needed for one output chunk: 960 * 22050/48000 = 441
-                needed_in = int(round(out_chunk * eleven_sr / target_sample_rate))  # 441 @22050→48000
+                needed_in = round(out_chunk * eleven_sr / target_sample_rate)  # 441 @22050→48000
                 msg_count = 0
                 audio_bytes_in = 0
                 chunks_out = 0
@@ -649,7 +649,7 @@ def _resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
         resampled = resample_poly(audio, up, down, window=("kaiser", 5.0))
         # resample_poly can produce slightly longer/shorter due to filter delay;
         # trim/pad to exact expected length for deterministic chunking downstream.
-        expected = int(round(len(audio) * dst_rate / src_rate))
+        expected = round(len(audio) * dst_rate / src_rate)
         if len(resampled) > expected:
             resampled = resampled[:expected]
         elif len(resampled) < expected:
@@ -661,7 +661,7 @@ def _resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
         logger.debug(f"scipy resample failed ({e}), falling back to linear")
     # Fallback: linear interp (original, hoarse but functional)
     audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
-    n_dst = int(round(len(audio) * dst_rate / src_rate))
+    n_dst = round(len(audio) * dst_rate / src_rate)
     if n_dst <= 0:
         return b""
     resampled = np.interp(np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio)

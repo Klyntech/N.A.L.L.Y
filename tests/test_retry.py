@@ -72,7 +72,7 @@ class TestRetryTransient:
             call_count[0] += 1
             raise Exception("File not found")
 
-        result, exc = retry_transient(func, max_attempts=3, backoff_base=0.01)
+        result, _exc = retry_transient(func, max_attempts=3, backoff_base=0.01)
         assert result is None
         assert call_count[0] == 1  # No retry
 
@@ -86,7 +86,7 @@ class TestRetryTransient:
             return "ok"
 
         start = time.monotonic()
-        result, exc = retry_transient(func, max_attempts=3, backoff_base=0.05, backoff_max=0.5)
+        result, _exc = retry_transient(func, max_attempts=3, backoff_base=0.05, backoff_max=0.5)
         elapsed = time.monotonic() - start
 
         assert result == "ok"
@@ -100,7 +100,7 @@ class TestRetryTransient:
             call_count[0] += 1
             raise Exception("timeout")
 
-        result, exc = retry_transient(func, max_attempts=1, backoff_base=0.01)
+        result, _exc = retry_transient(func, max_attempts=1, backoff_base=0.01)
         assert result is None
         assert call_count[0] == 1
 

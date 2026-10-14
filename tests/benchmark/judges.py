@@ -121,7 +121,6 @@ def judge_failure_recovery(task: Task, receipts: list, response: str) -> JudgeRe
     else:
         score = 0.0
         details = "Falsely claimed success despite tool failure"
-        passed = False
 
     return JudgeResult(
         score=score,

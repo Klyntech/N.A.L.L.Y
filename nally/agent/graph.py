@@ -341,9 +341,7 @@ _RETRYABLE_ERROR_HINTS = (
 def _tool_is_destructive(tool_name: str, tool_args: dict) -> bool:
     if tool_name in _NON_RETRYABLE_TOOLS:
         return True
-    if tool_name == "file_ops" and tool_args.get("action") in ("delete", "move", "copy"):
-        return True
-    return False
+    return bool(tool_name == "file_ops" and tool_args.get("action") in ("delete", "move", "copy"))
 
 
 def _is_transient_error(result: str) -> bool:
@@ -1464,7 +1462,6 @@ def tool_executor(state: AgentState) -> AgentState:
         return ToolMessage(content=str(result)[:MAX_TOOL_OUTPUT], tool_call_id=tool_id)
 
     tool_messages = []
-    waits = []
 
     # Capture current tracing context BEFORE dispatching to pool threads
     # (thread-local span stack does not propagate into ThreadPoolExecutor).

@@ -6,10 +6,10 @@ Code, tables, long lists, and thinking are stripped or summarized for TTS.
 
 import re
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class VoiceMode(str, Enum):
+class VoiceMode(StrEnum):
     """Voice output mode."""
 
     FULL = "full"  # Speak entire response (short responses)

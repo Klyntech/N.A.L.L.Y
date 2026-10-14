@@ -533,7 +533,7 @@ class NallyLLM:
         cache_key: str = "default",
         max_tokens: int = 4096,
     ) -> dict:
-        client = self._get_active_client()
+        self._get_active_client()
 
         # Route to best model for this task
         model = self._select_model(messages, tools)

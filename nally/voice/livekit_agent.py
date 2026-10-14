@@ -90,7 +90,7 @@ def _wav_to_frames(wav_bytes: bytes, target_rate: int = OUTPUT_SAMPLE_RATE) -> l
     if sample_rate != target_rate:
         # Free-tier TTS often 22050→48000: use proper resampler, not linear (hoarse + speed drift)
         orig_len = len(samples)
-        n_expected = int(round(orig_len * target_rate / sample_rate))
+        n_expected = round(orig_len * target_rate / sample_rate)
         resampled = None
         # Try soxr HQ
         try:

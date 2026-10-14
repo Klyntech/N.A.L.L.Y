@@ -621,7 +621,6 @@ async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
 
     # Identity: same brain (user:{owner}) for memory, but per-route history isolation (web:default)
     # Client-supplied session_id is kept only for backward compatibility.
-    session_id = request.session_id
     from ..agent.identity import resolve_session
 
     ref = resolve_session("web")

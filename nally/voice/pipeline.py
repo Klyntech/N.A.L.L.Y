@@ -81,7 +81,7 @@ def resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
         up = int(dst_rate // g)
         down = int(src_rate // g)
         resampled = resample_poly(audio, up, down, window=("kaiser", 5.0))
-        expected = int(round(len(audio) * dst_rate / src_rate))
+        expected = round(len(audio) * dst_rate / src_rate)
         if len(resampled) > expected:
             resampled = resampled[:expected]
         elif len(resampled) < expected:
@@ -93,7 +93,7 @@ def resample_pcm(pcm_int16: bytes, src_rate: int, dst_rate: int) -> bytes:
         pass
     # Fallback linear
     audio = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32)
-    n_dst = int(round(len(audio) * dst_rate / src_rate))
+    n_dst = round(len(audio) * dst_rate / src_rate)
     if n_dst <= 0:
         return b""
     resampled = np.interp(np.linspace(0, len(audio) - 1, n_dst), np.arange(len(audio)), audio)
@@ -335,9 +335,7 @@ class VoicePipeline:
             return False
         if s[-1] in ".!?":
             return True
-        if len(s) >= 120:
-            return True
-        return False
+        return len(s) >= 120
 
     async def _tts_synth_worker(self):
         # Watchdog: detect when audio is being sent but Deepgram produces

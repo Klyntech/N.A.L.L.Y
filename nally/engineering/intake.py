@@ -133,9 +133,7 @@ def is_full_build_request(text: str) -> bool:
         r"\bone[- ]line\b",
         r"\bsmall (function|script|piece)\b",
     ]
-    if any(re.search(p, lowered) for p in exclusions):
-        return False
-    return True
+    return not any(re.search(p, lowered) for p in exclusions)
 
 
 def parse_assumptions(text: str) -> List[Assumption]:

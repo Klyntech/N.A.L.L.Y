@@ -47,7 +47,7 @@ class StartupDisplay:
         """
         connected = [s for s in servers if s["status"] == "ok"]
         failed = [s for s in servers if s["status"] in ("timeout", "error")]
-        awaiting = [s for s in servers if s["status"] == "awaiting"]
+        [s for s in servers if s["status"] == "awaiting"]
 
         total = len(servers)
         ok_count = len(connected)

@@ -111,9 +111,7 @@ class BargeInDetector:
             return False
 
         self._content_word_seen = True
-        if time.time() >= (self._grace_end_time or 0):
-            return True
-        return False
+        return time.time() >= (self._grace_end_time or 0)
 
     # ── Confirmation ──
 

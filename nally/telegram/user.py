@@ -431,7 +431,6 @@ async def _handle_message(event: events.NewMessage.Event):
     is_voice = bool(getattr(msg, "voice", None) or getattr(msg, "audio", None))
     is_photo = bool(getattr(msg, "photo", None))
     is_document = bool(getattr(msg, "document", None))
-    has_media = is_voice or is_photo or is_document
 
     text = msg.text or ""
     # Telethon: caption for media is in msg.text, file caption same field
