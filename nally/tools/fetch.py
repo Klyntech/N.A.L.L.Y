@@ -102,7 +102,7 @@ def _validate_public_url(url: str) -> str | None:
         if any(not address.is_global for address in addresses):
             return "Private, local, and non-public network targets are blocked"
         return None
-    except (OSError, ValueError, socket.gaierror):
+    except (OSError, ValueError):
         return "Hostname could not be safely resolved"
 
 
