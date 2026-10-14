@@ -28,8 +28,7 @@ class ShellSessions(Tool):
                 if not sessions:
                     return "No managed shell sessions."
                 return "\n".join(
-                    f"{item.get('session_id', '?')} [{item.get('status', 'unknown')}] "
-                    f"{item.get('command', '')}"
+                    f"{item.get('session_id', '?')} [{item.get('status', 'unknown')}] {item.get('command', '')}"
                     for item in sessions
                 )
             if not session_id:
