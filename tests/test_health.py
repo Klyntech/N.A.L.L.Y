@@ -10,7 +10,8 @@ from nally.web import health
 
 def test_tools_are_not_ready_when_core_toolset_is_missing(monkeypatch):
     class EmptyRegistry:
-        tools = {}
+        def __init__(self):
+            self.tools = {}
 
         def get_all_tools(self):
             return []
