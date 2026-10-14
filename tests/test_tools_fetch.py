@@ -1,11 +1,12 @@
 """Tests for nally.tools.fetch — FetchTool with retry and SSL config."""
 
 import os
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nally.tools.fetch import VERIFY_SSL, FetchTool, _fetch_url
+from nally.tools.fetch import VERIFY_SSL, FetchTool, _fetch_url, _validate_public_url
 
 
 @pytest.fixture
@@ -64,7 +65,9 @@ class TestVerifySSL:
 class TestFetchUrlRetry:
     def test_retry_on_500(self):
         """500 errors should be retried then fail."""
-        with patch("nally.tools.fetch.httpx.Client") as mock_client_cls:
+        with patch("nally.tools.fetch._validate_public_url", return_value=None), patch(
+            "nally.tools.fetch.httpx.Client"
+        ) as mock_client_cls:
             mock_client = MagicMock()
             mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -84,7 +87,9 @@ class TestFetchUrlRetry:
         """Timeout errors should be retried."""
         import httpx
 
-        with patch("nally.tools.fetch.httpx.Client") as mock_client_cls:
+        with patch("nally.tools.fetch._validate_public_url", return_value=None), patch(
+            "nally.tools.fetch.httpx.Client"
+        ) as mock_client_cls:
             mock_client = MagicMock()
             mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -93,3 +98,25 @@ class TestFetchUrlRetry:
             result = _fetch_url("https://example.com")
             assert "Error" in result
             assert "timed out" in result.lower()
+
+
+
+class TestFetchSSRFProtection:
+    def test_blocks_loopback_and_private_literal_addresses(self):
+        assert _validate_public_url("http://127.0.0.1") is not None
+        assert _validate_public_url("http://192.168.1.10") is not None
+        assert _validate_public_url("http://[::1]") is not None
+
+    def test_blocks_hostname_resolving_to_private_address(self):
+        private_record = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            6,
+            "",
+            ("10.0.0.5", 80),
+        )
+        with patch("nally.tools.fetch.socket.getaddrinfo", return_value=[private_record]):
+            assert _validate_public_url("http://internal.example") is not None
+
+    def test_rejects_credentials_in_url(self):
+        assert _validate_public_url("https://user:pass@example.com") is not None
