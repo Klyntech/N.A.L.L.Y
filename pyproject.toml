@@ -94,3 +94,11 @@ exclude_lines = [
     "pass",
     "except ImportError",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"nally/agent/context.py" = ["E402"]
+"nally/memory/store_v2.py" = ["E402"]
+"nally/telegram/voice_call.py" = ["E402"]
+"run_bot_standalone.py" = ["E402"]
+"run_tg_user.py" = ["E402"]
+"tests/benchmark/runner.py" = ["E402"]
