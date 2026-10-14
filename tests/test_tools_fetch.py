@@ -65,9 +65,10 @@ class TestVerifySSL:
 class TestFetchUrlRetry:
     def test_retry_on_500(self):
         """500 errors should be retried then fail."""
-        with patch("nally.tools.fetch._validate_public_url", return_value=None), patch(
-            "nally.tools.fetch.httpx.Client"
-        ) as mock_client_cls:
+        with (
+            patch("nally.tools.fetch._validate_public_url", return_value=None),
+            patch("nally.tools.fetch.httpx.Client") as mock_client_cls,
+        ):
             mock_client = MagicMock()
             mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -120,7 +121,6 @@ class TestFetchSSRFProtection:
     def test_rejects_credentials_in_url(self):
         assert _validate_public_url("https://user:pass@example.com") is not None
 
-
     def test_blocks_redirect_to_private_network(self):
         response = MagicMock()
         response.status_code = 302
@@ -142,7 +142,6 @@ class TestFetchSSRFProtection:
 
         assert "Unsafe redirect blocked" in result
         client.get.assert_called_once()
-
 
 
 def test_production_forces_ssl_verification():
