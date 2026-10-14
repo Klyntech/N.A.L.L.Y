@@ -20,8 +20,8 @@ MAX_OUTPUT = 50000
 DEFAULT_TIMEOUT = 15.0
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-# SSL verification — disabled by default for proxy environments, toggle with NALLY_VERIFY_SSL
-VERIFY_SSL = os.environ.get("NALLY_VERIFY_SSL", "false").lower() in ("true", "1", "yes")
+# SSL verification is enabled by default; disable explicitly only for controlled proxy environments.
+VERIFY_SSL = os.environ.get("NALLY_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
 
 
 def _strip_html(html: str) -> str:
