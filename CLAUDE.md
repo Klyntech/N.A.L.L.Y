@@ -87,7 +87,7 @@ N.A.L.L.Y/
 ├── web/                    # Frontend (HTML/JS/CSS — Jarvis UI; web/mvp/ = Three.js 3D avatar)
 ├── skills/                 # Skill definitions (skills/*/SKILL.md)
 ├── plugins/                # User plugins
-├── tests/                  # Test suite (pytest — 29 test files: 28 in tests/ + tests/harness_eval/)
+├── tests/                  # Pytest suite for agent loop, tools, permissions, and integrations
 ├── data/                   # SQLite DB (data/nally.db, data/nally_memory.db), user profile, todos, generated images (runtime, gitignored)
 ├── logs/                   # Application logs (runtime, gitignored)
 ├── Dockerfile              # Container image
