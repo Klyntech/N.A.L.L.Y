@@ -1,6 +1,7 @@
 """Tests for nally.tools.fetch — FetchTool with retry and SSL config."""
 
 import os
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,7 +14,23 @@ def fetch_tool():
     return FetchTool()
 
 
+@pytest.fixture(autouse=True)
+def public_dns_for_fetch_tests(monkeypatch):
+    """Keep unit tests deterministic without relying on external DNS."""
+    monkeypatch.setattr(
+        "nally.tools.fetch.socket.getaddrinfo",
+        lambda host, port, type=socket.SOCK_STREAM: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port or 443))
+        ],
+    )
+
+
 class TestFetchTool:
+    def test_private_ip_literal_is_blocked(self, fetch_tool):
+        result = fetch_tool.execute(url="http://127.0.0.1:8000/health")
+        assert "Error" in result
+        assert "network destinations" in result
+
     def test_invalid_scheme(self, fetch_tool):
         result = fetch_tool.execute(url="ftp://example.com")
         assert "Error" in result
