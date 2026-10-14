@@ -9,7 +9,7 @@ full loop can be exercised in tests with no real side effects.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 from .models import EngineeringError
 
