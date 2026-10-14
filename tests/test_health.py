@@ -22,6 +22,21 @@ def test_tools_are_not_ready_when_core_toolset_is_missing(monkeypatch):
     assert {"run_command", "read_file", "file_ops", "fetch"} <= set(result["missing"])
 
 
+def test_tools_are_not_ready_when_web_search_is_missing(monkeypatch):
+    class RegistryWithoutWebSearch:
+        def get_all_tools(self):
+            return [
+                {"function": {"name": name}}
+                for name in ("run_command", "read_file", "file_ops", "fetch")
+            ]
+
+    monkeypatch.setattr("nally.tools.registry.registry", RegistryWithoutWebSearch())
+    monkeypatch.setattr("nally.tools._loaded", True)
+    result = health._check_tools()
+    assert result["status"] == "not_ready"
+    assert result["missing"] == ["web_search"]
+
+
 def test_readiness_returns_503_until_tools_are_registered(monkeypatch):
     async def database_ok():
         return {"status": "ok", "engine": "sqlite"}
