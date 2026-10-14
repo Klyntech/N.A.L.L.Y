@@ -40,7 +40,6 @@ Keep each skill focused, actionable, and consistent with the actual tools in the
 | `devops` | Deployment and infrastructure |
 | `diagnose` | Troubleshooting and security audits |
 | `docs` | READMEs, API docs, and tutorials |
-| `image-gen` | Image-generation prompt guidance |
 | `plan` | Task decomposition reference |
 | `productivity` | General productivity and templates |
 | `refactor` | Code quality and maintainability |
@@ -48,7 +47,6 @@ Keep each skill focused, actionable, and consistent with the actual tools in the
 | `ship` | Git and deployment workflow guidance |
 | `test-writer` | Unit-test authoring reference |
 | `ui-design` | Layout, accessibility, and UI design |
-| `video-edit` | Higgsfield video-editing reference |
 
 A reference document may mention tools that are not available in the current core registry. The live registry and permission gate take precedence over the document.
 
