@@ -163,3 +163,30 @@ def test_web_search_clamps_num_results_and_falls_back():
 
         tool.execute(query="test", num_results=0)
         assert fallback.call_args.args == ("test", 1)
+
+
+
+def test_html_fallback_uses_bing_when_duckduckgo_has_no_results():
+    from nally.tools.websearch import _search_fallback
+
+    ddg_response = MagicMock()
+    ddg_response.text = "<html><body>No results</body></html>"
+    ddg_response.raise_for_status.return_value = None
+    bing_response = MagicMock()
+    bing_response.text = (
+        '<html><body><li class="b_algo"><h2><a href="https://example.com">'
+        "Independent result</a></h2></li></body></html>"
+    )
+    bing_response.raise_for_status.return_value = None
+
+    with patch("nally.tools.websearch.httpx.Client") as client_cls:
+        client = MagicMock()
+        client.get.side_effect = [ddg_response, bing_response]
+        client_cls.return_value.__enter__.return_value = client
+        client_cls.return_value.__exit__.return_value = False
+
+        result = _search_fallback("test query", 2)
+
+    assert "Independent result" in result
+    assert "https://example.com" in result
+    assert client.get.call_count == 2
