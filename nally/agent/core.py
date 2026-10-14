@@ -13,14 +13,33 @@ from ..utils.logger import logger
 
 
 def _get_tool_schemas() -> list[dict]:
-    """Initialize core tools before exposing schemas to the model."""
+    """Initialize core tools and refuse partial registration before a model call."""
+    from .. import tools as tools_module
     from ..tools import load_all_tools
     from ..tools.registry import registry
 
     load_all_tools()
     tools = registry.get_all_tools()
-    if not tools:
-        raise RuntimeError("Nally tools failed to initialize; refusing to run an agent turn without tools.")
+    available = {item["function"]["name"] for item in tools}
+    required = {
+        "run_command",
+        "shell_sessions",
+        "shell_output",
+        "shell_stdin",
+        "read_file",
+        "file_ops",
+        "web_search",
+        "fetch",
+        "remember",
+        "recall",
+        "forget",
+        "agent",
+        "bridge_execute",
+    }
+    missing = sorted(required - available)
+    if not tools_module._loaded or missing:
+        detail = ", ".join(missing) if missing else "loader incomplete"
+        raise RuntimeError(f"Nally core tools are not ready; refusing agent turn. Missing: {detail}")
     return tools
 
 
