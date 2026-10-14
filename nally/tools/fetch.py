@@ -24,8 +24,12 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
-# SSL verification is enabled by default; disable explicitly only for controlled proxy environments.
-VERIFY_SSL = os.environ.get("NALLY_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
+# TLS verification may be disabled only in local development. Production always verifies certificates.
+_production = os.getenv("NALLY_ENV", "").lower() == "production" or bool(os.getenv("RENDER"))
+_requested_ssl_verification = os.getenv("NALLY_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
+VERIFY_SSL = True if _production else _requested_ssl_verification
+if _production and not _requested_ssl_verification:
+    logger.warning("Ignoring NALLY_VERIFY_SSL=false in production; TLS verification remains enabled")
 
 
 def _strip_html(html: str) -> str:
