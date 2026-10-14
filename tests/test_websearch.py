@@ -165,7 +165,6 @@ def test_web_search_clamps_num_results_and_falls_back():
         assert fallback.call_args.args == ("test", 1)
 
 
-
 def test_html_fallback_uses_bing_when_duckduckgo_has_no_results():
     from nally.tools.websearch import _search_fallback
 
