@@ -5,7 +5,6 @@ keyless fallback, with a lightweight HTML fallback if its Python client fails.
 """
 import logging
 import os
-import re
 import urllib.parse
 
 import httpx
