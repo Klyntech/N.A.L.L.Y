@@ -105,14 +105,17 @@ def _encrypt_token(plaintext: str) -> str:
 
 
 def _decrypt_token(ciphertext: str) -> str:
-    """Decrypt a token string. Returns as-is if not encrypted (migration)."""
+    """Decrypt a token; legacy plaintext migration is local-development only."""
     fernet = _get_fernet()
     if fernet is None:
         return ciphertext
     try:
         return fernet.decrypt(ciphertext.encode()).decode()
-    except Exception:
-        # Not encrypted yet — treat as plaintext (migration path)
+    except Exception as exc:
+        production = os.getenv("NALLY_ENV", "").lower() == "production" or bool(os.getenv("RENDER"))
+        if production:
+            raise RuntimeError("Stored OAuth token is not encrypted with NALLY_CRED_KEY") from exc
+        # Local migration path for tokens written before encryption was configured.
         return ciphertext
 
 
