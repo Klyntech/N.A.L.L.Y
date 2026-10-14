@@ -135,7 +135,7 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
     # Auth via query param
     token = websocket.query_params.get("token", "")
     expected_token = os.getenv("NALLY_BRIDGE_TOKEN", "")
-    if not expected_token or not hmac.compare_digest(token, expected_token):
+    if not expected_token or not hmac.compare_digest(token.encode("utf-8"), expected_token.encode("utf-8")):
         logger.warning(f"Bridge auth failed for device: {device_id}")
         await websocket.close(code=4001, reason="Unauthorized")
         return
