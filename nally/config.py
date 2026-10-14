@@ -22,8 +22,6 @@ if _env_path.exists():
 
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
-PLUGINS_DIR = BASE_DIR / "plugins"
-ALLOWED_PLUGINS: list[str] = []  # e.g. ["my_tools.py", "custom_agent.py"]
 
 # Project directories — where Nally looks for projects
 # Scanned on startup + periodically. The LLM uses this to resolve project names to paths.
