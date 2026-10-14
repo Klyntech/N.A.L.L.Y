@@ -109,12 +109,15 @@ else:
 
 # ── Auth ──────────────────────────────────────────────────
 
-NALLY_ACCESS_TOKEN = os.environ.get("NALLY_ACCESS_TOKEN", "")
 security = HTTPBearer(auto_error=False)
 
 
 async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    if credentials and NALLY_ACCESS_TOKEN and hmac.compare_digest(credentials.credentials, NALLY_ACCESS_TOKEN):
+    # Read at request time because .env/config validation may run after this module
+    # is imported, and operators must be able to rotate the token without a stale
+    # module-level copy being used for every request.
+    expected = os.getenv("NALLY_ACCESS_TOKEN", "")
+    if credentials and expected and hmac.compare_digest(credentials.credentials, expected):
         return True
     raise HTTPException(status_code=401, detail="Unauthorized")
 
