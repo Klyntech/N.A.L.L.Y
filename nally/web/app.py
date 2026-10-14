@@ -772,45 +772,6 @@ async def approval_response(request: ApprovalRequest, _auth=Depends(verify_auth)
     return {"ok": True}
 
 
-# ── API: Human Checkpoint ────────────────────────────────
-
-
-class CheckpointRequest(BaseModel):
-    thread_id: str
-    action: str  # "approve", "reject", "edit"
-    edited_plan: Optional[str] = None
-    reason: Optional[str] = None
-
-
-@app.post("/api/checkpoint")
-async def checkpoint_response(request: CheckpointRequest, _auth=Depends(verify_auth)):
-    from nally.agent.human_checkpoint import resolve_checkpoint
-
-    await asyncio.to_thread(
-        resolve_checkpoint,
-        request.thread_id,
-        request.action,
-        request.edited_plan,
-        request.reason,
-    )
-    broadcast_manager.broadcast(
-        "checkpoint_resolved",
-        {"thread_id": request.thread_id, "action": request.action},
-        route_key="web:default",
-    )
-    return {"ok": True}
-
-
-@app.get("/api/checkpoint/{thread_id}")
-async def get_checkpoint_status(thread_id: str, _auth=Depends(verify_auth)):
-    from nally.agent.human_checkpoint import get_checkpoint
-
-    cp = await asyncio.to_thread(get_checkpoint, thread_id)
-    if not cp:
-        return {"status": "none"}
-    return cp.to_dict()
-
-
 # ── API: Checkpoints / Rewind (Phase 1: vibe-style rewind) ────
 
 
