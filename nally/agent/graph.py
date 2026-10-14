@@ -1157,7 +1157,6 @@ def tool_executor(state: AgentState) -> AgentState:
                 cached = receipt_store.get_idempotent(str(task_id), SESSION_ID)
                 if cached is not None:
                     logger.info(f"Idempotent skip: task_id={task_id} already processed — returning cached result")
-                    _finish(True, "idempotent skip")
                     return ToolMessage(content=cached, tool_call_id=tool_id)
             except Exception as e:
                 logger.debug(f"Idempotency check skipped: {e}")
@@ -1458,7 +1457,7 @@ def tool_executor(state: AgentState) -> AgentState:
 
         # Return up to MAX_TOOL_OUTPUT (50k) for LLM truth; registry already capped.
         # Previous 2000 hid evidence from next LLM turn + verifier.
-        _finish(success, str(result)[:MAX_TOOL_OUTPUT])
+        _finish(success, str(result)[:50_000])
         return ToolMessage(content=str(result)[:MAX_TOOL_OUTPUT], tool_call_id=tool_id)
 
     tool_messages = []
