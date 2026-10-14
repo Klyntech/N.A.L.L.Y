@@ -113,7 +113,6 @@ SUBAGENT_MODELS = [
     "muse-spark-1.2-contributor-free",
     "mimo-v2.5-free",
     "nemotron-3.5-lightning-free",
-    "big-pickle",
     "nemotron-3-ultra-free",
     "hy3-free",
     "laguna-s-2.1-free",
