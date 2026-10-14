@@ -342,12 +342,23 @@ def save_oauth_state(
 ) -> None:
     """Persist OAuth state to SQLite so it survives server restarts."""
     _ensure_state_table(db_path)
+    encrypted_verifier = _encrypt_token(code_verifier)
+    encrypted_client_id = _encrypt_token(client_id)
+    encrypted_state = _encrypt_token(state)
     conn = sqlite3.connect(db_path)
     conn.execute(
         f"INSERT OR REPLACE INTO {_OAUTH_STATE_TABLE} "
         "(service, code_verifier, client_id, state, token_endpoint, auth_endpoint, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (service, code_verifier, client_id, state, token_endpoint, auth_endpoint, time.time()),
+        (
+            service,
+            encrypted_verifier,
+            encrypted_client_id,
+            encrypted_state,
+            token_endpoint,
+            auth_endpoint,
+            time.time(),
+        ),
     )
     conn.commit()
     conn.close()
@@ -367,13 +378,17 @@ def load_oauth_state(db_path: str, service: str) -> dict | None:
     conn.close()
     if row is None:
         return None
-    return {
-        "code_verifier": row["code_verifier"],
-        "client_id": row["client_id"],
-        "state": row["state"],
-        "token_endpoint": row["token_endpoint"],
-        "auth_endpoint": row["auth_endpoint"],
-    }
+    try:
+        return {
+            "code_verifier": _decrypt_token(row["code_verifier"]),
+            "client_id": _decrypt_token(row["client_id"]),
+            "state": _decrypt_token(row["state"]),
+            "token_endpoint": row["token_endpoint"],
+            "auth_endpoint": row["auth_endpoint"],
+        }
+    except Exception as exc:
+        logger.warning("Unable to decrypt persisted OAuth state for %s (%s)", service, type(exc).__name__)
+        return None
 
 
 def validate_oauth_state(service: str, supplied_state: str, db_path: str) -> bool:
