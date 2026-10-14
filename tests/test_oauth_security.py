@@ -33,3 +33,12 @@ def test_production_rejects_legacy_plaintext_token(monkeypatch):
 
     with pytest.raises(RuntimeError, match="not encrypted"):
         oauth._decrypt_token('{"access_token":"legacy-plaintext"}')
+
+
+
+def test_oauth_callback_state_must_match_pending_state(monkeypatch, tmp_path):
+    monkeypatch.setitem(oauth._pending_pkce, "notion", {"state": "expected-state"})
+
+    assert oauth.validate_oauth_state("notion", "expected-state", str(tmp_path / "oauth.db"))
+    assert not oauth.validate_oauth_state("notion", "attacker-state", str(tmp_path / "oauth.db"))
+    assert not oauth.validate_oauth_state("notion", "", str(tmp_path / "oauth.db"))
