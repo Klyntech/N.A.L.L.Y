@@ -153,6 +153,39 @@ def _search_fallback(query: str, num_results: int = 3) -> str:
         return f"Error: All web search providers failed ({type(exc).__name__}). Query: {query}"
 
 
+def _search_bing_fallback(query: str, num_results: int = 3) -> str:
+    """Independent no-key fallback used only when DuckDuckGo is unavailable."""
+    url = f"https://www.bing.com/search?q={urllib.parse.quote_plus(query)}"
+    try:
+        with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+            response = client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Nally/1.0)"})
+            response.raise_for_status()
+
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        results = []
+        for heading in soup.select("li.b_algo h2"):
+            anchor = heading.find("a", href=True)
+            if not anchor:
+                continue
+            title = anchor.get_text(" ", strip=True)
+            href = anchor["href"]
+            snippet_node = heading.find_parent("li", class_="b_algo")
+            snippet_node = snippet_node.select_one(".b_caption p") if snippet_node else None
+            snippet = snippet_node.get_text(" ", strip=True) if snippet_node else ""
+            if title and href.startswith(("http://", "https://")):
+                results.append({"title": title, "url": href, "content": snippet})
+            if len(results) >= num_results:
+                break
+        if results:
+            return _format_results(results, num_results)
+        return f"Error: Bing returned no parseable results for query: {query}"
+    except Exception as exc:
+        logger.warning("Bing HTML fallback failed (%s)", type(exc).__name__)
+        return f"Error: Bing fallback failed ({type(exc).__name__})"
+
+
 class WebSearch(Tool):
     """Search the web using Tavily, Brave, and DuckDuckGo fallbacks."""
 
@@ -189,4 +222,15 @@ class WebSearch(Tool):
         if result:
             return result
         logger.info("Using DuckDuckGo fallback for web search")
-        return _search_duckduckgo(query, num_results)
+        result = _search_duckduckgo(query, num_results)
+        if not result.lstrip().lower().startswith("error:"):
+            return result
+
+        logger.warning("DuckDuckGo unavailable; trying independent Bing HTML fallback")
+        bing_result = _search_bing_fallback(query, num_results)
+        if not bing_result.lstrip().lower().startswith("error:"):
+            return bing_result
+        return (
+            f"Error: All web search providers failed for query: {query}. "
+            "Tavily, Brave, DuckDuckGo, and Bing were unavailable."
+        )
