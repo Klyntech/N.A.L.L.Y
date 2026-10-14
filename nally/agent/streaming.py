@@ -4,7 +4,7 @@ Provides typed event categories so the frontend can cleanly separate:
     - LLM tokens (real-time text streaming)
     - Tool events (call status, results, diffs)
     - System events (notices, warnings, budget alerts)
-    - Checkpoint events (human review required)
+    - Checkpoint events (tool approval required)
     - Custom events (arbitrary data from nodes)
 
 Each event carries a type, namespace, and typed payload.
@@ -33,10 +33,6 @@ class EventType(StrEnum):
     SYSTEM_NOTICE = "system_notice"
     THOUGHT = "thought"
     RUN_ID = "run_id"
-
-    # Human checkpoint
-    HUMAN_CHECKPOINT = "human_checkpoint_required"
-    CHECKPOINT_RESOLVED = "checkpoint_resolved"
 
     # Verification
     VERIFICATION = "verification"
@@ -179,23 +175,6 @@ class EventEmitter:
     def run_id(self, run_id: str):
         """Emit run ID for trace linking."""
         self.emit(EventType.RUN_ID, {"run_id": run_id}, namespace="system")
-
-    # ── Checkpoint Events ──────────────────────────────
-
-    def human_checkpoint(self, plan_summary: str, steps: list, task_class: str):
-        """Emit human checkpoint required."""
-        self.emit(EventType.HUMAN_CHECKPOINT, {
-            "plan_summary": plan_summary,
-            "steps": steps,
-            "task_class": task_class,
-        }, namespace="checkpoint")
-
-    def checkpoint_resolved(self, thread_id: str, action: str):
-        """Emit checkpoint resolution."""
-        self.emit(EventType.CHECKPOINT_RESOLVED, {
-            "thread_id": thread_id,
-            "action": action,
-        }, namespace="checkpoint")
 
     # ── Verification Events ────────────────────────────
 
