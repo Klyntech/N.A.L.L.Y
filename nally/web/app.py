@@ -125,6 +125,7 @@ async def verify_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depe
 # Dedicated credential for same-host internal callers such as the standalone Telegram bot.
 # It is deliberately separate from the browser/API bearer token.
 _INTERNAL_MAX_SKEW_SECONDS = 300
+_MAX_INTERNAL_NONCES = 100_000
 _internal_nonces: dict[str, float] = {}
 _internal_nonce_lock = Lock()
 
@@ -155,6 +156,8 @@ async def verify_internal_auth(request: Request):
                 _internal_nonces.pop(old_nonce, None)
         if nonce in _internal_nonces:
             raise HTTPException(status_code=401, detail="Unauthorized")
+        if len(_internal_nonces) >= _MAX_INTERNAL_NONCES:
+            raise HTTPException(status_code=429, detail="Internal authentication replay cache is full")
         _internal_nonces[nonce] = now
     return True
 
