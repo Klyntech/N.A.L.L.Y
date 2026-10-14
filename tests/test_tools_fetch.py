@@ -88,9 +88,10 @@ class TestFetchUrlRetry:
         """Timeout errors should be retried."""
         import httpx
 
-        with patch("nally.tools.fetch._validate_public_url", return_value=None), patch(
-            "nally.tools.fetch.httpx.Client"
-        ) as mock_client_cls:
+        with (
+            patch("nally.tools.fetch._validate_public_url", return_value=None),
+            patch("nally.tools.fetch.httpx.Client") as mock_client_cls,
+        ):
             mock_client = MagicMock()
             mock_client_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_client_cls.return_value.__exit__ = MagicMock(return_value=False)
