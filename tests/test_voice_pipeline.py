@@ -6,6 +6,7 @@ Run: pytest tests/test_voice_pipeline.py
 import asyncio
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 
@@ -115,7 +116,7 @@ class FakeDeepgramSocket:
             transcript = transcript
 
         class Channel:
-            alternatives = [Alt()]
+            alternatives: ClassVar[list] = [Alt()]
 
         class Msg:
             type = "Results"
