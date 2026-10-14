@@ -25,31 +25,21 @@ N.A.L.L.Y/
 │   │   └── tracing.py      # Execution tracer — nested spans, run trees, SQLite persistence
 │   ├── agent/
 │   │   ├── core.py         # NallyAgent orchestrator (thread-safe lazy singleton)
-│   │   ├── graph.py        # LangGraph state machine (ReAct loop, abort checkpoints)
+│   │   ├── graph.py        # Direct LangGraph ReAct loop (LLM ↔ tools, abort/checkpoint safety)
 │   │   ├── llm.py          # OpenAI-compatible LLM client (Groq/OpenCode)
 │   │   ├── context.py      # Context management (compaction, memory injection)
-│   │   ├── router.py       # Pattern matcher for instant local responses
 │   │   ├── sessions.py     # SessionManager — multi-session support, busy/queue logic
-│   │   ├── planner.py      # Plan-and-Execute pipeline (classify→plan→execute→replan→synthesize)
 │   │   ├── platform.py     # OS/shell detection, auto-injected into system prompt
 │   │   ├── verifier.py     # Claim verifier — cross-checks LLM claims against tool receipts
-│   │   ├── harness.py      # Harness v2 — intent classification, pipeline routing, critique, tool verify
-│   │   └── scratchpad.py   # Per-request working memory (ephemeral, separate from long-term memory)
 │   ├── tools/
 │   │   ├── registry.py     # Tool registry + base Tool class
 │   │   ├── permissions.py  # PermissionGate (allow/ask/deny per tool)
-│   │   ├── filter.py       # Tool selection/filtering (core-only on weak match)
 │   │   ├── system.py       # RunCommand, SystemHealth
 │   │   ├── files.py        # ReadFile, FileOps
-│   │   ├── code.py         # RunCode, CodeAnalysis
-│   │   ├── imagegen.py     # Image generation (Pollinations API, CLIP scoring, critique loop)
-│   │   ├── gmail.py        # Gmail direct tools (bypasses broken Google MCP)
 │   │   ├── websearch.py    # Web search (Parallel.ai primary, DuckDuckGo fallback)
 │   │   ├── fetch.py        # Web page fetch tool
-│   │   ├── phone.py        # Plivo telephony tool (PLIVO_* env vars)
-│   │   ├── mcp.py          # MCP status tool (shows server connection status)
 │   │   ├── receipts.py     # HMAC-signed tool execution receipts (tamper-evident audit trail)
-│   │   └── __init__.py     # load_all_tools() — registers everything
+│   │   └── __init__.py     # load_all_tools() — fixed core toolset only
 │   ├── memory/
 │   │   ├── store.py        # MemoryRepository (thread-safe, connection-per-op)
 │   │   ├── models.py       # Data classes: Memory, Episode, ConversationSummary, SemanticPattern
@@ -86,12 +76,6 @@ N.A.L.L.Y/
 │   │   ├── bargein.py      # Barge-in detector (barge_in.py is legacy/unused)
 │   │   ├── livekit_agent.py # LiveKit VoIP agent
 │   │   └── speech_pipeline.py # End-to-end speech pipeline
-│   ├── thinking/           # Thinking/reasoning module
-│   │   ├── tool.py          # ThinkTool — structured reasoning before complex tasks
-│   │   ├── engine.py        # ThinkingEngine — multi-strategy reasoning orchestrator
-│   │   ├── config.py        # Thinking-specific config (model, timeout, strategies)
-│   │   ├── prompts.py       # System prompts for thinking strategies
-│   │   └── strategies.py    # Strategy registry — domain-specific reasoning approaches
 │   ├── events/             # Pub/sub event bus
 │   │   └── bus.py          # Event bus for plan events and agent notifications
 │   ├── web/
@@ -169,8 +153,6 @@ python main.py --verbose
 # Run on custom port
 python main.py --port 8080
 
-# Evaluate the Harness intent classifier against test cases
-python -m tests.harness_eval.runner
 ```
 
 ## Environment Variables (.env)
@@ -235,17 +217,7 @@ NALLY_RECURSION_LIMIT=50         # LangGraph recursion limit
 NALLY_APPROVAL_TIMEOUT=1800      # Tool approval timeout (seconds)
 
 # Planning
-NALLY_PLAN_ENABLED=false         # Enable Plan-and-Execute pipeline
-NALLY_PLAN_MAX_STEPS=10          # Max plan steps
-NALLY_PLAN_MAX_REVISIONS=3       # Max plan revisions on failure
-NALLY_PLAN_STEP_TIMEOUT=300      # Per-step timeout (seconds)
-NALLY_PLAN_STEP_MAX_ITERATIONS=15 # Per-step iteration limit
 
-# Thinking
-NALLY_THINKING_ENABLED=true      # Enable ThinkTool (structured reasoning)
-NALLY_THINKING_MAX_STRATEGIES=3  # Max thinking strategies
-NALLY_THINKING_MODEL=...         # Thinking-specific model (empty = default)
-NALLY_THINKING_TIMEOUT=30        # Thinking timeout (seconds)
 ```
 
 ## Key Architecture Decisions
@@ -262,7 +234,6 @@ NALLY_THINKING_TIMEOUT=30        # Thinking timeout (seconds)
 - **Tool receipts**: Every tool execution generates an HMAC-signed receipt stored in JSONL — tamper-evident audit trail used by the claim verifier to catch LLM hallucinations
 - **Execution tracing**: Nested span-based tracing with parent-child relationships, run IDs, and thread-local span stacks — persisted to SQLite for debugging
 - **Background reflector**: Hourly LLM-powered reflection that extracts summaries, episodes, and semantic patterns from recent conversations
-- **Plan-and-Execute**: Optional pipeline (disabled by default) that classifies tasks, generates plans, executes steps via mini ReAct sub-loops, replans on failure, and synthesizes results
 - **Claim verifier**: Post-response verification that cross-checks LLM claims against tool receipts — detects hallucinations without LLM in the hot path
 
 ## Code Style
