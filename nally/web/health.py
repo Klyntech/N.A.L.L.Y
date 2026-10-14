@@ -51,7 +51,7 @@ async def _check_database() -> dict:
                 await conn.close()
 
             await _test()
-            return {"status": "ok", "engine": "postgresql", "url": DATABASE_URL[:40] + "..."}
+            return {"status": "ok", "engine": "postgresql"}
         except ImportError:
             return {"status": "error", "engine": "postgresql", "error": "asyncpg not installed"}
         except Exception as e:
@@ -59,7 +59,8 @@ async def _check_database() -> dict:
 
     # Turso/LibSQL
     if DATABASE_URL and DATABASE_URL.startswith("libsql://"):
-        return {"status": "ok", "engine": "libsql", "url": DATABASE_URL[:50] + "..."}
+        # Never expose the connection URL: LibSQL URLs may carry auth tokens.
+        return {"status": "ok", "engine": "libsql"}
 
     # SQLite (default)
     db_path = DATA_DIR / "nally_memory.db"
