@@ -243,6 +243,12 @@ class TelegramApprovalRequest(BaseModel):
     approved: bool
 
 
+class TelegramMCPConnectRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    service: str
+
+
 # ── Lifespan ──────────────────────────────────────────────
 
 
@@ -847,6 +853,22 @@ async def reload_hooks(_auth=Depends(verify_auth)):
 # The bot polls Telegram in its own process and forwards messages/approvals
 # here over HTTP. The agent + approval gate live in THIS process, so resolving
 # an approval here unblocks the gate that is waiting in this process.
+
+
+@app.get("/api/telegram/mcp/services")
+async def telegram_mcp_services(_auth=Depends(verify_internal_auth)):
+    """MCP connection status for the authenticated Telegram bot process."""
+    return await mcp_services(_auth=True)
+
+
+@app.post("/api/telegram/mcp/connect")
+async def telegram_mcp_connect(data: TelegramMCPConnectRequest, _auth=Depends(verify_internal_auth)):
+    """Start an approved MCP OAuth flow from Telegram without exposing API auth."""
+    allowed_services = {"github", "notion", "gmail", "spotify", "render", "nalbridge"}
+    service = data.service.strip().lower()
+    if service not in allowed_services:
+        raise HTTPException(status_code=400, detail="Unsupported MCP service")
+    return await mcp_connect(service, _auth=True)
 
 
 @app.post("/api/telegram/message")
