@@ -197,8 +197,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
     chat = update.effective_chat
-    user = update.effective_user
     session_id = f"telegram:{chat.id}" if chat else "telegram:unknown"
+    route_key = session_id
     text = message.text.strip()
     if not text:
         return
@@ -206,16 +206,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.chat.send_action("typing")
 
     def emit(event: str, data: dict):
-        # Approvals are handled via backend -> bot callbacks when configured.
         return None
 
     try:
-        agent = session_manager.get_or_create(
+        # AgentSessionManager API: process(session_id, message, emit=, route_key=)
+        # (there is no get_or_create; get() creates on demand)
+        response = await asyncio.to_thread(
+            session_manager.process,
             session_id,
-            channel="Telegram",
-            route_key=session_id,
+            text,
+            emit,
+            route_key,
         )
-        response = await asyncio.to_thread(agent.process, text, emit)
         await _split_reply(message, response)
     except Exception as e:
         logger.error(f"Telegram handle_message error: {e}")
@@ -242,7 +244,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     await query.answer()
     data = query.data or ""
-    # Approval buttons: approve:<id> / deny:<id>
     import httpx
 
     base = _web_base_url()
