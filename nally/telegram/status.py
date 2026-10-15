@@ -126,15 +126,45 @@ class ProgressStatus:
                 logger.debug(f"ProgressStatus.finish failed: {e}")
                 return False
 
+    async def _send_approval(self, tool_call_id: str, tool_name: str, args_preview: str) -> None:
+        """Send an actionable Telegram approval prompt for a gated tool call."""
+        if not self._msg or not tool_call_id:
+            return
+        try:
+            from .inline_ui import format_approval, keyboard_approval
+
+            await self._msg.reply_text(
+                format_approval(tool_name, args_preview),
+                parse_mode="HTML",
+                reply_markup=keyboard_approval(tool_call_id),
+            )
+        except Exception as e:
+            logger.error(f"Telegram approval prompt failed: {e}")
+
     def make_emit(self, extra: Optional[Callable[[str, dict], None]] = None) -> Callable[[str, dict], None]:
-        """Emit: only surface active tool name; everything else stays internal."""
+        """Surface tool progress and route approval requests to Telegram."""
 
         def emit(event: str, data: dict) -> None:
             try:
+                payload = data or {}
                 if event == "tool_call":
-                    name = ((data or {}).get("name") or "?").strip() or "?"
+                    name = (payload.get("name") or "?").strip() or "?"
                     self.set(f"Using {name}...")
-                # thought / tool_result / system_notice / etc. — internal only
+                elif event == "confirmation_required":
+                    tool_call_id = str(payload.get("tool_call_id") or "").strip()
+                    if tool_call_id:
+                        import json
+
+                        tool_name = str(payload.get("name") or payload.get("tool") or "unknown")
+                        try:
+                            args_preview = json.dumps(payload.get("args", {}), ensure_ascii=False, default=str)
+                        except Exception:
+                            args_preview = str(payload.get("args", ""))
+                        asyncio.run_coroutine_threadsafe(
+                            self._send_approval(tool_call_id, tool_name, args_preview),
+                            self._loop,
+                        )
+                # thought / tool_result / system_notice / etc. stay internal.
             except Exception as e:
                 logger.debug(f"ProgressStatus emit error: {e}")
             if extra:
