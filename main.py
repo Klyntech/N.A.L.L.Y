@@ -18,8 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
-    parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
-    parser.add_argument("--voice", action="store_true", help="Run in voice mode (push-to-talk)")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     # Render injects PORT=10000 by default — respect it. Docs: https://render.com/docs/web-services#port-binding
     # Bind to 0.0.0.0:$PORT (see run_web). Local default remains 5000 if PORT unset.
@@ -54,8 +52,8 @@ def main():
 
     print_banner(version=__version__, console=console)
 
-    # Load tools for non-web modes (web mode loads via app.py lifespan)
-    if args.cli or args.telegram_only:
+    # Load tools for standalone Telegram mode (API mode loads via app.py lifespan).
+    if args.telegram_only:
         from nally.tools import load_all_tools
 
         _tool_count, mcp_status = load_all_tools()
@@ -78,66 +76,12 @@ def main():
             print(f"  {cmd}")
         return
 
-    if args.cli:
-        run_cli()
-    elif args.voice:
-        run_voice()
-    elif args.telegram_only:
+    if args.telegram_only:
         run_telegram(polling=True)
     else:
-        # Default mode runs the web server. The Telegram bot owner is decided
-        # by resolve_telegram_mode(): polling mode spawns a separate bot
-        # process, webhook mode is owned by the web server's lifespan. Exactly
-        # one owner per token.
+        # The FastAPI service is the private backend for Telegram, OAuth callbacks,
+        # health checks, and NallyBridge MCP. It does not serve a chat UI.
         run_web(port=args.port)
-
-
-def run_cli():
-    """Run Nally in CLI mode"""
-    from nally.agent import get_agent
-
-    agent = get_agent()
-
-    print("Nally CLI Mode")
-    print("-" * 40)
-    print("Commands: 'quit' to exit")
-    print()
-
-    while True:
-        try:
-            user_input = input("You]: ").strip()
-
-            if user_input.lower() in ["quit", "exit", "bye"]:
-                print("\nNally: Goodbye!")
-                break
-
-            if not user_input:
-                continue
-
-            print("\nNally: ", end="", flush=True)
-
-            start = time.time()
-            response = agent.process(user_input)
-            elapsed = time.time() - start
-
-            print(response)
-
-            if elapsed < 1:
-                print(f"  [{elapsed * 1000:.0f}ms]", end="")
-            print()
-
-        except KeyboardInterrupt:
-            print("\n\nNally: Interrupted. Goodbye!")
-            break
-        except Exception as e:
-            print(f"\nError: {e}")
-
-
-def run_voice():
-    """Run Nally in voice mode (push-to-talk)."""
-    from nally.voice.loop import run_voice_loop
-
-    run_voice_loop()
 
 
 def run_web(port=None):
