@@ -1229,50 +1229,11 @@ class TokenSubmit(BaseModel):
 
 @app.post("/api/mcp/token/{service}")
 async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify_auth)):
-    """Submit a PAT/API token for an HTTP MCP service, or bot token for stdio."""
-    from mcp.shared.auth import OAuthToken
-
-    from nally.config import DATA_DIR, MCP_SERVERS
-    from nally.mcp.oauth import SQLiteTokenStorage
-
-    server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
-    if server_cfg is None:
-        raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
-
-    db = str(DATA_DIR / "nally.db")
-    transport = server_cfg.get("transport", "http")
-
-    if transport == "stdio":
-        # Stdio service (e.g. Telegram) — store token in env and connect
-        env_key = server_cfg.get("env_key", "")
-        if env_key:
-            import os
-
-            os.environ[env_key] = body.token
-        from nally.mcp.client import connect_stdio_with_token
-
-        try:
-            count = connect_stdio_with_token(server_cfg)
-        except Exception:
-            count = 0
-        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
-        return {"status": "connected", "service": service, "tools": count}
-
-    # HTTP service — store as OAuthToken
-    storage = SQLiteTokenStorage(db, service)
-    token = OAuthToken(access_token=body.token, token_type="bearer")
-    await storage.set_tokens(token)
-
-    from nally.mcp.client import connect_http_server
-
-    try:
-        count = await connect_http_server(server_cfg)
-    except Exception:
-        count = 0
-
-    broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
-    return {"status": "connected", "service": service, "tools": count}
-
+    """Disable legacy token uploads; provider OAuth or host-managed secrets are required."""
+    raise HTTPException(
+        status_code=410,
+        detail="Token uploads are disabled. Use /connect in Telegram for OAuth or set service API keys in the host environment.",
+    )
 
 # ── API: OAuth Callbacks ──────────────────────────────────
 
@@ -1464,27 +1425,11 @@ async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
 
 @app.post("/api/env/{key}")
 async def set_env_var(key: str, body: TokenSubmit, _auth=Depends(verify_auth)):
-    """Set an environment variable at runtime and persist to .env file."""
-
-    os.environ[key] = body.token
-
-    # Persist to .env file
-    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-    lines = []
-    found = False
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if line.startswith(f"{key}="):
-                lines.append(f"{key}={body.token}")
-                found = True
-            else:
-                lines.append(line)
-    if not found:
-        lines.append(f"{key}={body.token}")
-    env_path.write_text("\n".join(lines) + "\n")
-
-    return {"ok": True, "key": key}
-
+    """Disable legacy arbitrary environment mutation; use host-managed secrets."""
+    raise HTTPException(
+        status_code=410,
+        detail="Runtime environment mutation is disabled. Configure secrets in the hosting environment.",
+    )
 
 # ── WebSocket: NallyBridge (remote device connections) ──────
 
@@ -1514,14 +1459,8 @@ async def list_bridges(_auth=Depends(verify_auth)):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """WebSocket endpoint for real-time bidirectional chat.
-
-    Connect with: ws://localhost:5000/ws/web:default?token=<access_token>
-    """
-    from .ws_handler import websocket_chat
-
-    await websocket_chat(websocket, session_id)
-
+    """Disable the legacy browser chat transport; Telegram is the only chat UI."""
+    await websocket.close(code=1008, reason="Use Telegram for chat.")
 
 # ── Telegram Webhook ──────────────────────────────────────
 
