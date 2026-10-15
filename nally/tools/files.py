@@ -204,7 +204,7 @@ class FileOps(Tool):
         super().__init__(
             name="file_io",
             description="Read and manage files and directories. Actions: list, make, delete, read, write.",
-            permission="destructive",
+            permission="write",
             parameters={
                 "action": {
                     "type": "string",
