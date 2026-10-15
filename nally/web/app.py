@@ -1133,10 +1133,24 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
 
     if auth_mode == "api_key":
         env_key = server_cfg.get("env_key", "")
+        if not env_key or not os.getenv(env_key, ""):
+            return {
+                "status": "needs_configuration",
+                "service": service,
+                "required_env": [env_key] if env_key else [],
+            }
+
+        from nally.mcp.client import connect_http_server
+
+        try:
+            count = await connect_http_server(server_cfg)
+        except Exception as exc:
+            logger.warning("MCP API-key connect failed for %s: %s", service, type(exc).__name__)
+            count = 0
         return {
-            "status": "needs_configuration",
+            "status": "connected" if count else "error",
             "service": service,
-            "required_env": [env_key] if env_key else [],
+            "tools": count,
         }
 
     return {"status": "disconnected", "service": service}
