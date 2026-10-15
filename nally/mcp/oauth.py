@@ -604,8 +604,8 @@ GOOGLE_SCOPES = {
     "gcalendar": "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 }
 
-# Which Google MCP services share one OAuth token
-GOOGLE_SERVICES = ["gmail", "gdrive", "gcalendar"]
+# Only Gmail remains in the selected MCP integration set.
+GOOGLE_SERVICES = ["gmail"]
 
 
 # ── Spotify MCP pilot OAuth (PKCE) ───────────────────────
@@ -703,11 +703,7 @@ def _get_google_credentials() -> tuple[str, str] | None:
 
 
 async def start_google_oauth(service: str, db_path: str) -> str:
-    """Start Google OAuth: build auth URL → return it for browser redirect.
-
-    Always requests ALL Google scopes (gmail + drive + calendar) so one
-    token covers all Workspace services.
-    """
+    """Start Google OAuth with only the scopes required by the selected service."""
     creds = _get_google_credentials()
     if not creds:
         raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env")
@@ -716,10 +712,12 @@ async def start_google_oauth(service: str, db_path: str) -> str:
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(16)
 
-    # Combine all scopes — one OAuth flow covers all Google services
-    all_scopes = " ".join(GOOGLE_SCOPES.values())
+    scopes = GOOGLE_SCOPES.get(service)
+    if not scopes:
+        raise ValueError(f"Google OAuth is not configured for service: {service}")
 
-    # Store state — all Google services share the same OAuth token
+    # Request only the scopes for this service; the configured integration set
+    # contains Gmail only, so Drive and Calendar access are not requested.
     _pending_pkce["google"] = {
         "code_verifier": code_verifier,
         "client_id": client_id,
@@ -733,7 +731,7 @@ async def start_google_oauth(service: str, db_path: str) -> str:
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": GOOGLE_REDIRECT_URI,
-        "scope": all_scopes,
+        "scope": scopes,
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
