@@ -202,14 +202,14 @@ class ReadFile(Tool):
 class FileOps(Tool):
     def __init__(self):
         super().__init__(
-            name="file_ops",
-            description="Write, list, mkdir, delete, move, or copy files and directories. Use read_file to read file contents.",
+            name="file_io",
+            description="Read and manage files and directories. Actions: list, make, delete, read, write.",
             permission="destructive",
             parameters={
                 "action": {
                     "type": "string",
-                    "enum": ["write", "list", "mkdir", "delete", "move", "copy"],
-                    "description": "write = create/overwrite, list = list dir, mkdir = create folder, delete = remove, move = move/rename, copy = duplicate",
+                    "enum": ["list", "make", "delete", "read", "write"],
+                    "description": "list = list directory, make = create a new file or directory, delete = remove a path, read = read a file, write = create or overwrite file contents",
                     "required": True,
                 },
                 "file_path": {
@@ -222,7 +222,12 @@ class FileOps(Tool):
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content to write (only for action=write)",
+                    "description": "Text content for make (file) or write.",
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["file", "directory"],
+                    "description": "For action=make, create a file (default) or directory.",
                 },
                 "task_id": {
                     "type": "string",
@@ -232,7 +237,7 @@ class FileOps(Tool):
         )
 
     def execute(
-        self, action: str = "", file_path: str = "", content: str = "", path: str = "", destination: str = "", **kwargs
+        self, action: str = "", file_path: str = "", content: str = "", path: str = "", destination: str = "", kind: str = "file", **kwargs
     ) -> str:
         if not action:
             return 'Error: action is required. Send: {"action": "write", "file_path": "path", "content": "text"}'
@@ -243,7 +248,37 @@ class FileOps(Tool):
         if destination:
             destination = _resolve_project_path(destination)
         try:
-            if action == "write":
+            if action == "read":
+                # Preserve the existing sensitive-path and size checks.
+                return ReadFile().execute(file_path=file_path)
+
+            elif action == "make":
+                if not file_path:
+                    return "Error: file_path is required for make"
+                target = Path(file_path)
+                if not _is_safe_write_path(target):
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
+                    return f"Error: path outside allowed directories. Write to: {allowed}"
+                if target.exists():
+                    return f"Error: path already exists: {file_path}"
+                if kind == "directory":
+                    target.mkdir(parents=True, exist_ok=False)
+                    return f"Created directory: {file_path}"
+                if kind != "file":
+                    return "Error: kind must be 'file' or 'directory'"
+                if content is None:
+                    content = ""
+                if len(content) > MAX_WRITE_SIZE:
+                    return f"Error: content too large ({len(content)} chars, max {MAX_WRITE_SIZE})"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+                result = f"Created file: {file_path}"
+                warning = _validate_file(target, content)
+                if warning:
+                    result += f"\n{warning}"
+                return result
+
+            elif action == "write":
                 if not file_path:
                     return "Error: file_path is required for write"
                 path = Path(file_path)
@@ -353,6 +388,6 @@ class FileOps(Tool):
                 return f"Copied {file_path} -> {destination}"
 
             else:
-                return f"Error: Unknown action: {action}. Use write, list, mkdir, delete, move, or copy."
+                return f"Error: Unknown action: {action}. Use list, make, delete, read, or write."
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"
