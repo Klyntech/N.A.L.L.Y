@@ -45,7 +45,7 @@ def _is_blocked_on_render(command: str) -> str | None:
         if cmd_lower.startswith(blocked) or f" {blocked}" in cmd_lower:
             return (
                 f"Blocked: '{blocked}' cannot run on Render free tier (512MB RAM). "
-                "Use bridge_execute to run installs on your local machine, or start NallyBridge on your PC."
+                "Use mcp_nalbridge_execute_device_tool to run installs on your local machine, or start NallyBridge on your PC."
             )
     return None
 
