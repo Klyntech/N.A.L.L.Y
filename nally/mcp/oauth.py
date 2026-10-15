@@ -608,6 +608,91 @@ GOOGLE_SCOPES = {
 GOOGLE_SERVICES = ["gmail", "gdrive", "gcalendar"]
 
 
+# ── Spotify MCP pilot OAuth (PKCE) ───────────────────────
+
+SPOTIFY_AUTH_ENDPOINT = "https://accounts.spotify.com/authorize"
+SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token"
+SPOTIFY_REDIRECT_URI = f"{_base_url()}/api/oauth/spotify/callback"
+SPOTIFY_SCOPES = os.getenv(
+    "SPOTIFY_SCOPES",
+    "user-read-private playlist-read-private playlist-modify-private "
+    "user-read-playback-state user-modify-playback-state",
+)
+
+
+async def start_spotify_oauth(db_path: str) -> str:
+    """Build the Spotify authorization URL using PKCE; requires SPOTIFY_CLIENT_ID."""
+    client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip()
+    if not client_id:
+        raise ValueError("SPOTIFY_CLIENT_ID must be set before connecting Spotify")
+    code_verifier, code_challenge = generate_pkce()
+    state = secrets.token_urlsafe(24)
+    _pending_pkce["spotify"] = {
+        "code_verifier": code_verifier,
+        "client_id": client_id,
+        "state": state,
+        "token_endpoint": SPOTIFY_TOKEN_ENDPOINT,
+        "auth_endpoint": SPOTIFY_AUTH_ENDPOINT,
+    }
+    save_oauth_state(
+        db_path, "spotify", code_verifier, client_id, state, SPOTIFY_TOKEN_ENDPOINT, SPOTIFY_AUTH_ENDPOINT
+    )
+
+    from urllib.parse import urlencode
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": SPOTIFY_REDIRECT_URI,
+        "scope": SPOTIFY_SCOPES,
+        "state": state,
+        "code_challenge_method": "S256",
+        "code_challenge": code_challenge,
+    }
+    return f"{SPOTIFY_AUTH_ENDPOINT}?{urlencode(params)}"
+
+
+async def exchange_spotify_code(code: str, db_path: str) -> bool:
+    """Exchange a Spotify PKCE code and store tokens encrypted in SQLite."""
+    state_data = _pending_pkce.pop("spotify", None)
+    if not state_data:
+        state_data = load_oauth_state(db_path, "spotify")
+    if not state_data:
+        logger.warning("No pending Spotify OAuth state")
+        return False
+
+    client_id = state_data.get("client_id", "")
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            SPOTIFY_TOKEN_ENDPOINT,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": SPOTIFY_REDIRECT_URI,
+                "client_id": client_id,
+                "code_verifier": state_data["code_verifier"],
+            },
+            timeout=15.0,
+        )
+    if response.status_code != 200:
+        logger.error("Spotify token exchange failed: HTTP %s", response.status_code)
+        return False
+
+    from mcp.shared.auth import OAuthToken
+
+    token_data = response.json()
+    token = OAuthToken(
+        access_token=token_data["access_token"],
+        token_type=token_data.get("token_type", "Bearer"),
+        expires_in=token_data.get("expires_in"),
+        refresh_token=token_data.get("refresh_token"),
+    )
+    await SQLiteTokenStorage(db_path, "spotify").set_tokens(token)
+    clear_oauth_state(db_path, "spotify")
+    logger.info("Spotify OAuth successful; token stored")
+    return True
+
+
 def _get_google_credentials() -> tuple[str, str] | None:
     """Read Google client_id and client_secret from env. Returns None if missing."""
     client_id = os.getenv("GOOGLE_CLIENT_ID", "")
