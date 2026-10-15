@@ -216,10 +216,6 @@ class FileOps(Tool):
                     "type": "string",
                     "description": "Path to file or directory",
                 },
-                "destination": {
-                    "type": "string",
-                    "description": "Target path (for move/copy only)",
-                },
                 "content": {
                     "type": "string",
                     "description": "Text content for make (file) or write.",
@@ -228,10 +224,6 @@ class FileOps(Tool):
                     "type": "string",
                     "enum": ["file", "directory"],
                     "description": "For action=make, create a file (default) or directory.",
-                },
-                "task_id": {
-                    "type": "string",
-                    "description": "Optional idempotency key. If provided, the same task_id will not be re-executed within the session (safe to retry).",
                 },
             },
         )
@@ -249,7 +241,11 @@ class FileOps(Tool):
             destination = _resolve_project_path(destination)
         try:
             if action == "read":
-                # Preserve the existing sensitive-path and size checks.
+                # Apply the same root boundary as file listing and writes.
+                read_path = Path(file_path)
+                if not _is_safe_write_path(read_path):
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
+                    return f"Error: path outside allowed directories. Read within: {allowed}"
                 return ReadFile().execute(file_path=file_path)
 
             elif action == "make":
