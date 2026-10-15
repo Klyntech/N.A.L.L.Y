@@ -983,30 +983,46 @@ async def mcp_services(_auth=Depends(verify_auth)):
         auth_mode = server.get("auth_mode", "")
         transport = server["transport"]
 
-        if transport == "stdio" and auth_mode == "api_key":
-            # Stdio services with env var token — check if env var is set
+        if auth_mode == "api_key":
             env_key = server.get("env_key", "")
-            token_set = bool(os.getenv(env_key, ""))
+            configured = bool(env_key and os.getenv(env_key, ""))
             services.append(
                 {
                     "name": name,
                     "transport": transport,
                     "auth_mode": auth_mode,
                     "description": server.get("description", ""),
-                    "connected": token_set,
+                    "connected": configured,
+                    "status": "configured" if configured else "needs_api_key",
+                    "env_key": env_key,
                 }
             )
         else:
             token = await get_existing_tokens(name, db)
+            connected = token is not None
             services.append(
                 {
                     "name": name,
                     "transport": transport,
                     "auth_mode": auth_mode,
                     "description": server.get("description", ""),
-                    "connected": token is not None,
+                    "connected": connected,
+                    "status": "connected" if connected else "needs_oauth",
                 }
             )
+
+    bridge_token_configured = bool(os.getenv("NALBRIDGE_MCP_TOKEN", ""))
+    services.append(
+        {
+            "name": "nalbridge",
+            "transport": "streamable-http",
+            "endpoint": "/mcp/nalbridge/mcp",
+            "auth_mode": "bearer",
+            "description": "Authenticated NallyBridge MCP server for connected devices",
+            "connected": bridge_token_configured,
+            "status": "enabled" if bridge_token_configured else "needs_mcp_token",
+        }
+    )
     return {"services": services}
 
 
@@ -1019,6 +1035,21 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     """
     from nally.config import DATA_DIR, MCP_SERVERS
     from nally.mcp.oauth import get_existing_tokens
+
+    if service == "nalbridge":
+        token_configured = bool(os.getenv("NALBRIDGE_MCP_TOKEN", ""))
+        if not token_configured:
+            return {
+                "status": "needs_configuration",
+                "service": service,
+                "required_env": ["NALBRIDGE_MCP_TOKEN", "NALLY_MCP_ALLOWED_HOSTS"],
+                "endpoint": "/mcp/nalbridge/mcp",
+            }
+        return {
+            "status": "connected",
+            "service": service,
+            "endpoint": "/mcp/nalbridge/mcp",
+        }
 
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
     if server_cfg is None:
@@ -1077,6 +1108,14 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
             return {"status": "auth_required", "auth_url": auth_url, "service": service}
         else:
             raise HTTPException(status_code=400, detail=f"OAuth not configured for {service}")
+
+    if auth_mode == "api_key":
+        env_key = server_cfg.get("env_key", "")
+        return {
+            "status": "needs_configuration",
+            "service": service,
+            "required_env": [env_key] if env_key else [],
+        }
 
     return {"status": "disconnected", "service": service}
 
