@@ -10,16 +10,17 @@ from nally.web import health
 
 def test_tools_are_not_ready_when_core_toolset_is_missing(monkeypatch):
     class EmptyRegistry:
-        tools = {}
+        def __init__(self):
+            self.tools = {}
 
         def get_all_tools(self):
             return []
 
-    monkeypatch.setattr("nally.tools.registry.registry", EmptyRegistry())
+    monkeypatch.setattr(health, "tool_registry", EmptyRegistry())
     monkeypatch.setattr("nally.tools._loaded", False)
     result = health._check_tools()
     assert result["status"] == "not_ready"
-    assert {"run_command", "read_file", "file_ops", "fetch"} <= set(result["missing"])
+    assert {"run_command", "file_io", "web_search", "fetch", "subagent"} <= set(result["missing"])
 
 
 def test_readiness_returns_503_until_tools_are_registered(monkeypatch):
