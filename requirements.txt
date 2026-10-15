@@ -39,7 +39,7 @@ torch>=2.0
 telethon>=1.34
 
 # MCP (Model Context Protocol)
-mcp>=1.27,<2
+mcp>=1.28.1,<2
 
 # Token encryption
 cryptography>=41.0.0
