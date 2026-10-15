@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging as _logging
 import os
-import time
 from typing import Optional
 
 from telegram import Update
@@ -23,6 +22,7 @@ from telegram.request import HTTPXRequest
 from ..agent.sessions import session_manager
 from ..utils.logger import logger
 from .format import md_to_telegram_html
+from . import inline_ui
 from .status import ProgressStatus, format_system_status
 
 MAX_MSG_LEN = 4096
@@ -104,21 +104,18 @@ async def _split_reply(message, text: str):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "Nally is online (Telegram-only slim build).\n\n"
-        "Commands:\n"
-        "/start — this message\n"
-        "/status — provider, model, uptime, tools\n"
-        "/abort — cancel the current run\n"
-        "/services — MCP service readiness\n"
-        "/connect <service> — github | notion | gmail | spotify | render | nalbridge\n\n"
-        "Send text messages to chat. Voice is not supported in this build."
+        "Nally online.\n\n"
+        "/status — system\n"
+        "/services — MCP connect\n"
+        "/connect — same as /services\n"
+        "/abort — stop current run\n\n"
+        "Send text to chat."
     )
     if update.effective_message:
         await update.effective_message.reply_text(msg)
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /status — provider, model, uptime, tools, token budget."""
     text = format_system_status(bot_username=BOT_USERNAME)
     if update.effective_message:
         await update.effective_message.reply_text(text)
@@ -144,43 +141,39 @@ async def abort_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def services_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import httpx
-
-    base = _web_base_url()
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(f"{base}/api/mcp/services", headers=_internal_headers())
-            body = r.text[:3000]
-    except Exception as e:
-        body = f"Could not load services: {e}"
+    """Inline MCP status + connect keyboards."""
     if update.effective_message:
-        await update.effective_message.reply_text(body[:MAX_MSG_LEN])
+        await inline_ui.show_mcp_home(update.effective_message)
 
 
 async def connect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import httpx
-
+    """/connect [service] — home keyboard or jump to one service."""
+    message = update.effective_message
+    if not message:
+        return
     args = context.args or []
     service = (args[0] if args else "").strip().lower()
     if not service:
-        if update.effective_message:
-            await update.effective_message.reply_text(
-                "Usage: /connect github|notion|gmail|spotify|render|nalbridge"
-            )
+        await inline_ui.show_mcp_home(message)
         return
-    base = _web_base_url()
+    if service not in inline_ui.MCP_SERVICES:
+        await message.reply_text(
+            "Unknown service. Use: github, notion, gmail, spotify, render, nalbridge"
+        )
+        return
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                f"{base}/api/mcp/connect",
-                headers=_internal_headers(),
-                json={"service": service},
-            )
-            body = r.text[:2000]
+        services = await inline_ui.fetch_services()
+        by_name = {str(s.get("name", "")).lower(): s for s in services}
+        svc = by_name.get(service, {"name": service, "status": "unknown", "connected": False})
+        await message.reply_text(
+            inline_ui.format_mcp_service(svc),
+            parse_mode="HTML",
+            reply_markup=inline_ui.keyboard_mcp_service(
+                service, connected=bool(svc.get("connected"))
+            ),
+        )
     except Exception as e:
-        body = f"Connect failed: {e}"
-    if update.effective_message:
-        await update.effective_message.reply_text(body[:MAX_MSG_LEN])
+        await message.reply_text(f"Could not load {service}: {e}")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -199,7 +192,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    # Placeholder: Thinking... → Using tool... → final reply
     progress: Optional[ProgressStatus] = None
     try:
         status_msg = await message.reply_text("Thinking...")
@@ -225,7 +217,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ok = await progress.finish(html, parse_mode="HTML")
             if ok:
                 return
-        # Fallback if edit failed or no placeholder
         await _split_reply(message, str(response or ""))
     except Exception as e:
         logger.error(f"Telegram handle_message error: {e}")
@@ -239,14 +230,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_message:
         await update.effective_message.reply_text(
-            "File/photo handling is limited in this slim build. Please send text, or describe the file."
+            "Files/photos are limited in this build. Send text."
         )
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_message:
         await update.effective_message.reply_text(
-            "Voice messages are not supported in this build. Please send text."
+            "Voice is not supported in this build. Send text."
         )
 
 
@@ -254,21 +245,16 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     if not query:
         return
+    handled = await inline_ui.handle_callback(query, context)
+    if handled:
+        return
+    # Fallback for unknown callbacks
     await query.answer()
     data = query.data or ""
-    import httpx
-
-    base = _web_base_url()
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.post(
-                f"{base}/api/telegram/callback",
-                headers=_internal_headers(),
-                json={"data": data, "user_id": query.from_user.id if query.from_user else None},
-            )
-        await query.edit_message_text(f"Recorded: {data[:200]}")
-    except Exception as e:
-        await query.edit_message_text(f"Callback failed: {e}")
+        await query.edit_message_text(f"Unknown action: {data[:80]}")
+    except Exception:
+        pass
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
