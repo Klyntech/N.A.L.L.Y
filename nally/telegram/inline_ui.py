@@ -239,6 +239,13 @@ def keyboard_mcp_service(
     return InlineKeyboardMarkup(rows)
 
 
+def keyboard_stop() -> InlineKeyboardMarkup:
+    """Inline stop control shown while Nally is processing a Telegram request."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("■ Stop", callback_data="task:stop")]]
+    )
+
+
 def keyboard_approval(short_id: str) -> InlineKeyboardMarkup:
     # Telegram callback_data allows up to 64 bytes. Keep the complete tool-call
     # ID: truncating it makes the approval endpoint unable to resolve the pending call.
@@ -286,6 +293,9 @@ async def handle_callback(query, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
     if data.startswith("mcp:"):
         await _handle_mcp_callback(query, data)
+        return True
+    if data == "task:stop":
+        await _handle_stop_callback(query)
         return True
     if data.startswith("appr:"):
         await _handle_approval_callback(query, data)
@@ -346,6 +356,35 @@ async def _handle_mcp_callback(query, data: str) -> None:
         logger.error(f"MCP callback failed: {e}")
         try:
             await query.edit_message_text(f"Failed: {e}")
+        except Exception:
+            pass
+
+
+async def _handle_stop_callback(query) -> None:
+    """Request cancellation for the session associated with this Telegram chat."""
+    chat = query.message.chat if query.message else None
+    if not chat:
+        await query.answer("Cannot identify this chat.", show_alert=True)
+        return
+    await query.answer("Requesting stop…")
+    base = _web_base_url()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                f"{base}/api/abort",
+                headers=_bearer_headers(),
+                json={"session_id": f"telegram:{chat.id}"},
+            )
+        if r.status_code >= 400:
+            logger.warning(f"Telegram stop request returned HTTP {r.status_code}")
+            try:
+                await query.message.reply_text(f"Stop request failed (HTTP {r.status_code}).")
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"Telegram stop request failed: {e}")
+        try:
+            await query.message.reply_text("Stop request failed. Check that Nally's server is reachable.")
         except Exception:
             pass
 
