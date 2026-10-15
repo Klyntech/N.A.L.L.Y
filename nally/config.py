@@ -372,6 +372,8 @@ NALLY_BASE_URL = os.getenv("NALLY_BASE_URL", "").rstrip("/")
 NALLY_CRED_KEY = os.getenv("NALLY_CRED_KEY", "")
 NALLY_RECEIPT_KEY = os.getenv("NALLY_RECEIPT_KEY", "")
 
+TELEGRAM_USER_ID = int(os.getenv("TELEGRAM_USER_ID", "0") or "0")
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 TELEGRAM_MODE = os.getenv("TELEGRAM_MODE", "auto")
