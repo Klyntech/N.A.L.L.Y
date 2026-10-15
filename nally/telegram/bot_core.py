@@ -23,11 +23,11 @@ from telegram.request import HTTPXRequest
 from ..agent.sessions import session_manager
 from ..utils.logger import logger
 from .format import md_to_telegram_html
+from .status import ProgressStatus, format_system_status
 
 MAX_MSG_LEN = 4096
 BOT_USERNAME: Optional[str] = None
 BOT = None
-_start_time = time.time()
 
 
 class _GetAddrInfoFilter(_logging.Filter):
@@ -118,19 +118,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import httpx
-
-    base = _web_base_url()
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(f"{base}/health", headers=_internal_headers())
-            body = r.text[:1500]
-    except Exception as e:
-        body = f"Backend unreachable: {e}"
-    uptime = int(time.time() - _start_time)
-    text = f"Uptime: {uptime}s\nBot: @{BOT_USERNAME or '?'}\n\n{body}"
+    """Handle /status — provider, model, uptime, tools, token budget."""
+    text = format_system_status(bot_username=BOT_USERNAME)
     if update.effective_message:
-        await update.effective_message.reply_text(text[:MAX_MSG_LEN])
+        await update.effective_message.reply_text(text)
 
 
 async def abort_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -169,7 +160,7 @@ async def services_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def connect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import httpx
 
-    args = (context.args or [])
+    args = context.args or []
     service = (args[0] if args else "").strip().lower()
     if not service:
         if update.effective_message:
@@ -203,14 +194,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
-    await message.chat.send_action("typing")
+    try:
+        await message.chat.send_action("typing")
+    except Exception:
+        pass
 
-    def emit(event: str, data: dict):
-        return None
+    # Placeholder: Thinking... → Using tool... → final reply
+    progress: Optional[ProgressStatus] = None
+    try:
+        status_msg = await message.reply_text("Thinking...")
+        progress = ProgressStatus(status_msg, asyncio.get_running_loop())
+    except Exception as e:
+        logger.debug(f"Could not post Thinking placeholder: {e}")
+
+    emit = progress.make_emit() if progress else (lambda _e, _d: None)
 
     try:
-        # AgentSessionManager API: process(session_id, message, emit=, route_key=)
-        # (there is no get_or_create; get() creates on demand)
         response = await asyncio.to_thread(
             session_manager.process,
             session_id,
@@ -218,10 +217,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emit,
             route_key,
         )
-        await _split_reply(message, response)
+        if isinstance(response, dict):
+            response = response.get("text", str(response))
+        html = md_to_telegram_html(str(response or ""))
+
+        if progress:
+            ok = await progress.finish(html, parse_mode="HTML")
+            if ok:
+                return
+        # Fallback if edit failed or no placeholder
+        await _split_reply(message, str(response or ""))
     except Exception as e:
         logger.error(f"Telegram handle_message error: {e}")
-        await message.reply_text(f"Error: {e}")
+        err = f"Error: {e}"
+        if progress:
+            await progress.finish(err, parse_mode=None)
+        else:
+            await message.reply_text(err)
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
