@@ -409,6 +409,31 @@ async def lifespan(app: FastAPI):
     await mcp_stack.enter_async_context(bridge_mcp.session_manager.run())
     app.state.nalbridge_mcp_stack = mcp_stack
 
+    # The local MCP client cannot connect back to this service until its HTTP
+    # listener is live, so register NallyBridge after a short startup delay.
+    app.state.nalbridge_mcp_connect_task = None
+    if os.getenv("NALBRIDGE_MCP_TOKEN", ""):
+        async def _connect_local_nalbridge():
+            from ..mcp.bridge_server import local_client_config
+            from ..mcp.client import connect_http_server
+
+            for attempt in range(6):
+                await asyncio.sleep(2 if attempt == 0 else 3)
+                try:
+                    count = await connect_http_server(local_client_config())
+                    if count:
+                        logger.info("NallyBridge MCP connected locally; %s tools registered", count)
+                        return
+                except Exception as exc:
+                    logger.warning(
+                        "NallyBridge MCP connect attempt %s failed: %s",
+                        attempt + 1,
+                        type(exc).__name__,
+                    )
+            logger.error("NallyBridge MCP endpoint is enabled but its local client did not connect")
+
+        app.state.nalbridge_mcp_connect_task = asyncio.create_task(_connect_local_nalbridge())
+
     # Yield immediately so Render detects open port quickly (health checks can pass while tools load in background).
     yield
 
@@ -451,6 +476,16 @@ async def lifespan(app: FastAPI):
         logger.info("Saved all session summaries on shutdown.")
     except Exception as e:
         logger.warning(f"Shutdown save failed: {e}")
+    try:
+        connect_task = getattr(app.state, "nalbridge_mcp_connect_task", None)
+        if connect_task and not connect_task.done():
+            connect_task.cancel()
+            try:
+                await connect_task
+            except asyncio.CancelledError:
+                pass
+    except Exception as e:
+        logger.warning("NallyBridge MCP client shutdown failed: %s", type(e).__name__)
     try:
         stack = getattr(app.state, "nalbridge_mcp_stack", None)
         if stack:
@@ -1023,6 +1058,7 @@ async def mcp_services(_auth=Depends(verify_auth)):
             )
 
     bridge_token_configured = bool(os.getenv("NALBRIDGE_MCP_TOKEN", ""))
+    bridge_client_tools = sum(name.startswith("mcp_nalbridge_") for name in registry.tools)
     services.append(
         {
             "name": "nalbridge",
@@ -1030,8 +1066,13 @@ async def mcp_services(_auth=Depends(verify_auth)):
             "endpoint": "/mcp/nalbridge/mcp",
             "auth_mode": "bearer",
             "description": "Authenticated NallyBridge MCP server for connected devices",
-            "connected": bridge_token_configured,
-            "status": "enabled" if bridge_token_configured else "needs_mcp_token",
+            "connected": bridge_token_configured and bridge_client_tools > 0,
+            "status": (
+                "connected"
+                if bridge_client_tools > 0
+                else ("enabled_client_connecting" if bridge_token_configured else "needs_mcp_token")
+            ),
+            "tools": bridge_client_tools,
         }
     )
     return {"services": services}
@@ -1048,18 +1089,27 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     from nally.mcp.oauth import get_existing_tokens
 
     if service == "nalbridge":
-        token_configured = bool(os.getenv("NALBRIDGE_MCP_TOKEN", ""))
-        if not token_configured:
+        if not os.getenv("NALBRIDGE_MCP_TOKEN", ""):
             return {
                 "status": "needs_configuration",
                 "service": service,
                 "required_env": ["NALBRIDGE_MCP_TOKEN", "NALLY_MCP_ALLOWED_HOSTS"],
                 "endpoint": "/mcp/nalbridge/mcp",
             }
+
+        from nally.mcp.bridge_server import local_client_config
+        from nally.mcp.client import connect_http_server
+
+        try:
+            count = await connect_http_server(local_client_config())
+        except Exception as exc:
+            logger.warning("NallyBridge MCP connection failed: %s", type(exc).__name__)
+            count = 0
         return {
-            "status": "connected",
+            "status": "connected" if count else "error",
             "service": service,
             "endpoint": "/mcp/nalbridge/mcp",
+            "tools": count,
         }
 
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
