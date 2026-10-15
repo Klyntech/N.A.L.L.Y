@@ -137,7 +137,15 @@ async def start_connect(service: str) -> dict:
                         return r.json()
                     except Exception:
                         return {"status": "ok", "raw": r.text[:500]}
-                last = {"status": "error", "detail": f"HTTP {r.status_code}", "body": r.text[:300]}
+                detail = f"HTTP {r.status_code}"
+                try:
+                    err = r.json()
+                    if isinstance(err, dict) and err.get("detail"):
+                        detail = str(err["detail"])[:400]
+                except Exception:
+                    if r.text:
+                        detail = r.text[:300]
+                last = {"status": "error", "detail": detail, "body": r.text[:300]}
             except Exception as e:
                 last = {"status": "error", "detail": str(e)}
                 logger.debug(f"start_connect {url} failed: {e}")
@@ -251,7 +259,7 @@ def format_approval(tool: str, args_preview: str = "") -> str:
 
 
 def _esc(s: str) -> str:
-    return (s or "").replace("&", "&").replace("<", "<").replace(">", ">")
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 async def show_mcp_home(message) -> None:
