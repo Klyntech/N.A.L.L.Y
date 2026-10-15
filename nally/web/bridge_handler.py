@@ -8,6 +8,8 @@ import asyncio
 import hmac
 import json
 import logging
+import os
+import threading
 import time
 import uuid
 from typing import Optional
@@ -25,6 +27,7 @@ class BridgeDevice:
         self.websocket = websocket
         self.platform = platform
         self.tools = tools
+        self.loop = asyncio.get_running_loop()
         self.connected_at = time.time()
         self.last_pong = time.time()
 
@@ -43,7 +46,9 @@ class BridgeRegistry:
 
     def __init__(self):
         self._devices: dict[str, BridgeDevice] = {}
-        self._pending: dict[str, asyncio.Future] = {}  # request_id -> Future
+        # request_id -> (device_id, Future); only the disconnected device's work is cancelled.
+        self._pending: dict[str, tuple[str, asyncio.Future]] = {}
+        self._lock = threading.RLock()
 
     @property
     def devices(self) -> dict[str, BridgeDevice]:
@@ -52,29 +57,44 @@ class BridgeRegistry:
     def register(self, device_id: str, ws: WebSocket, platform: str, tools: list[str]) -> BridgeDevice:
         """Register a bridge device."""
         device = BridgeDevice(device_id, ws, platform, tools)
-        self._devices[device_id] = device
+        with self._lock:
+            self._devices[device_id] = device
         logger.info(f"Bridge registered: {device_id} (platform={platform}, tools={tools})")
         return device
 
-    def unregister(self, device_id: str):
-        """Remove a bridge device."""
-        self._devices.pop(device_id, None)
-        # Cancel any pending requests for this device
-        for rid, fut in list(self._pending.items()):
-            if not fut.done():
-                fut.cancel()
+    def unregister(self, device_id: str, websocket: WebSocket | None = None):
+        """Remove the device only if this exact connection is still registered."""
+        with self._lock:
+            current = self._devices.get(device_id)
+            if current is None or (websocket is not None and current.websocket is not websocket):
+                return
+            self._devices.pop(device_id, None)
+            pending = [
+                (rid, fut)
+                for rid, (target_id, fut) in self._pending.items()
+                if target_id == device_id
+            ]
+            for rid, _ in pending:
                 self._pending.pop(rid, None)
+
+        # Futures belong to each request's event loop; cancel them thread-safely.
+        for _, fut in pending:
+            loop = fut.get_loop()
+            if not fut.done() and loop.is_running():
+                loop.call_soon_threadsafe(fut.cancel)
         logger.info(f"Bridge unregistered: {device_id}")
 
     def get_device(self, device_id: str) -> Optional[BridgeDevice]:
         """Get a specific bridge device."""
-        return self._devices.get(device_id)
+        with self._lock:
+            return self._devices.get(device_id)
 
     def find_device_for_tool(self, tool: str) -> Optional[BridgeDevice]:
         """Find a connected bridge that supports the given tool."""
-        for device in self._devices.values():
-            if tool in device.tools:
-                return device
+        with self._lock:
+            for device in self._devices.values():
+                if tool in device.tools:
+                    return device
         return None
 
     async def send_tool_request(self, device_id: str, tool: str, args: dict, timeout: float = 60.0) -> tuple[str, bool]:
@@ -82,13 +102,17 @@ class BridgeRegistry:
 
         Returns (result, success).
         """
-        device = self._devices.get(device_id)
+        with self._lock:
+            device = self._devices.get(device_id)
         if not device:
             return f"Error: Bridge device not connected: {device_id}", False
+        if device.loop is not asyncio.get_running_loop():
+            return f"Error: request must run on the bridge server event loop for {device_id}", False
 
-        request_id = str(uuid.uuid4())[:12]
-        future = asyncio.get_event_loop().create_future()
-        self._pending[request_id] = future
+        request_id = str(uuid.uuid4())
+        future = asyncio.get_running_loop().create_future()
+        with self._lock:
+            self._pending[request_id] = (device_id, future)
 
         try:
             await device.websocket.send_json(
@@ -108,13 +132,17 @@ class BridgeRegistry:
         except Exception as e:
             return f"Error communicating with bridge: {e}", False
         finally:
-            self._pending.pop(request_id, None)
+            with self._lock:
+                self._pending.pop(request_id, None)
 
     def resolve_result(self, request_id: str, result: str, success: bool):
         """Resolve a pending tool request with its result."""
-        future = self._pending.get(request_id)
-        if future and not future.done():
-            future.set_result((result, success))
+        with self._lock:
+            entry = self._pending.get(request_id)
+        if entry:
+            _, future = entry
+            if not future.done():
+                future.set_result((result, success))
 
 
 # Singleton
@@ -190,4 +218,4 @@ async def bridge_websocket(websocket: WebSocket, device_id: str):
         logger.error(f"Bridge WebSocket error: {e}")
     finally:
         if device:
-            bridge_registry.unregister(device_id)
+            bridge_registry.unregister(device_id, websocket=websocket)
