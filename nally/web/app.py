@@ -15,9 +15,8 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from nally.agent import get_agent
@@ -214,12 +213,6 @@ _internal_rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST
 
 
 # ── Request models ────────────────────────────────────────
-
-
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str = "web:default"
-    tab_id: str = ""
 
 
 class ApprovalRequest(BaseModel):
@@ -523,7 +516,6 @@ async def _middleware(request: Request, call_next):
 
 # ── Static files ──────────────────────────────────────────
 
-_web_dir = _base / "web"
 _data_dir = _base / "data"
 _gen_dir = _data_dir / "generated"
 _gen_dir.mkdir(parents=True, exist_ok=True)
@@ -551,9 +543,6 @@ async def index():
 
 
 # ── Face Avatar MVP ───────────────────────────────────────
-_mvp_dir = _web_dir / "mvp"
-
-
 @app.get("/mvp")
 async def mvp():
     raise HTTPException(status_code=410, detail="This interface is disabled; use Telegram.")
