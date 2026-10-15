@@ -103,7 +103,9 @@ class ProgressStatus:
         if not self._msg:
             return
         try:
-            await self._msg.edit_text(text[:4000])
+            from .inline_ui import keyboard_stop
+
+            await self._msg.edit_text(text[:4000], reply_markup=keyboard_stop())
         except Exception as e:
             err = str(e).lower()
             if "not modified" in err or "message is not modified" in err:
@@ -116,11 +118,11 @@ class ProgressStatus:
             return False
         body = (final_text or "").strip() or "(empty response)"
         try:
-            await self._msg.edit_text(body[:4000], parse_mode=parse_mode)
+            await self._msg.edit_text(body[:4000], parse_mode=parse_mode, reply_markup=None)
             return True
         except Exception:
             try:
-                await self._msg.edit_text(body[:4000])
+                await self._msg.edit_text(body[:4000], reply_markup=None)
                 return True
             except Exception as e:
                 logger.debug(f"ProgressStatus.finish failed: {e}")
