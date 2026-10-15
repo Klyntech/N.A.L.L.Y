@@ -170,6 +170,6 @@ async def start_telegram_webhook(webhook_base_url: str):
             "callback_query",
         ],
     )
-    logger.info(f"Telegram webhook set: {full_webhook_url}")
+    logger.info("Telegram webhook registered successfully")
 
     return app
