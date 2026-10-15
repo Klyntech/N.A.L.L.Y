@@ -56,7 +56,7 @@ except Exception as _cp_err:  # pragma: no cover - never crash agent if checkpoi
 
 
 def _compute_file_diff(tool_args: dict) -> Optional[str]:
-    """Compute a unified diff for file_ops write operations.
+    """Compute a unified diff for file_io write operations.
 
     Reads the current file (if it exists) and diffs it against the proposed content.
     Returns None if not applicable (not a write, file not readable, etc.).
@@ -1071,9 +1071,9 @@ def tool_executor(state: AgentState) -> AgentState:
             return
         try:
             paths: list[str] = []
-            if tool_name == "file_ops":
+            if tool_name in ("file_ops", "file_io"):
                 act = tool_args.get("action")
-                if act in ("write", "delete") and tool_args.get("file_path"):
+                if act in ("write", "make", "delete") and tool_args.get("file_path"):
                     paths.append(tool_args["file_path"])
                 elif act in ("move", "copy") and tool_args.get("file_path"):
                     paths.append(tool_args["file_path"])
@@ -1305,7 +1305,7 @@ def tool_executor(state: AgentState) -> AgentState:
         diff = None
         file_path_str = ""
         snapshot_before = None
-        if tool_name == "file_ops" and tool_args.get("action") == "write":
+        if tool_name in ("file_ops", "file_io") and tool_args.get("action") == "write":
             diff = _compute_file_diff(tool_args)
             file_path_str = tool_args.get("file_path", "")
             logger.info(f"Diff computed for {file_path_str}: {'yes' if diff else 'empty/same'}")
@@ -1366,7 +1366,7 @@ def tool_executor(state: AgentState) -> AgentState:
         # appear constantly in legitimate file content and command output and
         # produced false-positive "success" downgrades. File-content tools are
         # exempt entirely; their success is already structural.
-        if success and isinstance(result, str) and tool_name not in ("read_file", "file_ops"):
+        if success and isinstance(result, str) and tool_name not in ("read_file", "file_ops", "file_io"):
             _HARD_ERROR_TOKENS = (
                 "traceback (most recent call last)",
                 "permissionerror:",
