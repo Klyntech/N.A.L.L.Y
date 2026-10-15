@@ -81,15 +81,6 @@ MCP_SERVERS: list[dict] = [
         "description": "Render services, deploys, logs, metrics, and databases",
         "permission": "write",
     },
-    {
-        "name": "nalbridge",
-        "url": os.getenv("NALBRIDGE_MCP_URL", ""),
-        "transport": "http",
-        "auth_mode": "api_key",
-        "env_key": "NALBRIDGE_MCP_TOKEN",
-        "description": "NallyBridge-connected remote devices via MCP",
-        "permission": "write",
-    },
 ]
 
 
