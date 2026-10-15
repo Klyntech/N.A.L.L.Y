@@ -22,17 +22,9 @@ def _load_all_registered():
 
     registry.register(RunCommand())
 
-    # Persistent managed shell sessions (list, output polling, stdin).
-    from .managed import ShellOutput, ShellSessions, ShellStdin
+    # Single unified file interface: list, make, delete, read, write.
+    from .files import FileOps
 
-    registry.register(ShellSessions())
-    registry.register(ShellOutput())
-    registry.register(ShellStdin())
-
-    # File I/O: read and manage files.
-    from .files import FileOps, ReadFile
-
-    registry.register(ReadFile())
     registry.register(FileOps())
 
     # Web research: search results plus full-page fetching.
@@ -117,13 +109,20 @@ def _load_all_registered():
 
     register_subagent_tools()
 
-    # Remote execution through connected NallyBridge devices.
-    from . import bridge
+    # External services are exposed as MCP tools, not built into the core.
+    # Missing credentials are reported as "awaiting" and do not break startup.
+    try:
+        from ..mcp.client import connect_mcp_servers
 
-    bridge.register(registry)
+        mcp_status = connect_mcp_servers(registry)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("nally.tools").exception("MCP startup failed: %s", exc)
+        mcp_status = []
 
     _loaded = True
-    return []
+    return mcp_status
 
 
 def load_all_tools():
