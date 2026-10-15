@@ -909,7 +909,11 @@ async def exchange_higgsfield_code(code: str, db_path: str) -> bool:
 
 GITHUB_AUTH_ENDPOINT = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"
-GITHUB_REDIRECT_URI = "http://127.0.0.1:5000/api/oauth/github/callback"
+
+
+def _github_redirect_uri() -> str:
+    """Public callback URL — must match the GitHub OAuth App settings."""
+    return f"{_base_url().rstrip('/')}/api/oauth/github/callback"
 
 
 def _get_github_credentials() -> tuple[str, str] | None:
@@ -926,28 +930,47 @@ async def start_github_oauth(db_path: str) -> str:
 
     creds = _get_github_credentials()
     if not creds:
-        raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in .env")
+        raise ValueError(
+            "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set on the server"
+        )
     client_id, _ = creds
+
+    try:
+        if _get_fernet() is None:
+            raise ValueError(
+                "NALLY_CRED_KEY must be set (Fernet key) to store OAuth state securely"
+            )
+    except RuntimeError as e:
+        raise ValueError(str(e)) from e
 
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(16)
+    redirect_uri = _github_redirect_uri()
 
-    # Store state
     _pending_pkce["github"] = {
         "code_verifier": code_verifier,
         "client_id": client_id,
         "state": state,
         "token_endpoint": GITHUB_TOKEN_ENDPOINT,
         "auth_endpoint": GITHUB_AUTH_ENDPOINT,
+        "redirect_uri": redirect_uri,
     }
-    save_oauth_state(db_path, "github", code_verifier, client_id, state, GITHUB_TOKEN_ENDPOINT, GITHUB_AUTH_ENDPOINT)
+    try:
+        save_oauth_state(
+            db_path, "github", code_verifier, client_id, state,
+            GITHUB_TOKEN_ENDPOINT, GITHUB_AUTH_ENDPOINT,
+        )
+    except RuntimeError as e:
+        raise ValueError(str(e)) from e
+    except Exception as e:
+        raise ValueError(f"Could not save OAuth state: {e}") from e
 
     from urllib.parse import urlencode
 
     params = {
         "response_type": "code",
         "client_id": client_id,
-        "redirect_uri": GITHUB_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "scope": "repo",
         "state": state,
         "code_challenge": code_challenge,
@@ -983,7 +1006,7 @@ async def exchange_github_code(code: str, db_path: str) -> bool:
                 "code": code,
                 "client_id": state_data["client_id"],
                 "client_secret": client_secret,
-                "redirect_uri": GITHUB_REDIRECT_URI,
+                "redirect_uri": state_data.get("redirect_uri") or _github_redirect_uri(),
                 "code_verifier": state_data["code_verifier"],
             },
             headers={"Accept": "application/json"},
