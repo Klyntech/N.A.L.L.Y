@@ -1181,9 +1181,20 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
             from nally.mcp.oauth import start_github_oauth
 
             try:
+                from nally.config import ensure_data_dir
+
+                ensure_data_dir()
                 auth_url = await start_github_oauth(db)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
+            except RuntimeError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.exception("GitHub OAuth start failed")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"GitHub connect failed: {type(e).__name__}: {e}",
+                )
             return {"status": "auth_required", "auth_url": auth_url, "service": service}
         elif service == "spotify":
             from nally.mcp.oauth import start_spotify_oauth
