@@ -1,4 +1,4 @@
-"""Telegram status helpers — /status text and Thinking... placeholder only."""
+"""Telegram status helpers — /status text and Thinking... / Using {tool}... progress."""
 
 from __future__ import annotations
 
@@ -79,14 +79,25 @@ def format_system_status(*, bot_username: Optional[str] = None) -> str:
 
 
 class ProgressStatus:
-    """Placeholder Telegram message that shows only "Thinking..." until the final reply.
+    """Placeholder message: Thinking... then Using {tool}... then the final reply.
 
-    Tool names, thoughts, and system notices stay internal — never edited into the chat.
+    Thoughts, system notices, and tool results stay internal — not shown to the user.
     """
 
     def __init__(self, status_message: Any, loop: asyncio.AbstractEventLoop):
         self._msg = status_message
         self._loop = loop
+        self._last = ""
+
+    def set(self, text: str) -> None:
+        """Thread-safe status line update (from emit in a worker thread)."""
+        if not text or text == self._last:
+            return
+        self._last = text
+        try:
+            asyncio.run_coroutine_threadsafe(self._edit(text), self._loop)
+        except Exception as e:
+            logger.debug(f"ProgressStatus.set failed: {e}")
 
     async def _edit(self, text: str) -> None:
         if not self._msg:
@@ -100,7 +111,7 @@ class ProgressStatus:
             logger.debug(f"ProgressStatus edit failed: {e}")
 
     async def finish(self, final_text: str, *, parse_mode: Optional[str] = "HTML") -> bool:
-        """Replace Thinking... with the final reply. Returns True if edit succeeded."""
+        """Replace the status placeholder with the final reply."""
         if not self._msg:
             return False
         body = (final_text or "").strip() or "(empty response)"
@@ -116,11 +127,16 @@ class ProgressStatus:
                 return False
 
     def make_emit(self, extra: Optional[Callable[[str, dict], None]] = None) -> Callable[[str, dict], None]:
-        """Emit callback: no user-facing progress updates (Thinking... stays until finish)."""
+        """Emit: only surface active tool name; everything else stays internal."""
 
         def emit(event: str, data: dict) -> None:
-            # Intentionally ignore tool_call / thought / tool_result / system_notice
-            # — those are internal. Only the final reply replaces "Thinking...".
+            try:
+                if event == "tool_call":
+                    name = ((data or {}).get("name") or "?").strip() or "?"
+                    self.set(f"Using {name}...")
+                # thought / tool_result / system_notice / etc. — internal only
+            except Exception as e:
+                logger.debug(f"ProgressStatus emit error: {e}")
             if extra:
                 try:
                     extra(event, data)
