@@ -240,7 +240,11 @@ def keyboard_mcp_service(
 
 
 def keyboard_approval(short_id: str) -> InlineKeyboardMarkup:
-    sid = short_id[:40]
+    # Telegram callback_data allows up to 64 bytes. Keep the complete tool-call
+    # ID: truncating it makes the approval endpoint unable to resolve the pending call.
+    sid = str(short_id).strip()
+    if not sid or len(sid.encode("utf-8")) > 55:
+        raise ValueError("Tool-call ID cannot fit safely in Telegram approval callback data")
     return InlineKeyboardMarkup(
         [
             [
