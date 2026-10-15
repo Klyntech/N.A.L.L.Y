@@ -12,13 +12,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# ── Load .env (no side effects) ───────────────────────────
-
 _env_path = Path(__file__).parent.parent / ".env"
 if _env_path.exists():
     load_dotenv(_env_path, override=True)
-
-# ── Paths (lazy directory creation) ───────────────────────
 
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -81,7 +77,6 @@ MCP_SERVERS: list[dict] = [
 
 
 def ensure_data_dir():
-    """Create data directory if it doesn't exist. Call explicitly, not at import."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -211,7 +206,6 @@ LAYERBASE_DB_ID = os.getenv("LAYERBASE_DB_ID", "")
 REDIS_URL = os.getenv("REDIS_URL", "")
 REDIS_TOKEN = os.getenv("REDIS_TOKEN", "")
 
-# ── Personality ───────────────────────────────────────────
 PERSONALITIES = {
     "nally": {
         "name": "Nally",
@@ -219,7 +213,7 @@ PERSONALITIES = {
         "style": """You are NALLY — a personal AI assistant. Tone: quiet, sharp, and informative. Telegram-first: default to brief replies.
 
 VOICE
-- Quiet: no cheerleading, no filler, no \"Great question!\" / \"Certainly!\" / \"Absolutely!\".
+- Quiet: no cheerleading, no filler, no "Great question!" / "Certainly!" / "Absolutely!".
 - Sharp: precise wording; say the point first; cut soft padding.
 - Informative: when facts, tradeoffs, or next steps matter, include them — cleanly, not as a lecture.
 - Match energy: short message → short reply. Long/complex task → structured and complete, still tight.
@@ -274,14 +268,13 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
     except Exception:
         pass
 
+    devices = {}
     try:
         from nally.web.bridge_handler import bridge_registry
 
         devices = bridge_registry.devices
         if devices:
-            bridge_lines = []
-            for did, d in devices.items():
-                bridge_lines.append(f"  - {did}: platform={d.platform}, tools={d.tools}")
+            bridge_lines = [f"  - {did}: platform={d.platform}, tools={d.tools}" for did, d in devices.items()]
             bridge_list = "\n".join(bridge_lines)
             prompt += (
                 "\n\nNALLYBRIDGE DEVICES (connected to this NALLY instance):"
@@ -291,7 +284,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
                 "\nUse device='any' to target the first available bridge."
             )
     except Exception:
-        devices = {}
+        pass
 
     try:
         import os as _os
@@ -344,16 +337,13 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
         pass
 
     try:
-        from nally.config import NALLY_VOICE_CALLS_ENABLED
-
         if NALLY_VOICE_CALLS_ENABLED:
             prompt += (
                 "\n\nVOICE CHAT:"
                 "\n- You can have real-time voice conversations with your user via Telegram voice chats."
-                "\n- When the user says 'call me' or 'call nally' on Telegram, it triggers automatically — you don't need to do anything, just acknowledge it."
-                "\n- If someone asks to call you on the WEB UI, tell them: 'Voice calls only work on Telegram. Send me \"call me\" there.'"
-                "\n- Do NOT make up phone numbers, Plivo, Twilio, or any other calling service. You don't have those."
-                "\n- If asked about voice capabilities, say you can have live voice conversations through Telegram voice chats."
+                "\n- When the user says 'call me' or 'call nally' on Telegram, it triggers automatically — acknowledge it."
+                "\n- Voice calls only work on Telegram."
+                "\n- Do NOT invent phone numbers or third-party calling services."
             )
     except Exception:
         pass
@@ -376,7 +366,6 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-# Remaining config constants (auth, telegram, observability, etc.)
 NALLY_ACCESS_TOKEN = os.getenv("NALLY_ACCESS_TOKEN", "")
 NALLY_INTERNAL_TOKEN = os.getenv("NALLY_INTERNAL_TOKEN", "")
 NALLY_BASE_URL = os.getenv("NALLY_BASE_URL", "").rstrip("/")
@@ -388,6 +377,12 @@ TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 TELEGRAM_MODE = os.getenv("TELEGRAM_MODE", "auto")
 
 NALLY_VOICE_CALLS_ENABLED = os.getenv("NALLY_VOICE_CALLS_ENABLED", "false").lower() in ("1", "true", "yes")
+
+# Optional channel stubs (unused on slim; kept so imports do not break)
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
 OTEL_METRICS_PORT = int(os.getenv("OTEL_METRICS_PORT", "8000") or "0")
 OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
