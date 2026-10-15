@@ -103,7 +103,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status — system\n"
         "/services — MCP connect\n"
         "/connect — same as /services\n"
-        "/abort — stop current run\n\n"
+        "/stop — stop current run\n"
+        "/abort — alias for /stop\n\n"
         "Send text to chat."
     )
     if update.effective_message:
@@ -192,7 +193,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     progress: Optional[ProgressStatus] = None
     try:
-        status_msg = await message.reply_text("Thinking...")
+        status_msg = await message.reply_text("Thinking...", reply_markup=inline_ui.keyboard_stop())
         progress = ProgressStatus(status_msg, asyncio.get_running_loop())
     except Exception as e:
         logger.debug(f"Could not post Thinking placeholder: {e}")
