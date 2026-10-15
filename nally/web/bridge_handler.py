@@ -52,13 +52,32 @@ class BridgeRegistry:
 
     @property
     def devices(self) -> dict[str, BridgeDevice]:
-        return self._devices
+        """Return a snapshot so callers cannot mutate the live registry."""
+        with self._lock:
+            return dict(self._devices)
 
     def register(self, device_id: str, ws: WebSocket, platform: str, tools: list[str]) -> BridgeDevice:
-        """Register a bridge device."""
+        """Register a device and cancel requests still tied to a replaced connection."""
         device = BridgeDevice(device_id, ws, platform, tools)
+        stale_futures = []
         with self._lock:
+            previous = self._devices.get(device_id)
             self._devices[device_id] = device
+            if previous and previous.websocket is not ws:
+                stale = [
+                    (rid, fut)
+                    for rid, (target_id, fut) in self._pending.items()
+                    if target_id == device_id
+                ]
+                stale_futures = [future for _, future in stale]
+                for request_id, _ in stale:
+                    self._pending.pop(request_id, None)
+
+        for future in stale_futures:
+            loop = future.get_loop()
+            if not future.done() and loop.is_running():
+                loop.call_soon_threadsafe(future.cancel)
+
         logger.info(f"Bridge registered: {device_id} (platform={platform}, tools={tools})")
         return device
 
