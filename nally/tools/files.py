@@ -309,8 +309,16 @@ class FileOps(Tool):
 
             elif action == "list":
                 p = Path(file_path)
+                if not _is_safe_write_path(p):
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
+                    return f"Error: path outside allowed directories. List within: {allowed}"
+                parts = set(p.resolve().parts)
+                if parts & {".ssh", ".aws", ".gnupg"}:
+                    return f"Error: access denied for sensitive directory: {file_path}"
                 if not p.exists():
                     return f"Error: Directory not found: {file_path}"
+                if not p.is_dir():
+                    return f"Error: Not a directory: {file_path}"
                 items = []
                 for item in sorted(p.iterdir()):
                     prefix = "[dir] " if item.is_dir() else "      "
@@ -328,8 +336,16 @@ class FileOps(Tool):
                 if not _is_safe_write_path(path):
                     allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: path outside allowed directories. Write to: {allowed}"
+                # Never allow removing an entire approved root (for example the
+                # Nally repository, Desktop, Documents, Downloads, or temp root).
+                resolved_target = path.resolve()
+                if any(resolved_target == root.resolve() for root in _get_allowed_roots()):
+                    return f"Error: refusing to delete an allowed root directory: {file_path}"
                 if not path.exists():
                     return f"Error: path not found: {file_path}"
+                parts = set(resolved_target.parts)
+                if parts & {".ssh", ".aws", ".gnupg"} or path.name in {"id_rsa", "id_ed25519", "passwd", "shadow"}:
+                    return f"Error: refusing to delete a sensitive path: {file_path}"
                 if path.is_dir():
                     import shutil
 
