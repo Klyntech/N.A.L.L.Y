@@ -1,4 +1,4 @@
-"""Telegram status helpers — /status text and live Thinking / Using (tool) updates."""
+"""Telegram status helpers — /status text and Thinking... placeholder only."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from typing import Any, Callable, Optional
 
 from ..utils.logger import logger
 
-# Module start time (shared with bot uptime display)
 _START_TIME = time.time()
 
 
@@ -80,30 +79,14 @@ def format_system_status(*, bot_username: Optional[str] = None) -> str:
 
 
 class ProgressStatus:
-    """Placeholder Telegram message that shows Thinking… / Using tool… while the agent runs.
+    """Placeholder Telegram message that shows only "Thinking..." until the final reply.
 
-    Designed for emit() callbacks invoked from a worker thread:
-    edits are scheduled onto the main asyncio loop via run_coroutine_threadsafe.
+    Tool names, thoughts, and system notices stay internal — never edited into the chat.
     """
 
     def __init__(self, status_message: Any, loop: asyncio.AbstractEventLoop):
         self._msg = status_message
         self._loop = loop
-        self._last = ""
-        self._lock = asyncio.Lock()  # only used on the event loop
-
-    async def start(self, text: str = "Thinking...") -> None:
-        await self._edit(text)
-
-    def set(self, text: str) -> None:
-        """Thread-safe status update (call from emit in worker thread)."""
-        if not text or text == self._last:
-            return
-        self._last = text
-        try:
-            asyncio.run_coroutine_threadsafe(self._edit(text), self._loop)
-        except Exception as e:
-            logger.debug(f"ProgressStatus.set failed: {e}")
 
     async def _edit(self, text: str) -> None:
         if not self._msg:
@@ -111,14 +94,13 @@ class ProgressStatus:
         try:
             await self._msg.edit_text(text[:4000])
         except Exception as e:
-            # Telegram rejects edits that don't change content; ignore those.
             err = str(e).lower()
             if "not modified" in err or "message is not modified" in err:
                 return
             logger.debug(f"ProgressStatus edit failed: {e}")
 
     async def finish(self, final_text: str, *, parse_mode: Optional[str] = "HTML") -> bool:
-        """Replace the placeholder with the final reply. Returns True if edit succeeded."""
+        """Replace Thinking... with the final reply. Returns True if edit succeeded."""
         if not self._msg:
             return False
         body = (final_text or "").strip() or "(empty response)"
@@ -134,31 +116,11 @@ class ProgressStatus:
                 return False
 
     def make_emit(self, extra: Optional[Callable[[str, dict], None]] = None) -> Callable[[str, dict], None]:
-        """Build an agent emit callback that drives Thinking / Using updates."""
+        """Emit callback: no user-facing progress updates (Thinking... stays until finish)."""
 
         def emit(event: str, data: dict) -> None:
-            try:
-                if event == "tool_call":
-                    name = (data or {}).get("name") or "?"
-                    self.set(f"Using {name}...")
-                elif event == "thought":
-                    thought = ((data or {}).get("text") or "").strip()
-                    if thought:
-                        # Keep it short for Telegram status line
-                        snippet = thought.replace("\n", " ")[:160]
-                        self.set(f"Thinking...\n{snippet}")
-                    else:
-                        self.set("Thinking...")
-                elif event == "system_notice":
-                    notice = ((data or {}).get("text") or "").strip()
-                    if notice:
-                        self.set(notice[:400])
-                elif event == "tool_result":
-                    name = (data or {}).get("name") or "tool"
-                    self.set(f"Finished {name}...")
-                # confirmation_required is handled by callers that own approvals
-            except Exception as e:
-                logger.debug(f"ProgressStatus emit error: {e}")
+            # Intentionally ignore tool_call / thought / tool_result / system_notice
+            # — those are internal. Only the final reply replaces "Thinking...".
             if extra:
                 try:
                     extra(event, data)
