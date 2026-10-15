@@ -641,6 +641,90 @@ async def abort_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Abort signal sent. I'll stop what I'm doing.")
 
 
+async def services_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show MCP connection readiness through the Telegram-only interface."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{_web_base_url()}/api/telegram/mcp/services",
+                headers=_internal_auth_headers(),
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        await update.message.reply_text(f"Could not load service status: {type(exc).__name__}")
+        return
+
+    lines = ["N.A.L.L.Y service status"]
+    for service in data.get("services", []):
+        state = service.get("status", "unknown")
+        if service.get("connected") and state in ("configured", "connected", "enabled"):
+            state = "connected" if service["name"] != "nalbridge" else "MCP enabled"
+        lines.append(f"{service.get('name', 'unknown')}: {state}")
+    lines.append("")
+    lines.append("Use /connect github, /connect notion, /connect gmail, /connect spotify, or /connect render.")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def connect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start OAuth for a supported integration without accepting secrets in chat."""
+    import httpx
+
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /connect github|notion|gmail|spotify|render|nalbridge"
+        )
+        return
+
+    service = context.args[0].strip().lower()
+    allowed = {"github", "notion", "gmail", "spotify", "render", "nalbridge"}
+    if service not in allowed:
+        await update.message.reply_text("Unsupported service. Use /services to see available integrations.")
+        return
+
+    if service == "render":
+        await update.message.reply_text(
+            "Render uses an API key configured as RENDER_API_KEY in the service environment. "
+            "Do not send API keys in Telegram. After configuring it, use /services to check status."
+        )
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{_web_base_url()}/api/telegram/mcp/connect",
+                headers=_internal_auth_headers(),
+                json={"service": service},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        await update.message.reply_text(f"Could not start {service} connection: {type(exc).__name__}")
+        return
+
+    status = data.get("status", "unknown")
+    auth_url = data.get("auth_url")
+    if auth_url:
+        await update.message.reply_text(
+            f"Authorize {service} using this provider URL, then return here and run /services:\n{auth_url}",
+            disable_web_page_preview=True,
+        )
+    elif status == "needs_configuration":
+        env_keys = ", ".join(data.get("required_env", [])) or "service environment"
+        await update.message.reply_text(
+            f"{service} needs server configuration: {env_keys}. Configure it in the hosting environment, "
+            "not in a Telegram message."
+        )
+    elif status == "connected":
+        await update.message.reply_text(f"{service} is connected. Run /services to confirm its tools.")
+    else:
+        await update.message.reply_text(
+            f"{service} connection status: {status}. Run /services for the current status."
+        )
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming text messages.
 
@@ -1308,6 +1392,8 @@ def create_bot_app(token: str, webhook_url: Optional[str] = None) -> Application
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("abort", abort_command))
+    app.add_handler(CommandHandler("services", services_command))
+    app.add_handler(CommandHandler("connect", connect_command))
 
     # DEBUG: catch-all callback logger (group=-1 = runs first, doesn't consume)
     async def _debug_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
