@@ -16,6 +16,20 @@ from ..tools.registry import Tool, registry
 logger = logging.getLogger("nally.mcp")
 
 
+def _auth_headers(server_config: dict, token=None) -> dict[str, str]:
+    """Build authorization headers without logging or persisting API keys."""
+    if token:
+        return {"Authorization": f"Bearer {token.access_token}"}
+    if server_config.get("auth_mode") == "api_key":
+        import os
+
+        env_key = server_config.get("env_key", "")
+        value = os.getenv(env_key, "") if env_key else ""
+        if value:
+            return {"Authorization": f"Bearer {value}"}
+    return {}
+
+
 def _run_coro_safely(coro):
     """Run a coroutine from a sync context without crashing on a live loop.
 
@@ -121,8 +135,7 @@ class MCPTool(Tool):
         token = await storage.get_tokens()
 
         headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
-        if token:
-            headers["Authorization"] = f"Bearer {token.access_token}"
+        headers.update(_auth_headers(config, token))
 
         tool_name = self.name.removeprefix(f"mcp_{config['name']}_")
         payload = {
@@ -286,6 +299,12 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
 
         # Gmail and similar: direct REST tools, not an MCP server — UI placeholder only.
         # They have no `command`/`url`/`args`; skip MCP connection and report as direct.
+        if transport == "http" and not server_config.get("url"):
+            instant_results.append(
+                {"name": name, "status": "awaiting", "tools": 0, "message": "MCP server URL not configured"}
+            )
+            continue
+
         if not server_config.get("command") and not server_config.get("url") and not server_config.get("args"):
             # Count direct tools if already registered (gmail direct = 9)
             direct_count = 0
@@ -306,8 +325,19 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
             )
             continue
 
-        if transport == "http":
-            # Check if we have stored tokens
+        if transport == "http" and auth_mode == "api_key":
+            import os
+
+            env_key = server_config.get("env_key", "")
+            if not env_key or not os.getenv(env_key):
+                instant_results.append(
+                    {"name": name, "status": "awaiting", "tools": 0, "message": f"awaiting API key ({env_key or 'env var'})"}
+                )
+                continue
+            needs_connect.append((server_config, "http_api_key", permission))
+
+        elif transport == "http":
+            # OAuth credentials must exist before a remote server is queried.
             db = str(DATA_DIR / "nally.db")
             try:
                 tokens = _get_existing_tokens_sync(name, db)
@@ -354,7 +384,7 @@ def connect_mcp_servers(reg, timeout: float = 15.0):
                 reg.tools.pop(tool_name, None)
 
         try:
-            if conn_type == "http":
+            if conn_type in ("http", "http_api_key"):
                 success = _try_reconnect_http(server_config, reg, timeout=per_server_timeout)
                 if success:
                     count = len([t for t in reg.tools.values() if t.name.startswith(prefix)])
@@ -576,9 +606,7 @@ async def connect_http_server(server_config: dict, reg=None):
     storage = SQLiteTokenStorage(db, name)
     token = await storage.get_tokens()
 
-    headers = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token.access_token}"
+    headers = _auth_headers(server_config, token)
 
     # Try Streamable HTTP first, fall back to SSE
     transport_errors = []
