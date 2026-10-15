@@ -341,7 +341,10 @@ _RETRYABLE_ERROR_HINTS = (
 def _tool_is_destructive(tool_name: str, tool_args: dict) -> bool:
     if tool_name in _NON_RETRYABLE_TOOLS:
         return True
-    return bool(tool_name == "file_ops" and tool_args.get("action") in ("delete", "move", "copy"))
+    return bool(
+        tool_name in ("file_ops", "file_io")
+        and tool_args.get("action") in ("delete", "move", "copy")
+    )
 
 
 def _is_transient_error(result: str) -> bool:
@@ -1112,9 +1115,9 @@ def tool_executor(state: AgentState) -> AgentState:
             return
         try:
             paths: list[str] = []
-            if tool_name == "file_ops":
+            if tool_name in ("file_ops", "file_io"):
                 act = tool_args.get("action")
-                if act in ("write", "delete") and tool_args.get("file_path"):
+                if act in ("write", "make", "delete") and tool_args.get("file_path"):
                     paths.append(tool_args["file_path"])
                 elif act in ("move", "copy"):
                     if tool_args.get("file_path"):
