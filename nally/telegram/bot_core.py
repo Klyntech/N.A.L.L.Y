@@ -21,8 +21,8 @@ from telegram.request import HTTPXRequest
 
 from ..agent.sessions import session_manager
 from ..utils.logger import logger
-from .format import md_to_telegram_html
 from . import inline_ui
+from .format import md_to_telegram_html
 from .status import ProgressStatus, format_system_status
 
 MAX_MSG_LEN = 4096
@@ -77,11 +77,6 @@ def _web_base_url() -> str:
     return f"http://localhost:{port}"
 
 
-def _internal_headers() -> dict:
-    token = os.getenv("NALLY_INTERNAL_TOKEN") or os.getenv("NALLY_ACCESS_TOKEN") or ""
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-
 async def _split_reply(message, text: str):
     text = (text or "").strip() or "(empty response)"
     html = md_to_telegram_html(text)
@@ -128,9 +123,14 @@ async def abort_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id if update.effective_chat else None
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            # abort accepts verify_auth (bearer) on /api/abort
+            token = os.getenv("NALLY_ACCESS_TOKEN", "") or ""
             await client.post(
                 f"{base}/api/abort",
-                headers=_internal_headers(),
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
                 json={"session_id": f"telegram:{chat_id}"},
             )
         reply = "Abort requested."
@@ -141,13 +141,11 @@ async def abort_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def services_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inline MCP status + connect keyboards."""
     if update.effective_message:
         await inline_ui.show_mcp_home(update.effective_message)
 
 
 async def connect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/connect [service] — home keyboard or jump to one service."""
     message = update.effective_message
     if not message:
         return
@@ -248,7 +246,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     handled = await inline_ui.handle_callback(query, context)
     if handled:
         return
-    # Fallback for unknown callbacks
     await query.answer()
     data = query.data or ""
     try:
