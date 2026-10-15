@@ -1260,13 +1260,15 @@ def tool_executor(state: AgentState) -> AgentState:
                     except Exception as e:
                         logger.error(f"approval_gate: emit failed for tc_id={tool_id}: {e}")
                 else:
-                    # No emit — approval buttons cannot appear (e.g. headless, CLI, or
-                    # same-process webhook where the bot handles its own emit).
-                    # Auto-approve so the agent doesn't block for 30 minutes.
-                    logger.info(f"approval_gate: emit is None for '{tool_name}' — auto-approving (no UI for buttons)")
-                    _save_pending_approval(tool_id, "approved")
-                    approved = True
-                    result_approved = True
+                    # Operations requiring user approval must not run without a
+                    # channel capable of asking for that approval.
+                    logger.warning("Approval unavailable for gated tool %s; refusing call", tool_name)
+                    _save_pending_approval(tool_id, "denied")
+                    _finish(False, "approval unavailable")
+                    return ToolMessage(
+                        content=f"Blocked: '{tool_name}' needs user approval, but no approval channel is available.",
+                        tool_call_id=tool_id,
+                    )
 
                 if not approved:
                     logger.info(
