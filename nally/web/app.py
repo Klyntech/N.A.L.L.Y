@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from nally.agent import get_agent
 from nally.agent.identity import owner_session_id
 from nally.agent.sessions import session_manager
+from nally.mcp.bridge_server import build_bridge_mcp_app
 from nally.config import (
     ACTIVE_MODEL,
     ALLOWED_ORIGINS,
@@ -32,7 +33,6 @@ from nally.config import (
     RATE_LIMIT_RPM,
     ensure_data_dir,
 )
-from nally.core.errors import NallyError
 from nally.tools import load_all_tools
 from nally.tools.registry import registry
 from nally.utils.logger import logger
@@ -501,8 +501,6 @@ app = FastAPI(title="Nally", lifespan=lifespan)
 
 # Authenticated NallyBridge Streamable HTTP MCP endpoint:
 # /mcp/nalbridge/mcp. Its device WebSocket is retained as the transport layer.
-from ..mcp.bridge_server import build_bridge_mcp_app
-
 app.mount("/mcp/nalbridge", build_bridge_mcp_app(), name="nalbridge-mcp")
 
 # CORS from config
@@ -1332,7 +1330,7 @@ async def spotify_oauth_callback(code: str = "", state: str = "", error: str = "
     tools_count = 0
     if server_cfg:
         try:
-            tools_count = await connect_http_server(server_cfg)
+            await connect_http_server(server_cfg)
         except Exception as exc:
             logger.warning("Spotify MCP tool discovery failed after OAuth: %s", type(exc).__name__)
 
