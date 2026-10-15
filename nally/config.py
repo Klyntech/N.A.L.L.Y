@@ -35,16 +35,15 @@ else:
         str(Path.home() / "Downloads"),
     ]
 
-# MCP servers (Model Context Protocol)
-# OAuth providers remain configured for account-linking UI flows. The core agent
-# does not register external MCP/Gmail tools in its model-callable toolset.
+# MCP servers (Model Context Protocol). Tools are discovered from each server
+# at startup and registered with a stable server prefix.
 MCP_SERVERS: list[dict] = [
     {
         "name": "github",
         "url": "https://api.githubcopilot.com/mcp/",
         "transport": "http",
         "auth_mode": "oauth",
-        "description": "GitHub repos, issues, PRs, code search",
+        "description": "GitHub repositories, issues, pull requests, and code search",
         "scope": "repo",
         "permission": "write",
     },
@@ -59,8 +58,37 @@ MCP_SERVERS: list[dict] = [
     },
     {
         "name": "gmail",
+        "url": "https://gmailmcp.googleapis.com/mcp/v1",
+        "transport": "http",
         "auth_mode": "oauth",
-        "description": "Gmail — read, search, compose emails",
+        "description": "Gmail search, messages, threads, labels, and drafts (Google Workspace Developer Preview)",
+        "permission": "write",
+    },
+    {
+        "name": "spotify",
+        "url": os.getenv("SPOTIFY_MCP_URL", "https://mcp-gateway-external-pilot.spotify.net/mcp"),
+        "transport": "http",
+        "auth_mode": "oauth",
+        "description": "Spotify search, library, playlists, and playback through Spotify's MCP pilot",
+        "permission": "write",
+    },
+    {
+        "name": "render",
+        "url": "https://mcp.render.com/mcp",
+        "transport": "http",
+        "auth_mode": "api_key",
+        "env_key": "RENDER_API_KEY",
+        "description": "Render services, deploys, logs, metrics, and databases",
+        "permission": "write",
+    },
+    {
+        "name": "nalbridge",
+        "url": os.getenv("NALBRIDGE_MCP_URL", ""),
+        "transport": "http",
+        "auth_mode": "api_key",
+        "env_key": "NALBRIDGE_MCP_TOKEN",
+        "description": "NallyBridge-connected remote devices via MCP",
+        "permission": "write",
     },
 ]
 
