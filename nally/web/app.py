@@ -1029,23 +1029,16 @@ async def mcp_services(_auth=Depends(verify_auth)):
         auth_mode = server.get("auth_mode", "")
         transport = server["transport"]
 
+        loaded_tools = sum(tool_name.startswith(f"mcp_{name}_") for tool_name in registry.tools)
         if auth_mode == "api_key":
             env_key = server.get("env_key", "")
             configured = bool(env_key and os.getenv(env_key, ""))
-            services.append(
-                {
-                    "name": name,
-                    "transport": transport,
-                    "auth_mode": auth_mode,
-                    "description": server.get("description", ""),
-                    "connected": configured,
-                    "status": "configured" if configured else "needs_api_key",
-                    "env_key": env_key,
-                }
+            connected = configured and loaded_tools > 0
+            status = (
+                "connected"
+                if connected
+                else ("configured_tools_missing" if configured else "needs_api_key")
             )
-        else:
-            token = await get_existing_tokens(name, db)
-            connected = token is not None
             services.append(
                 {
                     "name": name,
@@ -1053,7 +1046,28 @@ async def mcp_services(_auth=Depends(verify_auth)):
                     "auth_mode": auth_mode,
                     "description": server.get("description", ""),
                     "connected": connected,
-                    "status": "connected" if connected else "needs_oauth",
+                    "status": status,
+                    "env_key": env_key,
+                    "tools": loaded_tools,
+                }
+            )
+        else:
+            token = await get_existing_tokens(name, db)
+            connected = token is not None and loaded_tools > 0
+            status = (
+                "connected"
+                if connected
+                else ("token_stored_tools_missing" if token is not None else "needs_oauth")
+            )
+            services.append(
+                {
+                    "name": name,
+                    "transport": transport,
+                    "auth_mode": auth_mode,
+                    "description": server.get("description", ""),
+                    "connected": connected,
+                    "status": status,
+                    "tools": loaded_tools,
                 }
             )
 
@@ -1122,8 +1136,22 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     # Check if already connected
     existing = await get_existing_tokens(service, db)
     if existing:
-        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
-        return {"status": "connected", "service": service}
+        loaded_tools = sum(tool_name.startswith(f"mcp_{service}_") for tool_name in registry.tools)
+        if loaded_tools:
+            return {"status": "connected", "service": service, "tools": loaded_tools}
+
+        from nally.mcp.client import connect_http_server
+
+        try:
+            count = await connect_http_server(server_cfg)
+        except Exception as exc:
+            logger.warning("MCP reconnect failed for %s: %s", service, type(exc).__name__)
+            count = 0
+        return {
+            "status": "connected" if count else "token_stored_tools_missing",
+            "service": service,
+            "tools": count,
+        }
 
     if auth_mode == "oauth":
         # Start OAuth flow — return auth_url for browser redirect
