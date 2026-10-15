@@ -1,149 +1,78 @@
 # N.A.L.L.Y
 
-Personal AI assistant inspired by Jarvis from Iron Man. Built by Clinton (Klyntech/Klynvybz).
+N.A.L.L.Y is a Telegram-first personal agent with a small local tool core, persistent memory, bounded agent execution, and Model Context Protocol (MCP) integrations.
 
-## Quick Start
+## Run
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-
-# 2. Set up environment
 cp .env.example .env
-# Edit .env with your API keys
-
-# 3. Run
+# Set the model-provider credentials and Telegram credentials in .env.
 python main.py
 ```
 
-Then open http://localhost:5000 in your browser.
+The default process hosts the private backend used by Telegram, OAuth callbacks, health checks, and MCP. The browser root is only a status page; browser chat and the CLI chat mode are disabled. Keep the API access token and internal bot token secret.
 
-## What It Does
+## Human interface
 
-- **Chat** — Talk to Nally via web UI, CLI, or Telegram bot
-- **Tools** — Run shell commands, read/write files, search/fetch web pages, use memory, delegate tasks, and execute through connected NallyBridge devices
-- **Memory** — Remembers facts, episodes, and conversation history across sessions
-- **Connected services** — OAuth account-management flows remain in the web UI; external MCP tools are not loaded into the core agent
-- **Sub-agents** — Spawn parallel sub-agents for complex tasks
-- **Streaming** — Real-time SSE and WebSocket streaming for responsive feel
+Telegram is the only chat interface. Commands:
 
-## Configuration
+- `/start` — instructions
+- `/status` — provider, model, uptime, loaded tool count, and memory size
+- `/abort` — request cancellation
+- `/services` — MCP service readiness
+- `/connect github`, `/connect notion`, `/connect gmail`, `/connect spotify` — start provider authorization
+- `/connect render` — instructions for configuring the Render API key server-side
+- `/connect nalbridge` — check/connect NallyBridge MCP
 
-All settings live in `.env`:
+Never send API keys, OAuth client secrets, or the NallyBridge token in a Telegram message. Configure secrets in the hosting environment.
 
-```env
-NALLY_PROVIDER=opencode          # or "groq"
-OPENCODE_API_KEY=sk-...          # OpenCode Zen API key
-GROQ_API_KEY=gsk_...             # Groq API key (if using groq)
-NALLY_ACCESS_TOKEN=your-secret   # Auth token for API access
-NALLY_CRED_KEY=your-fernet-key   # Required for encrypted OAuth token storage
-```
+## Built-in tools
 
-Set `NALLY_CRED_KEY` to a valid Fernet key before connecting OAuth services in any environment. New token and PKCE-state writes never use plaintext. Keep the key stable and backed up securely; changing it makes existing encrypted records unreadable. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+The local registry starts with these eight tools:
 
-See [CLAUDE.md](CLAUDE.md) for full configuration reference.
+| Tool | Purpose |
+|---|---|
+| `run_command` | Run a local command under configured command rules |
+| `file_io` | `list`, `make`, `delete`, `read`, and `write` |
+| `web_search` | Find current web sources |
+| `fetch` | Retrieve a source page |
+| `remember` | Store durable facts or episodes |
+| `recall` | Retrieve saved memory |
+| `forget` | Remove saved memory |
+| `subagent` | Delegate bounded work to a sub-agent |
 
-## Architecture
+External MCP tools are added only when a server connects successfully. NallyBridge tools are discovered from the local MCP endpoint after the backend starts. A service token being stored is not, by itself, proof that its tools are available.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, patterns, and data flow.
+## MCP services
 
-## Tech Stack
+N.A.L.L.Y connects to GitHub, Notion, Gmail, Spotify, and Render. It also hosts a NallyBridge MCP server for authenticated connected devices.
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python, FastAPI, LangGraph |
-| Frontend | Vanilla JS, HTML, CSS |
-| LLM | OpenCode Zen or Groq |
-| Database | SQLite (`data/nally.db` + `data/nally_memory.db`); PostgreSQL/Redis reachability health probes only |
-| Streaming | SSE + WebSocket |
-| Integrations | OAuth account-management flows; MCP servers are not added to the agent's tool registry |
+- GitHub, Notion, Gmail, and Spotify use provider authorization.
+- Render uses `RENDER_API_KEY` as a server-side environment variable. Render MCP can perform consequential operations such as deploying services or changing configuration, so its tools must pass through N.A.L.L.Y's permission checks.
+- The official Google Gmail MCP server is in Developer Preview.
+- The configured Spotify MCP endpoint is a pilot; availability and authorization behavior must be verified against the Spotify account/app being used.
 
-## Project Structure
+See [MCP_GUIDE.md](MCP_GUIDE.md) for setup and [DEPLOYMENT.md](DEPLOYMENT.md) for deployment details.
 
-```
-nally/
-├── config.py           # All settings (single source of truth)
-├── core/
-│   ├── errors.py       # Typed error hierarchy
-│   ├── startup.py      # StartupDisplay + print_banner
-│   └── validator.py    # Startup config validation
-├── agent/              # Agent orchestrator + direct LangGraph ReAct loop
-├── tools/              # Tool registry + implementations
+## Approval and tool safety
 
-│   ├── files.py        # ReadFile, FileOps
+The permission rules live in `nally/config/permissions.json`. Reads and search can run without approval; file writes/deletes, remote-device execution, unknown MCP tools, and shell commands without an explicit allow rule require Telegram approval. If a gated action has no available approval channel, it is refused rather than silently approved.
 
+File access is scoped to configured allowed roots. The file tool refuses to delete an entire allowed root directory. This is a guardrail, not a substitute for backups, least-privilege OS accounts, or reviewing proposed changes.
 
-
-│   ├── websearch.py    # Web search (Tavily, Brave, DuckDuckGo fallback)
-│   ├── fetch.py        # Web page fetch tool
-
-
-├── memory/             # Memory repository + models
-├── subagent/           # Sub-agent spawning
-├── engineering/        # Autonomous engineering loop (python main.py --engineer)
-├── curiosity/          # Proactive idle-cycle learning (feeds, interests, scanner)
-├── mcp/                # MCP client + OAuth flows
-├── skills/             # Skill loading system
-├── telegram/           # Telegram bot (+ user.py Telethon, voice_call.py)
-├── voice/              # Voice interaction (STT/TTS, pipeline, metrics, LiveKit)
-├── web/
-│   ├── app.py          # FastAPI server
-│   ├── health.py       # Health endpoints (no auth; DB/Redis probes)
-│   └── ws_handler.py   # WebSocket streaming
-└── utils/logger.py     # Structured logging
-```
-
-## Development
+## Test and lint
 
 ```bash
-# Run in CLI mode
-python main.py --cli
-
-# Run voice mode (push-to-talk)
-python main.py --voice
-
-# Run the web server (default; Telegram bot auto-spawns in polling mode)
-python main.py
-
-# Run the Telegram bot only (no web server)
-python main.py --telegram-only
-
-# Run the Telegram bot in a separate process (polling mode)
-python run_bot_standalone.py
-
-# Run the Telethon user-account client (real user, separate process)
-python run_tg_user.py
-
-# Run Telegram voice-call sessions (pytgcalls, separate process)
-python run_tg_call.py
-
-# Run the autonomous engineering loop on a task
-python main.py --engineer "TASK"
-python -m nally.engineering
-
-# Run with specific provider
-python main.py --provider groq
-python main.py --provider opencode
-
-# Show full MCP server tree during startup
-python main.py --verbose
-
-# Run on custom port
-python main.py --port 8080
-
-
-
+pytest
+ruff check .
 ```
 
-## VoIP / Live Voice (Phone Calls)
+## Main code
 
-Zero-cost phone interface — dial Nally from a free SIP app (e.g. Linphone) via a LiveKit Cloud SIP Inbound Trunk. Requires LiveKit Cloud credentials and an inbound trunk (see `docs/LIVEKIT_SIP_SETUP.md`):
-
-```bash
-pip install -r requirements.txt
-python -m nally.voice.livekit_agent
-```
-
-## License
-
-Private — Built by Clinton Onyedikachi Chukwuma (Klyntech)
+- `nally/agent/` — LangGraph agent loop, context handling, verification, and permissions
+- `nally/tools/` — eight-tool local registry and common tool implementations
+- `nally/mcp/` — external MCP client, OAuth, and the hosted NallyBridge MCP server
+- `nally/memory/` — durable memory storage and recall
+- `nally/telegram/` — sole chat interface
+- `nally/web/app.py` — backend API, Telegram forwarding, OAuth callbacks, health, and MCP transport hosting
