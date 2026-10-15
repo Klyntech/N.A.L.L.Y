@@ -109,13 +109,6 @@ def _load_all_registered():
 
     register_subagent_tools()
 
-    # NallyBridge exposes a real Streamable HTTP MCP server. These two local
-    # adapters let this same agent use its connected devices without making
-    # an HTTP request back to itself during startup.
-    from ..mcp.bridge_server import register_local_tools
-
-    register_local_tools(registry)
-
     # External services are exposed as MCP tools, not built into the core.
     # Missing credentials are reported as "awaiting" and do not break startup.
     try:
