@@ -1,5 +1,3 @@
-"""Nally Telegram Package — Bot + User Account"""
+"""Nally Telegram package — Bot API interface only."""
 
-from .user import send_message as send_user_message
-
-__all__ = ["send_user_message"]
+__all__: list[str] = []
