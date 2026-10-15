@@ -8,7 +8,7 @@ import sys
 import time
 import uuid
 import webbrowser
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -401,7 +401,16 @@ async def lifespan(app: FastAPI):
     for _name, _level in _saved_levels.items():
         logging.getLogger(_name).setLevel(_level)
 
-    # Yield immediately so Render detects open port quickly (health checks can pass while tools load in background)
+    # Start the hosted NallyBridge MCP transport under the host application's lifespan.
+    # A mounted MCP sub-app does not run its own lifespan automatically.
+    from ..mcp.bridge_server import bridge_mcp
+
+    mcp_stack = AsyncExitStack()
+    await mcp_stack.__aenter__()
+    await mcp_stack.enter_async_context(bridge_mcp.session_manager.run())
+    app.state.nalbridge_mcp_stack = mcp_stack
+
+    # Yield immediately so Render detects open port quickly (health checks can pass while tools load in background).
     yield
 
     # Shutdown: stop reflector, curiosity scanner, telegram bot, and save all active sessions
@@ -443,12 +452,24 @@ async def lifespan(app: FastAPI):
         logger.info("Saved all session summaries on shutdown.")
     except Exception as e:
         logger.warning(f"Shutdown save failed: {e}")
+    try:
+        stack = getattr(app.state, "nalbridge_mcp_stack", None)
+        if stack:
+            await stack.aclose()
+    except Exception as e:
+        logger.warning("NallyBridge MCP shutdown failed: %s", type(e).__name__)
     logger.info("Lifespan shutdown.")
 
 
 # ── App ───────────────────────────────────────────────────
 
 app = FastAPI(title="Nally", lifespan=lifespan)
+
+# Authenticated NallyBridge Streamable HTTP MCP endpoint:
+# /mcp/nalbridge/mcp. Its device WebSocket is retained as the transport layer.
+from ..mcp.bridge_server import build_bridge_mcp_app
+
+app.mount("/mcp/nalbridge", build_bridge_mcp_app(), name="nalbridge-mcp")
 
 # CORS from config
 _origins = (
@@ -504,14 +525,24 @@ _gen_dir.mkdir(parents=True, exist_ok=True)
 
 @app.get("/")
 async def index():
-    return FileResponse(str(_web_dir / "index.html"))
+    """Landing page only; Telegram is the sole human chat interface."""
+    return HTMLResponse(
+        content=(
+            "<!doctype html><html lang='en'><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<title>N.A.L.L.Y</title><body style='font:16px system-ui;max-width:38rem;"
+            "margin:12vh auto;padding:0 1rem;line-height:1.6'>"
+            "<h1>N.A.L.L.Y</h1><p>Chat is available through Telegram only.</p>"
+            "<p>This service hosts N.A.L.L.Y's secured backend and MCP connections.</p>"
+            "</body></html>"
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
-# Serve JS/CSS assets from web/ directory
-app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
 
-# Serve generated images
-app.mount("/generated", StaticFiles(directory=str(_gen_dir)), name="generated")
+
+
 
 # ── Face Avatar MVP ───────────────────────────────────────
 _mvp_dir = _web_dir / "mvp"
@@ -519,10 +550,10 @@ _mvp_dir = _web_dir / "mvp"
 
 @app.get("/mvp")
 async def mvp():
-    return FileResponse(str(_mvp_dir / "index.html"))
+    raise HTTPException(status_code=410, detail="This interface is disabled; use Telegram.")
 
 
-app.mount("/mvp/static", StaticFiles(directory=str(_mvp_dir)), name="mvp-static")
+
 
 
 # ── Orb Standalone (floating preview) ───────────────────────
@@ -530,7 +561,7 @@ app.mount("/mvp/static", StaticFiles(directory=str(_mvp_dir)), name="mvp-static"
 
 @app.get("/orb")
 async def orb():
-    return FileResponse(str(_web_dir / "orb-standalone.html"))
+    raise HTTPException(status_code=410, detail="This interface is disabled; use Telegram.")
 
 
 @app.get("/web/")
@@ -543,31 +574,7 @@ async def web_root():
 
 @app.get("/debug")
 async def debug_page():
-    return """<!DOCTYPE html>
-<html><head><title>Nally Debug</title>
-<style>body{background:#0a0a0a;color:#0f0;font-family:monospace;padding:40px;font-size:14px;}
-.log{margin:4px 0;padding:4px 8px;border-left:3px solid #333;}
-.ok{border-color:#0f0;color:#0f0;}
-.fail{border-color:#f00;color:#f00;}
-.info{border-color:#0ff;color:#0ff;}</style>
-</head><body>
-<h2>Nally Debug Console</h2>
-<div id="log"></div>
-<script>
-function L(cls, txt) {
-  var d = document.createElement('div');
-  d.className = 'log ' + cls;
-  d.textContent = txt;
-  document.getElementById('log').appendChild(d);
-}
-L('info', 'Server: FastAPI + SSE');
-fetch('/api/status').then(r => r.json()).then(data => {
-  L('ok', 'STATUS: ' + JSON.stringify(data));
-}).catch(e => {
-  L('fail', 'ERROR: ' + e.message);
-});
-</script>
-</body></html>"""
+    raise HTTPException(status_code=410, detail="This interface is disabled; use Telegram.")
 
 
 # ── API: Status ───────────────────────────────────────────
@@ -623,112 +630,9 @@ async def trace(run_id: str, _auth=Depends(verify_auth)):
 
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
-    message = request.message.strip()
-    if not message:
-        raise HTTPException(status_code=400, detail="No message provided")
-
-    # Intercept "call me" on web UI — redirect to Telegram
-    if message.lower() in ("call me", "call nally"):
-        from ..config import NALLY_VOICE_CALLS_ENABLED
-
-        if NALLY_VOICE_CALLS_ENABLED:
-
-            async def voice_redirect():
-                yield 'data: {"type": "response", "text": "Voice calls only work on Telegram. Send me \\"call me\\" there and I\'ll set up a voice chat for you."}\n\n'
-                yield 'data: {"event": "done"}\n\n'
-
-            return StreamingResponse(voice_redirect(), media_type="text/event-stream")
-
-    # Identity: same brain (user:{owner}) for memory, but per-route history isolation (web:default)
-    # Client-supplied session_id is kept only for backward compatibility.
-    from ..agent.identity import resolve_session
-
-    ref = resolve_session("web")
-    brain_session = ref.session_id
-    route_key = ref.route_key
-    tab_id = request.tab_id
-    queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
-
-    def stream_event(event, payload):
-        try:
-            flat = {"type": event}
-            flat.update(payload)
-            loop.call_soon_threadsafe(queue.put_nowait, flat)
-        except Exception:
-            pass
-
-    async def event_generator():
-
-        # Check if session is busy — queue the message (per-route)
-        if session_manager.is_busy(brain_session, route_key=route_key):
-            pos = session_manager.queue_message(brain_session, message, route_key=route_key)
-            if pos < 0:
-                yield 'data: {"type": "error", "text": "Queue full — try again shortly."}\n\n'
-            else:
-                yield f'data: {{"type": "busy", "text": "Queued (position {pos}). Processing after current task."}}\n\n'
-            yield 'data: {"event": "done"}\n\n'
-            return
-
-        def run_agent():
-            try:
-                response = session_manager.process(brain_session, message, emit=stream_event, route_key=route_key)
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
-            except NallyError as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-
-        # Clear any prior abort flag for this route
-        from ..core.abort import clear_abort
-
-        clear_abort(route_key)
-
-        # Broadcast user message immediately to other tabs (per-route)
-        broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id}, route_key=route_key)
-
-        asyncio.ensure_future(loop.run_in_executor(None, run_agent))
-
-        while True:
-            # Check for abort (per-route)
-            if check_abort(route_key):
-                from ..core.abort import clear_abort
-
-                clear_abort(route_key)
-                yield 'data: {"type": "error", "text": "Operation aborted by user."}\n\n'
-                yield 'data: {"event": "done"}\n\n'
-                return
-            item = await queue.get()
-            if item is None:
-                break
-            yield f"data: {json.dumps(item)}\n\n"
-
-            # Broadcast specific events to other tabs (per-route)
-            evt_type = item.get("type", "")
-            if evt_type == "thought":
-                broadcast_manager.broadcast(
-                    "thinking", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key
-                )
-            elif evt_type == "response":
-                broadcast_manager.broadcast(
-                    "assistant_message", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key
-                )
-
-        yield 'data: {"event": "done"}\n\n'
-
-    response = StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "X-Accel-Buffering": "no",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    )
-    return response
+async def chat_disabled(_auth=Depends(verify_auth)):
+    """The web chat is intentionally disabled; Telegram is the only chat UI."""
+    raise HTTPException(status_code=410, detail="Web chat is disabled. Use Telegram.")
 
 
 # ── API: Persistent SSE (multi-tab sync) ──────────────────
