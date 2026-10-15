@@ -355,7 +355,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
                 "\n\nNALLYBRIDGE DEVICES (connected to this NALLY instance):"
                 f"\n{bridge_list}"
                 "\n\nTo execute commands on a connected device, use the mcp_nalbridge_execute_device_tool tool."
-                "\nExample: bridge_execute(device='desktop', tool='run_command', arguments={'command': 'dir'})"
+                "\nExample: mcp_nalbridge_execute_device_tool(device='desktop', tool='run_command', arguments={'command': 'dir'})"
                 "\nUse device='any' to target the first available bridge."
             )
     except Exception:
@@ -371,7 +371,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
                 "\n\nRENDER FREE TIER RULES (NON-NEGOTIABLE):"
                 "\n- You are running on Render free tier (~512MB RAM). Heavy work will OOM and kill the server."
                 "\n- NEVER run: pip install, npm install, cargo build, docker build, apt-get, or any install/compile commands via run_command."
-                "\n- For installs, builds, tests, file edits, or any heavy work: use bridge_execute to route to the user's PC."
+                "\n- For installs, builds, tests, file edits, or any heavy work: use mcp_nalbridge_execute_device_tool to route to the user's PC."
                 "\n- If no bridge is connected, tell the user: 'Start NallyBridge on your PC so I can run that there.'"
                 "\n- Safe on Render: chat, web search, small file reads, memory, and lightweight API calls."
                 "\n- The bridge is your execution plane. Your PC has the RAM; Render only thinks."
@@ -379,7 +379,7 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
         elif devices:
             prompt += (
                 "\n\nLOCAL EXECUTION:"
-                "\n- You have NallyBridge devices connected. Prefer bridge_execute for installs, builds, tests, and file operations."
+                "\n- You have NallyBridge devices connected. Prefer mcp_nalbridge_execute_device_tool for installs, builds, tests, and file operations."
                 "\n- run_command executes on THIS machine (the server). Use it only for lightweight tasks."
             )
     except Exception:
