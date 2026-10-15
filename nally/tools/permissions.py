@@ -43,6 +43,7 @@ class PermissionDecision(StrEnum):
 _MATCH_KEY = {
     "run_command": "command",
     "file_ops": "action",
+    "file_io": "action",
     "run_code": "action",
     "code_analysis": "action",
 }
