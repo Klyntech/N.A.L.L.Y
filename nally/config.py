@@ -354,8 +354,8 @@ def get_system_prompt(personality=None, user_context=None, interface=None):
             prompt += (
                 "\n\nNALLYBRIDGE DEVICES (connected to this NALLY instance):"
                 f"\n{bridge_list}"
-                "\n\nTo execute commands on a connected device, use the bridge_execute tool."
-                "\nExample: bridge_execute(device='desktop', tool='run_command', args={'command': 'dir'})"
+                "\n\nTo execute commands on a connected device, use the mcp_nalbridge_execute_device_tool tool."
+                "\nExample: bridge_execute(device='desktop', tool='run_command', arguments={'command': 'dir'})"
                 "\nUse device='any' to target the first available bridge."
             )
     except Exception:
