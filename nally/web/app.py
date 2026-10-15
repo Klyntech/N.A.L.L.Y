@@ -1163,6 +1163,14 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
             return {"status": "auth_required", "auth_url": auth_url, "service": service}
+        elif service == "spotify":
+            from nally.mcp.oauth import start_spotify_oauth
+
+            try:
+                auth_url = await start_spotify_oauth(db)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            return {"status": "auth_required", "auth_url": auth_url, "service": service}
         else:
             raise HTTPException(status_code=400, detail=f"OAuth not configured for {service}")
 
@@ -1292,6 +1300,36 @@ async def github_oauth_callback(code: str = "", state: str = "", error: str = ""
             pass
 
     html = REDIRECT_HTML.replace("SERVICE", "github")
+    return HTMLResponse(content=html)
+
+
+@app.get("/api/oauth/spotify/callback")
+async def spotify_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Spotify OAuth callback; validate state before exchanging the code."""
+    if error:
+        return JSONResponse(status_code=400, content={"error": error})
+    if not code:
+        return JSONResponse(status_code=400, content={"error": "missing_code"})
+
+    from nally.config import DATA_DIR, MCP_SERVERS
+    from nally.mcp.client import connect_http_server
+    from nally.mcp.oauth import exchange_spotify_code, validate_oauth_state
+
+    db = str(DATA_DIR / "nally.db")
+    if not validate_oauth_state("spotify", state, db):
+        return JSONResponse(status_code=400, content={"error": "invalid_oauth_state"})
+    if not await exchange_spotify_code(code, db):
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+
+    server_cfg = next((server for server in MCP_SERVERS if server["name"] == "spotify"), None)
+    tools_count = 0
+    if server_cfg:
+        try:
+            tools_count = await connect_http_server(server_cfg)
+        except Exception as exc:
+            logger.warning("Spotify MCP tool discovery failed after OAuth: %s", type(exc).__name__)
+
+    html = REDIRECT_HTML.replace("SERVICE", "spotify")
     return HTMLResponse(content=html)
 
 
