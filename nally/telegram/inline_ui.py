@@ -6,7 +6,9 @@ Quiet, Telegram-first: short copy, edit-in-place, stable callback prefixes.
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+import secrets
+import time
+from typing import Optional
 
 import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,10 +16,8 @@ from telegram.ext import ContextTypes
 
 from ..utils.logger import logger
 
-# Stable service ids (callback_data must stay under ~64 bytes)
 MCP_SERVICES = ("github", "notion", "gmail", "spotify", "render", "nalbridge")
 
-# Glyphs
 _READY = "●"
 _NEED = "○"
 _WARN = "!"
@@ -32,15 +32,36 @@ def _web_base_url() -> str:
     return f"http://localhost:{port}"
 
 
-def _internal_headers() -> dict:
-    token = os.getenv("NALLY_INTERNAL_TOKEN") or os.getenv("NALLY_ACCESS_TOKEN") or ""
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+def internal_auth_headers() -> dict[str, str]:
+    """Headers required by verify_internal_auth on /api/telegram/* routes."""
+    token = os.getenv("NALLY_INTERNAL_TOKEN", "") or ""
+    return {
+        "X-NALLY-INTERNAL-TOKEN": token,
+        "X-NALLY-INTERNAL-TIMESTAMP": str(int(time.time())),
+        "X-NALLY-INTERNAL-NONCE": secrets.token_urlsafe(16),
+        "Content-Type": "application/json",
+    }
+
+
+def _bearer_headers() -> dict[str, str]:
+    token = os.getenv("NALLY_ACCESS_TOKEN", "") or ""
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
 
 
 def _status_glyph(status: str, connected: bool) -> str:
     if connected or status == "connected":
         return _READY
-    if status in ("needs_oauth", "needs_configuration", "needs_mcp_token", "token_stored_tools_missing"):
+    if status in (
+        "needs_oauth",
+        "needs_configuration",
+        "needs_mcp_token",
+        "token_stored_tools_missing",
+        "needs_api_key",
+        "configured_tools_missing",
+    ):
         return _NEED
     if status in ("error", "failed"):
         return _WARN
@@ -59,23 +80,24 @@ def _status_label(svc: dict) -> str:
         "needs_oauth": "needs auth",
         "needs_configuration": "needs config",
         "needs_mcp_token": "needs token",
+        "needs_api_key": "needs API key",
         "token_stored_tools_missing": "token ok · tools missing",
+        "configured_tools_missing": "key ok · tools missing",
         "enabled_client_connecting": "connecting…",
     }
     return labels.get(status, status or "unknown")
 
 
 async def fetch_services() -> list[dict]:
-    """GET MCP service list (prefers Telegram internal route)."""
+    """GET MCP service list via internal Telegram auth (then bearer fallback)."""
     base = _web_base_url()
-    headers = _internal_headers()
-    urls = [
-        f"{base}/api/telegram/mcp/services",
-        f"{base}/api/mcp/services",
+    attempts = [
+        (f"{base}/api/telegram/mcp/services", internal_auth_headers()),
+        (f"{base}/api/mcp/services", _bearer_headers()),
     ]
     last_err: Optional[Exception] = None
     async with httpx.AsyncClient(timeout=20.0) as client:
-        for url in urls:
+        for url, headers in attempts:
             try:
                 r = await client.get(url, headers=headers)
                 if r.status_code == 200:
@@ -84,6 +106,7 @@ async def fetch_services() -> list[dict]:
                     if isinstance(services, list):
                         return services
                 last_err = RuntimeError(f"HTTP {r.status_code}")
+                logger.warning(f"fetch_services {url} → {r.status_code}")
             except Exception as e:
                 last_err = e
                 logger.debug(f"fetch_services {url} failed: {e}")
@@ -93,18 +116,17 @@ async def fetch_services() -> list[dict]:
 
 
 async def start_connect(service: str) -> dict:
-    """POST connect for a service; returns backend JSON."""
     service = service.strip().lower()
     if service not in MCP_SERVICES:
         return {"status": "error", "detail": "unsupported service"}
     base = _web_base_url()
-    headers = _internal_headers()
-    urls = [
-        (f"{base}/api/telegram/mcp/connect", {"service": service}),
-        (f"{base}/api/mcp/connect/{service}", None),
+    attempts = [
+        (f"{base}/api/telegram/mcp/connect", internal_auth_headers(), {"service": service}),
+        (f"{base}/api/mcp/connect/{service}", _bearer_headers(), None),
     ]
+    last: dict = {"status": "error", "detail": "unreachable"}
     async with httpx.AsyncClient(timeout=30.0) as client:
-        for url, body in urls:
+        for url, headers, body in attempts:
             try:
                 if body is not None:
                     r = await client.post(url, headers=headers, json=body)
@@ -115,10 +137,10 @@ async def start_connect(service: str) -> dict:
                         return r.json()
                     except Exception:
                         return {"status": "ok", "raw": r.text[:500]}
-                return {"status": "error", "detail": f"HTTP {r.status_code}", "body": r.text[:300]}
+                last = {"status": "error", "detail": f"HTTP {r.status_code}", "body": r.text[:300]}
             except Exception as e:
-                logger.debug(f"start_connect {url} failed: {e}")
                 last = {"status": "error", "detail": str(e)}
+                logger.debug(f"start_connect {url} failed: {e}")
     return last
 
 
@@ -129,7 +151,6 @@ def format_mcp_home(services: list[dict]) -> str:
         svc = by_name.get(name, {"name": name, "status": "unknown", "connected": False})
         glyph = _status_glyph(str(svc.get("status", "")), bool(svc.get("connected")))
         lines.append(f"{glyph} <b>{name}</b> — {_status_label(svc)}")
-    # any extra services from backend
     for name, svc in by_name.items():
         if name not in MCP_SERVICES:
             glyph = _status_glyph(str(svc.get("status", "")), bool(svc.get("connected")))
@@ -211,7 +232,6 @@ def keyboard_mcp_service(
 
 
 def keyboard_approval(short_id: str) -> InlineKeyboardMarkup:
-    """Allow / Deny for gated tools. short_id must fit callback limits."""
     sid = short_id[:40]
     return InlineKeyboardMarkup(
         [
@@ -231,20 +251,17 @@ def format_approval(tool: str, args_preview: str = "") -> str:
 
 
 def _esc(s: str) -> str:
-    return (
-        (s or "")
-        .replace("&", "&")
-        .replace("<", "<")
-        .replace(">", ">")
-    )
+    return (s or "").replace("&", "&").replace("<", "<").replace(">", ">")
 
 
 async def show_mcp_home(message) -> None:
-    """Send or is used by callers that have a message to reply to."""
     try:
         services = await fetch_services()
     except Exception as e:
-        await message.reply_text(f"Could not load services: {e}")
+        await message.reply_text(
+            f"Could not load services: {e}\n"
+            "Check NALLY_INTERNAL_TOKEN is set and matches the server."
+        )
         return
     text = format_mcp_home(services)
     kb = keyboard_mcp_home(services)
@@ -252,26 +269,21 @@ async def show_mcp_home(message) -> None:
 
 
 async def handle_callback(query, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Route mcp:* and appr:* callbacks. Returns True if handled."""
     data = (query.data or "").strip()
     if not data:
         return False
-
     if data.startswith("mcp:"):
         await _handle_mcp_callback(query, data)
         return True
-
     if data.startswith("appr:"):
         await _handle_approval_callback(query, data)
         return True
-
     return False
 
 
 async def _handle_mcp_callback(query, data: str) -> None:
     await query.answer()
     parts = data.split(":")
-    # mcp:list | mcp:svc:name | mcp:conn:name
     action = parts[1] if len(parts) > 1 else ""
 
     try:
@@ -328,7 +340,6 @@ async def _handle_mcp_callback(query, data: str) -> None:
 
 async def _handle_approval_callback(query, data: str) -> None:
     await query.answer()
-    # appr:y:id | appr:n:id
     parts = data.split(":", 2)
     if len(parts) < 3:
         await query.edit_message_text("Invalid approval.")
@@ -340,7 +351,7 @@ async def _handle_approval_callback(query, data: str) -> None:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(
                 f"{base}/api/telegram/approve",
-                headers=_internal_headers(),
+                headers=internal_auth_headers(),
                 json={"tc_id": tc_id, "approved": approved},
             )
         label = "Allowed" if approved else "Denied"
