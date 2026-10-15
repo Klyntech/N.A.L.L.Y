@@ -5,6 +5,7 @@ They register themselves and then receive tool execution requests.
 """
 
 import asyncio
+import os
 import hmac
 import json
 import logging
