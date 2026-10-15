@@ -7,7 +7,6 @@ Inspired by Jarvis from Iron Man
 import argparse
 import os
 import sys
-import time
 from pathlib import Path
 
 from rich.console import Console
@@ -85,15 +84,12 @@ def main():
 
 
 def run_web(port=None):
-    """Run Nally in web mode (Jarvis React UI) — binds to 0.0.0.0:$PORT per Render docs."""
+    """Run the private Telegram/OAuth/MCP backend on 0.0.0.0:$PORT."""
     import atexit
     import logging
     import os
     import subprocess
     import sys
-    import threading
-    import time
-    import webbrowser
 
     # Resolve port: explicit arg > $PORT env > 5000 local default. Render sets PORT=10000.
     if port is None:
@@ -118,13 +114,6 @@ def run_web(port=None):
         f"[nally] Binding to 0.0.0.0:{port} (PORT env={os.getenv('PORT')}, NALLY_PORT env={os.getenv('NALLY_PORT')})",
         flush=True,
     )
-
-    # Auto-open browser
-    def _open():
-        time.sleep(2)
-        webbrowser.open(f"http://localhost:{port}")
-
-    threading.Thread(target=_open, daemon=True).start()
 
     # The Telegram bot runs as a SEPARATE process (its own event loop) and
     # forwards messages/approvals to this web server over HTTP. Spawn it here
