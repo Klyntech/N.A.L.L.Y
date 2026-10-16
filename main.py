@@ -26,7 +26,11 @@ def main():
         default=int(os.getenv("PORT", os.getenv("NALLY_PORT", "5000"))),
         help="Web server port (default: $PORT or 5000; Render uses 10000)",
     )
-    parser.add_argument("--provider", choices=["groq", "opencode", "nim"], help="Override LLM provider")
+    parser.add_argument(
+        "--provider",
+        choices=["groq", "opencode", "nim", "openrouter"],
+        help="Override LLM provider",
+    )
     parser.add_argument("--verbose", action="store_true", help="Show full MCP server tree during startup")
     parser.add_argument(
         "--engineer",
