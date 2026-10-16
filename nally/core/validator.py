@@ -53,8 +53,11 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
     # ── LLM provider ──────────────────────────────────────
 
     provider = os.getenv("NALLY_PROVIDER", "opencode").lower()
-    if provider not in ("opencode", "groq", "nim"):
-        _error("NALLY_PROVIDER", f"Invalid provider '{provider}'. Must be 'opencode', 'groq', or 'nim'.")
+    if provider not in ("opencode", "groq", "nim", "openrouter", "or"):
+        _error(
+            "NALLY_PROVIDER",
+            f"Invalid provider '{provider}'. Must be 'opencode', 'groq', 'nim', or 'openrouter'.",
+        )
 
     if provider == "opencode":
         api_key = os.getenv("OPENCODE_API_KEY", "")
@@ -74,6 +77,12 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
             _error("NVIDIA_API_KEY", "Required when NALLY_PROVIDER=nim.")
         elif not api_key.startswith("nvapi-"):
             _warning("NVIDIA_API_KEY", "Key doesn't start with 'nvapi-'. Verify it's correct.")
+    elif provider in ("openrouter", "or"):
+        api_key = os.getenv("OPENROUTER_API_KEY", "")
+        if not api_key:
+            _error("OPENROUTER_API_KEY", "Required when NALLY_PROVIDER=openrouter.")
+        elif not api_key.startswith("sk-or-"):
+            _warning("OPENROUTER_API_KEY", "Key usually starts with 'sk-or-'. Verify it's correct.")
 
     # ── Port ───────────────────────────────────────────────
 
@@ -165,7 +174,8 @@ def validate_config(strict: bool = True) -> List[Tuple[str, str, str]]:
         internal_token = os.getenv("NALLY_INTERNAL_TOKEN", "")
         if not internal_token:
             _error(
-                "NALLY_INTERNAL_TOKEN", "Required when Telegram is enabled; internal bot-to-web calls must fail closed."
+                "NALLY_INTERNAL_TOKEN",
+                "Required when Telegram is enabled; internal bot-to-web calls must fail closed.",
             )
         elif len(internal_token) < 32:
             _warning("NALLY_INTERNAL_TOKEN", "Token is shorter than 32 characters. Use a long random value.")
