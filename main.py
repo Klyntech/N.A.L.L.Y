@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
 Nally - Your Personal AI Assistant
-Inspired by Jarvis from Iron Man
+Telegram-first backend: bot, OAuth, health, MCP.
 """
 
 import argparse
 import os
 import sys
-import time
 from pathlib import Path
 
 from rich.console import Console
@@ -18,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 def main():
     parser = argparse.ArgumentParser(description="Nally - Your AI Assistant")
-    parser.add_argument("--cli", action="store_true", help="Run in CLI mode")
-    parser.add_argument("--voice", action="store_true", help="Run in voice mode (push-to-talk)")
     parser.add_argument("--telegram-only", action="store_true", help="Run Telegram bot only")
     # Render injects PORT=10000 by default — respect it. Docs: https://render.com/docs/web-services#port-binding
     # Bind to 0.0.0.0:$PORT (see run_web). Local default remains 5000 if PORT unset.
@@ -29,7 +26,11 @@ def main():
         default=int(os.getenv("PORT", os.getenv("NALLY_PORT", "5000"))),
         help="Web server port (default: $PORT or 5000; Render uses 10000)",
     )
-    parser.add_argument("--provider", choices=["groq", "opencode", "nim"], help="Override LLM provider")
+    parser.add_argument(
+        "--provider",
+        choices=["groq", "opencode", "nim", "openrouter"],
+        help="Override LLM provider",
+    )
     parser.add_argument("--verbose", action="store_true", help="Show full MCP server tree during startup")
     parser.add_argument(
         "--engineer",
@@ -54,8 +55,8 @@ def main():
 
     print_banner(version=__version__, console=console)
 
-    # Load tools for non-web modes (web mode loads via app.py lifespan)
-    if args.cli or args.telegram_only:
+    # Load tools for standalone Telegram mode (API mode loads via app.py lifespan).
+    if args.telegram_only:
         from nally.tools import load_all_tools
 
         _tool_count, mcp_status = load_all_tools()
@@ -78,78 +79,22 @@ def main():
             print(f"  {cmd}")
         return
 
-    if args.cli:
-        run_cli()
-    elif args.voice:
-        run_voice()
-    elif args.telegram_only:
+    if args.telegram_only:
         run_telegram(polling=True)
     else:
-        # Default mode runs the web server. The Telegram bot owner is decided
-        # by resolve_telegram_mode(): polling mode spawns a separate bot
-        # process, webhook mode is owned by the web server's lifespan. Exactly
-        # one owner per token.
+        # The FastAPI service is the private backend for Telegram, OAuth callbacks,
+        # health checks, and NallyBridge MCP. It does not serve a chat UI.
         run_web(port=args.port)
 
 
-def run_cli():
-    """Run Nally in CLI mode"""
-    from nally.agent import get_agent
-
-    agent = get_agent()
-
-    print("Nally CLI Mode")
-    print("-" * 40)
-    print("Commands: 'quit' to exit")
-    print()
-
-    while True:
-        try:
-            user_input = input("You]: ").strip()
-
-            if user_input.lower() in ["quit", "exit", "bye"]:
-                print("\nNally: Goodbye!")
-                break
-
-            if not user_input:
-                continue
-
-            print("\nNally: ", end="", flush=True)
-
-            start = time.time()
-            response = agent.process(user_input)
-            elapsed = time.time() - start
-
-            print(response)
-
-            if elapsed < 1:
-                print(f"  [{elapsed * 1000:.0f}ms]", end="")
-            print()
-
-        except KeyboardInterrupt:
-            print("\n\nNally: Interrupted. Goodbye!")
-            break
-        except Exception as e:
-            print(f"\nError: {e}")
-
-
-def run_voice():
-    """Run Nally in voice mode (push-to-talk)."""
-    from nally.voice.loop import run_voice_loop
-
-    run_voice_loop()
-
-
 def run_web(port=None):
-    """Run Nally in web mode (Jarvis React UI) — binds to 0.0.0.0:$PORT per Render docs."""
+    """Run the private Telegram/OAuth/MCP backend on 0.0.0.0:$PORT."""
     import atexit
     import logging
     import os
+    import signal
     import subprocess
     import sys
-    import threading
-    import time
-    import webbrowser
 
     # Resolve port: explicit arg > $PORT env > 5000 local default. Render sets PORT=10000.
     if port is None:
@@ -175,13 +120,6 @@ def run_web(port=None):
         flush=True,
     )
 
-    # Auto-open browser
-    def _open():
-        time.sleep(2)
-        webbrowser.open(f"http://localhost:{port}")
-
-    threading.Thread(target=_open, daemon=True).start()
-
     # The Telegram bot runs as a SEPARATE process (its own event loop) and
     # forwards messages/approvals to this web server over HTTP. Spawn it here
     # so `python main.py` stays a single command. (Use --telegram-only to run
@@ -192,7 +130,7 @@ def run_web(port=None):
     # via its own Application (started in the FastAPI lifespan), so spawning a
     # second poller here would cause a Telegram 409 conflict on the same token.
     bot_proc = None
-    from nally.config import TELEGRAM_USER_ID, resolve_telegram_mode
+    from nally.config import resolve_telegram_mode
 
     telegram_mode = resolve_telegram_mode()
     if telegram_mode == "polling":
@@ -217,38 +155,7 @@ def run_web(port=None):
             except Exception:
                 bot_proc.kill()
 
-    def _kill_tg_user():
-        if tg_user_proc is not None and tg_user_proc.poll() is None:
-            tg_user_proc.terminate()
-            try:
-                tg_user_proc.wait(timeout=5)
-            except Exception:
-                tg_user_proc.kill()
-
     atexit.register(_kill_bot)
-    atexit.register(_kill_tg_user)
-
-    # Start Telegram user account (Telethon) as a separate process
-    # Voice calls are handled inside user.py (same process, same Telethon client)
-    tg_user_proc = None
-    from nally.config import DATA_DIR, resolve_telegram_mode
-
-    _tg_session = DATA_DIR / "telegram_user" / "nally_user.session"
-
-    if TELEGRAM_USER_ID and os.getenv("NALLY_TELEGRAM_USER_ENABLED", "1") == "0":
-        print("[skip] NALLY_TELEGRAM_USER_ENABLED=0 — Telegram user account disabled.")
-    elif TELEGRAM_USER_ID and not _tg_session.exists():
-        print(f"[skip] No Telethon session file at {_tg_session} — run locally first to authenticate.")
-    elif TELEGRAM_USER_ID:
-        tg_user_proc = subprocess.Popen(
-            [sys.executable, "run_tg_user.py"],
-            cwd=str(Path(__file__).parent),
-        )
-        print("Telegram user account launched as a separate process (run_tg_user.py).")
-    else:
-        print("[warn] TELEGRAM_USER_ID not set — Telegram user account not started.")
-
-    import signal
 
     import uvicorn
 
@@ -271,11 +178,10 @@ def run_web(port=None):
         )
     finally:
         _kill_bot()
-        _kill_tg_user()
 
 
 def run_telegram(polling=True, webhook_url=None):
-    """Run Nally Telegram bot."""
+    """Run Nally Telegram bot (Bot API only)."""
     from nally.telegram.bot import run_telegram_bot
 
     print("Starting Nally Telegram bot...")

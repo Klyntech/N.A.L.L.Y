@@ -604,8 +604,93 @@ GOOGLE_SCOPES = {
     "gcalendar": "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 }
 
-# Which Google MCP services share one OAuth token
-GOOGLE_SERVICES = ["gmail", "gdrive", "gcalendar"]
+# Only Gmail remains in the selected MCP integration set.
+GOOGLE_SERVICES = ["gmail"]
+
+
+# ── Spotify MCP pilot OAuth (PKCE) ───────────────────────
+
+SPOTIFY_AUTH_ENDPOINT = "https://accounts.spotify.com/authorize"
+SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token"
+SPOTIFY_REDIRECT_URI = f"{_base_url()}/api/oauth/spotify/callback"
+SPOTIFY_SCOPES = os.getenv(
+    "SPOTIFY_SCOPES",
+    "user-read-private playlist-read-private playlist-modify-private "
+    "user-read-playback-state user-modify-playback-state",
+)
+
+
+async def start_spotify_oauth(db_path: str) -> str:
+    """Build the Spotify authorization URL using PKCE; requires SPOTIFY_CLIENT_ID."""
+    client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip()
+    if not client_id:
+        raise ValueError("SPOTIFY_CLIENT_ID must be set before connecting Spotify")
+    code_verifier, code_challenge = generate_pkce()
+    state = secrets.token_urlsafe(24)
+    _pending_pkce["spotify"] = {
+        "code_verifier": code_verifier,
+        "client_id": client_id,
+        "state": state,
+        "token_endpoint": SPOTIFY_TOKEN_ENDPOINT,
+        "auth_endpoint": SPOTIFY_AUTH_ENDPOINT,
+    }
+    save_oauth_state(
+        db_path, "spotify", code_verifier, client_id, state, SPOTIFY_TOKEN_ENDPOINT, SPOTIFY_AUTH_ENDPOINT
+    )
+
+    from urllib.parse import urlencode
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": SPOTIFY_REDIRECT_URI,
+        "scope": SPOTIFY_SCOPES,
+        "state": state,
+        "code_challenge_method": "S256",
+        "code_challenge": code_challenge,
+    }
+    return f"{SPOTIFY_AUTH_ENDPOINT}?{urlencode(params)}"
+
+
+async def exchange_spotify_code(code: str, db_path: str) -> bool:
+    """Exchange a Spotify PKCE code and store tokens encrypted in SQLite."""
+    state_data = _pending_pkce.pop("spotify", None)
+    if not state_data:
+        state_data = load_oauth_state(db_path, "spotify")
+    if not state_data:
+        logger.warning("No pending Spotify OAuth state")
+        return False
+
+    client_id = state_data.get("client_id", "")
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            SPOTIFY_TOKEN_ENDPOINT,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": SPOTIFY_REDIRECT_URI,
+                "client_id": client_id,
+                "code_verifier": state_data["code_verifier"],
+            },
+            timeout=15.0,
+        )
+    if response.status_code != 200:
+        logger.error("Spotify token exchange failed: HTTP %s", response.status_code)
+        return False
+
+    from mcp.shared.auth import OAuthToken
+
+    token_data = response.json()
+    token = OAuthToken(
+        access_token=token_data["access_token"],
+        token_type=token_data.get("token_type", "Bearer"),
+        expires_in=token_data.get("expires_in"),
+        refresh_token=token_data.get("refresh_token"),
+    )
+    await SQLiteTokenStorage(db_path, "spotify").set_tokens(token)
+    clear_oauth_state(db_path, "spotify")
+    logger.info("Spotify OAuth successful; token stored")
+    return True
 
 
 def _get_google_credentials() -> tuple[str, str] | None:
@@ -618,11 +703,7 @@ def _get_google_credentials() -> tuple[str, str] | None:
 
 
 async def start_google_oauth(service: str, db_path: str) -> str:
-    """Start Google OAuth: build auth URL → return it for browser redirect.
-
-    Always requests ALL Google scopes (gmail + drive + calendar) so one
-    token covers all Workspace services.
-    """
+    """Start Google OAuth with only the scopes required by the selected service."""
     creds = _get_google_credentials()
     if not creds:
         raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env")
@@ -631,10 +712,12 @@ async def start_google_oauth(service: str, db_path: str) -> str:
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(16)
 
-    # Combine all scopes — one OAuth flow covers all Google services
-    all_scopes = " ".join(GOOGLE_SCOPES.values())
+    scopes = GOOGLE_SCOPES.get(service)
+    if not scopes:
+        raise ValueError(f"Google OAuth is not configured for service: {service}")
 
-    # Store state — all Google services share the same OAuth token
+    # Request only the scopes for this service; the configured integration set
+    # contains Gmail only, so Drive and Calendar access are not requested.
     _pending_pkce["google"] = {
         "code_verifier": code_verifier,
         "client_id": client_id,
@@ -648,7 +731,7 @@ async def start_google_oauth(service: str, db_path: str) -> str:
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": GOOGLE_REDIRECT_URI,
-        "scope": all_scopes,
+        "scope": scopes,
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
@@ -826,7 +909,11 @@ async def exchange_higgsfield_code(code: str, db_path: str) -> bool:
 
 GITHUB_AUTH_ENDPOINT = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"
-GITHUB_REDIRECT_URI = "http://127.0.0.1:5000/api/oauth/github/callback"
+
+
+def _github_redirect_uri() -> str:
+    """Public callback URL — must match the GitHub OAuth App settings."""
+    return f"{_base_url().rstrip('/')}/api/oauth/github/callback"
 
 
 def _get_github_credentials() -> tuple[str, str] | None:
@@ -843,28 +930,47 @@ async def start_github_oauth(db_path: str) -> str:
 
     creds = _get_github_credentials()
     if not creds:
-        raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in .env")
+        raise ValueError(
+            "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set on the server"
+        )
     client_id, _ = creds
+
+    try:
+        if _get_fernet() is None:
+            raise ValueError(
+                "NALLY_CRED_KEY must be set (Fernet key) to store OAuth state securely"
+            )
+    except RuntimeError as e:
+        raise ValueError(str(e)) from e
 
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(16)
+    redirect_uri = _github_redirect_uri()
 
-    # Store state
     _pending_pkce["github"] = {
         "code_verifier": code_verifier,
         "client_id": client_id,
         "state": state,
         "token_endpoint": GITHUB_TOKEN_ENDPOINT,
         "auth_endpoint": GITHUB_AUTH_ENDPOINT,
+        "redirect_uri": redirect_uri,
     }
-    save_oauth_state(db_path, "github", code_verifier, client_id, state, GITHUB_TOKEN_ENDPOINT, GITHUB_AUTH_ENDPOINT)
+    try:
+        save_oauth_state(
+            db_path, "github", code_verifier, client_id, state,
+            GITHUB_TOKEN_ENDPOINT, GITHUB_AUTH_ENDPOINT,
+        )
+    except RuntimeError as e:
+        raise ValueError(str(e)) from e
+    except Exception as e:
+        raise ValueError(f"Could not save OAuth state: {e}") from e
 
     from urllib.parse import urlencode
 
     params = {
         "response_type": "code",
         "client_id": client_id,
-        "redirect_uri": GITHUB_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "scope": "repo",
         "state": state,
         "code_challenge": code_challenge,
@@ -900,7 +1006,7 @@ async def exchange_github_code(code: str, db_path: str) -> bool:
                 "code": code,
                 "client_id": state_data["client_id"],
                 "client_secret": client_secret,
-                "redirect_uri": GITHUB_REDIRECT_URI,
+                "redirect_uri": state_data.get("redirect_uri") or _github_redirect_uri(),
                 "code_verifier": state_data["code_verifier"],
             },
             headers={"Accept": "application/json"},

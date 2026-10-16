@@ -1,203 +1,94 @@
-# MCP Integration Guide
+# MCP Setup
 
-Model Context Protocol (MCP) and OAuth integrations support account connection and service management in Nally's web UI. The simplified core agent currently uses a fixed tool registry and does not load external MCP server tools into model calls. Configuring or connecting a service here does not make its tools callable by the agent.
+N.A.L.L.Y discovers and registers external MCP tools when a configured server authenticates and successfully returns its tool list. The local built-in tool baseline remains eight tools; external MCP tools are added dynamically.
 
-## What is MCP?
+## Supported integrations
 
-MCP is a standard protocol for AI assistants to interact with external tools and services. Nally supports three transport types:
+| Service | Transport | Credential |
+|---|---|---|
+| GitHub | Streamable HTTP | OAuth |
+| Notion | Streamable HTTP | OAuth |
+| Gmail | Streamable HTTP | Google OAuth client and consent |
+| Spotify | Streamable HTTP pilot | Spotify OAuth app / PKCE |
+| Render | Streamable HTTP | `RENDER_API_KEY` |
+| NallyBridge | Streamable HTTP, hosted by N.A.L.L.Y | `NALBRIDGE_MCP_TOKEN` |
 
-| Transport | How It Works | Use Case |
-|-----------|-------------|----------|
-| `stdio` | Spawn a local subprocess | CLI tools, local servers |
-| `http` | Connect to remote HTTP server. The client tries **streamable HTTP** first, then falls back to **SSE** (`/sse`), then a raw **stateless `POST`** | Cloud services, OAuth APIs |
-| `stdio` + `api_key` | Local subprocess with a token injected into its env | Token-gated local servers |
-| `http` + `oauth` | HTTP with browser OAuth flow | User-authorized services |
+The Gmail MCP server is in Google Workspace Developer Preview. Spotify's configured endpoint is a pilot and is not represented as a fully production-verified integration.
 
-## Configured Services
+## Manage connections from Telegram
 
-The `MCP_SERVERS` list in `nally/config.py` describes services used by integration/account-management code. The core tool loader intentionally does not register MCP tools with the model. Editing this list alone does not expand the agent's callable tools.
+Use:
 
-### Configured Services
-
-| Service | Name | What It Does |
-|---------|------|-------------|
-| GitHub | `github` | Repos, issues, PRs, code search |
-| Notion | `notion` | Pages, databases, content |
-| Google Gmail | `gmail` | Read, search, compose emails |
-
-### Other OAuth integrations
-
-OAuth flows and callback endpoints exist, but are **not** registered servers by default.
-Add them to `MCP_SERVERS` (`auth_mode: "oauth"`) to use them.
-
-| Service | Name | What It Does |
-|---------|------|-------------|
-| Google Drive | `gdrive` | Files, folders, search |
-| Google Calendar | `gcalendar` | Events, scheduling |
-| Higgsfield | `higgsfield` | AI video generation (Kling, Sora, Veo, Seedance) |
-
-### External MCP server examples
-
-These rows are reference examples only. Adding an entry does not expose a server's tools to the core agent.
-
-| Service | Name | What It Does |
-|---------|------|-------------|
-| Telegram | `telegram` | Telegram MCP server (`telegram-bot-mcp-server`) |
-| Context7 | `context7` | Library/doc context for code agents |
-| Meta | `meta` | Meta's MCP server(s) |
-
-## Connecting a Service
-
-### OAuth Flow
-
-1. Nally detects the service has no stored token
-2. Visit `http://localhost:5000` → MCP panel → Click "Connect"
-3. Browser redirects to the service's OAuth page
-4. Authorize Nally
-5. Redirect back to `/api/oauth/{service}/callback`
-6. Token is encrypted and stored in SQLite
-
-> **Redirect URI note**: the code uses `http://127.0.0.1:5000/api/oauth/github/callback`
-> for GitHub but `http://localhost:5000/...` for the other services. When you
-> register the callback in your GitHub OAuth app, use the `127.0.0.1` URI to match
-> what the code sends (`.env.example` lists `localhost` — that only matters if you
-> change the code or register both).
-
-### Token Flow
-
-1. Get a personal access token from the service
-2. Submit via API: `POST /api/mcp/token/{service}` with `{"token": "..."}`
-3. Or set the env var (e.g. `TELEGRAM_BOT_TOKEN`) and restart
-
-### Disconnecting
-
-- API: `POST /api/mcp/disconnect/{service}`
-- This removes the stored OAuth token from the database
-- Does NOT revoke the token at the provider (do that in your account settings)
-
-## Adding a Custom MCP Server
-
-Edit `nally/config.py` → `MCP_SERVERS` for service-connection metadata and account-management flows. This does not register tools with the core agent.
-
-### HTTP Server (Remote)
-
-```python
-(
-    {
-        "name": "my-service",
-        "url": "https://mcp.example.com/mcp",
-        "transport": "http",
-        "description": "My custom service",
-        "scope": "read",
-        "permission": "safe",
-    },
-)
+```text
+/services
+/connect github
+/connect notion
+/connect gmail
+/connect spotify
+/connect render
+/connect nalbridge
 ```
 
-### HTTP + OAuth Server
+For GitHub, Notion, Gmail, and Spotify, N.A.L.L.Y returns a provider authorization URL. Open that URL, complete consent, then use `/services` to check readiness. A stored token is not considered sufficient evidence that tools are loaded.
 
-```python
-(
-    {
-        "name": "my-service",
-        "url": "https://mcp.example.com/mcp",
-        "transport": "http",
-        "auth_mode": "oauth",
-        "description": "My OAuth service",
-        "scope": "read write",
-        "permission": "write",
-    },
-)
+Render does not accept its API key through Telegram. Add `RENDER_API_KEY` to the backend's hosting environment, redeploy/restart, then check `/services`.
+
+## Provider setup
+
+### GitHub, Notion, Gmail
+
+Set the OAuth client credentials in the hosting environment and register callbacks against the public base URL:
+
+- `/api/oauth/github/callback`
+- `/api/oauth/notion/callback`
+- `/api/oauth/google/callback`
+
+For Gmail, set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a stable `NALLY_CRED_KEY`. The exact consent scopes must be reviewed in the provider dashboard before authorizing an account.
+
+### Spotify
+
+Set `SPOTIFY_CLIENT_ID` and add this redirect URI to the Spotify developer app:
+
+```text
+https://YOUR_NALLY_HOST/api/oauth/spotify/callback
 ```
 
-### stdio Server (Local)
+The endpoint can be overridden with `SPOTIFY_MCP_URL`. The default points at Spotify's external pilot endpoint. The OAuth exchange has not been claimed verified against every Spotify account/app configuration.
 
-```python
-(
-    {
-        "name": "my-tool",
-        "command": "npx",
-        "args": ["-y", "@example/mcp-server"],
-        "transport": "stdio",
-        "description": "My local tool",
-        "permission": "safe",
-    },
-)
+### Render
+
+Set `RENDER_API_KEY` on the server. N.A.L.L.Y sends it as an Authorization bearer token to `https://mcp.render.com/mcp`. Render MCP can make infrastructure changes and trigger deployments. Its calls remain subject to N.A.L.L.Y's permission gate. Never commit the key or share it in Telegram.
+
+## NallyBridge MCP
+
+N.A.L.L.Y hosts an authenticated Streamable HTTP MCP server at:
+
+```text
+https://YOUR_NALLY_HOST/mcp/nalbridge/mcp
 ```
 
-### stdio + API Key
+Configure these server environment values:
 
-```python
-(
-    {
-        "name": "my-tool",
-        "command": "npx",
-        "args": ["-y", "@example/mcp-server"],
-        "transport": "stdio",
-        "auth_mode": "api_key",
-        "env_key": "MY_API_KEY",  # Env var to read
-        "env_name": "MY_API_KEY",  # Env var to inject into subprocess
-        "description": "My API key tool",
-        "permission": "safe",
-    },
-)
-```
+- `NALBRIDGE_MCP_TOKEN`: long random bearer token required by MCP clients
+- `NALLY_MCP_ALLOWED_HOSTS`: comma-separated exact hostnames accepted by MCP transport
+- `NALLY_BASE_URL`: public service URL used for OAuth and Host allowlist configuration
+- `NALLY_BRIDGE_TOKEN`: separate shared secret used by the connected device WebSockets
 
-## Connection Status
+The MCP client authorization header must be `Authorization: Bearer <NALBRIDGE_MCP_TOKEN>`. The connected bridge devices still authenticate separately; enabling the MCP endpoint does not create or connect devices by itself.
 
-Check status via API:
+NallyBridge exposes:
+- `list_devices`
+- `execute_device_tool` for the currently supported device capabilities `run_command`, `file_io`, and `read_file`
 
-```
-GET /api/mcp/services
-```
+The server-side adapter maps public `file_io` calls to the legacy `file_ops` wire message only when communicating with existing bridge clients.
 
-Status values:
+## Connection status
 
-| Status | Meaning |
-|--------|---------|
-| `ok` | Connected and working |
-| `awaiting` | Waiting for user to connect (OAuth/token) |
-| `timeout` | Connection timed out |
-| `error` | Connection failed |
+The authenticated backend API provides `GET /api/mcp/services`. Telegram's `/services` command uses an internally authenticated route. Status can be:
 
-These statuses describe service connection/account-management state. They do not indicate that a connected server's tools are exposed to the model.
+- `needs_oauth` — provider consent has not completed
+- `needs_api_key` — a server-side API key is absent
+- `enabled_client_connecting` — NallyBridge MCP is enabled but its local client has not yet registered tools
+- `connected` — tools were discovered and registered
 
-## OAuth Internals
-
-### Providers
-
-- **Notion**: RFC 9470/8414 discovery → Dynamic Client Registration (DCR) → PKCE (S256) → token exchange
-- **Google**: Manual client credentials → PKCE → shared token across Gmail/Drive/Calendar
-- **Higgsfield**: DCR → PKCE → token exchange
-- **GitHub**: Static OAuth flow (no DCR) — reads `GITHUB_CLIENT_ID` /
-  `GITHUB_CLIENT_SECRET` from env → PKCE (S256) → token exchange
-
-### Token Storage
-
-- Encrypted with Fernet (AES-128-CBC) using `NALLY_CRED_KEY`
-- Stored in SQLite `mcp_oauth` table
-- PKCE state persisted to survive server restarts
-- **All environments**: new OAuth token writes require a valid `NALLY_CRED_KEY` and the `cryptography` package; plaintext writes are never permitted
-- **Production fails closed**: missing or invalid keys disable token storage, and unencrypted stored tokens are rejected
-- **Local development only**: legacy plaintext tokens can be read for migration
-
-## Troubleshooting
-
-### "Awaiting" status never changes
-- Check the service URL is correct and accessible
-- For OAuth: complete the browser flow
-- For API key: ensure the env var is set and restart server
-
-### Connection timeout
-- Server may be slow to respond — try again
-- Check network connectivity to the MCP server URL
-- For stdio: verify the command exists (`which npx`, `which python`)
-
-### MCP tools not appearing in chat
-- This is expected with the current fixed core toolset: external MCP tool registration is disabled
-- The account connection UI does not expand the model-callable tool registry
-
-### OAuth token expired
-- Disconnect: `POST /api/mcp/disconnect/{service}`
-- Reconnect: `POST /api/mcp/connect/{service}`
-- Some services support token refresh automatically
+A service may still fail after discovery if a provider expires a token, revokes access, or changes its API.

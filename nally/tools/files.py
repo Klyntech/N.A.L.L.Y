@@ -202,37 +202,34 @@ class ReadFile(Tool):
 class FileOps(Tool):
     def __init__(self):
         super().__init__(
-            name="file_ops",
-            description="Write, list, mkdir, delete, move, or copy files and directories. Use read_file to read file contents.",
-            permission="destructive",
+            name="file_io",
+            description="Read and manage files and directories. Actions: list, make, delete, read, write.",
+            permission="write",
             parameters={
                 "action": {
                     "type": "string",
-                    "enum": ["write", "list", "mkdir", "delete", "move", "copy"],
-                    "description": "write = create/overwrite, list = list dir, mkdir = create folder, delete = remove, move = move/rename, copy = duplicate",
+                    "enum": ["list", "make", "delete", "read", "write"],
+                    "description": "list = list directory, make = create a new file or directory, delete = remove a path, read = read a file, write = create or overwrite file contents",
                     "required": True,
                 },
                 "file_path": {
                     "type": "string",
                     "description": "Path to file or directory",
                 },
-                "destination": {
-                    "type": "string",
-                    "description": "Target path (for move/copy only)",
-                },
                 "content": {
                     "type": "string",
-                    "description": "Content to write (only for action=write)",
+                    "description": "Text content for make (file) or write.",
                 },
-                "task_id": {
+                "kind": {
                     "type": "string",
-                    "description": "Optional idempotency key. If provided, the same task_id will not be re-executed within the session (safe to retry).",
+                    "enum": ["file", "directory"],
+                    "description": "For action=make, create a file (default) or directory.",
                 },
             },
         )
 
     def execute(
-        self, action: str = "", file_path: str = "", content: str = "", path: str = "", destination: str = "", **kwargs
+        self, action: str = "", file_path: str = "", content: str = "", path: str = "", destination: str = "", kind: str = "file", **kwargs
     ) -> str:
         if not action:
             return 'Error: action is required. Send: {"action": "write", "file_path": "path", "content": "text"}'
@@ -243,7 +240,41 @@ class FileOps(Tool):
         if destination:
             destination = _resolve_project_path(destination)
         try:
-            if action == "write":
+            if action == "read":
+                # Apply the same root boundary as file listing and writes.
+                read_path = Path(file_path)
+                if not _is_safe_write_path(read_path):
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
+                    return f"Error: path outside allowed directories. Read within: {allowed}"
+                return ReadFile().execute(file_path=file_path)
+
+            elif action == "make":
+                if not file_path:
+                    return "Error: file_path is required for make"
+                target = Path(file_path)
+                if not _is_safe_write_path(target):
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
+                    return f"Error: path outside allowed directories. Write to: {allowed}"
+                if target.exists():
+                    return f"Error: path already exists: {file_path}"
+                if kind == "directory":
+                    target.mkdir(parents=True, exist_ok=False)
+                    return f"Created directory: {file_path}"
+                if kind != "file":
+                    return "Error: kind must be 'file' or 'directory'"
+                if content is None:
+                    content = ""
+                if len(content) > MAX_WRITE_SIZE:
+                    return f"Error: content too large ({len(content)} chars, max {MAX_WRITE_SIZE})"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+                result = f"Created file: {file_path}"
+                warning = _validate_file(target, content)
+                if warning:
+                    result += f"\n{warning}"
+                return result
+
+            elif action == "write":
                 if not file_path:
                     return "Error: file_path is required for write"
                 path = Path(file_path)
@@ -274,8 +305,16 @@ class FileOps(Tool):
 
             elif action == "list":
                 p = Path(file_path)
+                if not _is_safe_write_path(p):
+                    allowed = ", ".join(str(r) for r in _get_allowed_roots())
+                    return f"Error: path outside allowed directories. List within: {allowed}"
+                parts = set(p.resolve().parts)
+                if parts & {".ssh", ".aws", ".gnupg"}:
+                    return f"Error: access denied for sensitive directory: {file_path}"
                 if not p.exists():
                     return f"Error: Directory not found: {file_path}"
+                if not p.is_dir():
+                    return f"Error: Not a directory: {file_path}"
                 items = []
                 for item in sorted(p.iterdir()):
                     prefix = "[dir] " if item.is_dir() else "      "
@@ -293,8 +332,16 @@ class FileOps(Tool):
                 if not _is_safe_write_path(path):
                     allowed = ", ".join(str(r) for r in _get_allowed_roots())
                     return f"Error: path outside allowed directories. Write to: {allowed}"
+                # Never allow removing an entire approved root (for example the
+                # Nally repository, Desktop, Documents, Downloads, or temp root).
+                resolved_target = path.resolve()
+                if any(resolved_target == root.resolve() for root in _get_allowed_roots()):
+                    return f"Error: refusing to delete an allowed root directory: {file_path}"
                 if not path.exists():
                     return f"Error: path not found: {file_path}"
+                parts = set(resolved_target.parts)
+                if parts & {".ssh", ".aws", ".gnupg"} or path.name in {"id_rsa", "id_ed25519", "passwd", "shadow"}:
+                    return f"Error: refusing to delete a sensitive path: {file_path}"
                 if path.is_dir():
                     import shutil
 
@@ -353,6 +400,6 @@ class FileOps(Tool):
                 return f"Copied {file_path} -> {destination}"
 
             else:
-                return f"Error: Unknown action: {action}. Use write, list, mkdir, delete, move, or copy."
+                return f"Error: Unknown action: {action}. Use list, make, delete, read, or write."
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"

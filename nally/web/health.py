@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from ..config import ACTIVE_MODEL, DATA_DIR, DATABASE_URL, PROVIDER, TURSO_TOKEN, TURSO_URL, memory_backend
+from ..tools import registry as tool_registry
 
 router = APIRouter()
 
@@ -143,10 +144,8 @@ def _check_tools() -> dict:
     """Check that the minimum core toolset is registered."""
     try:
         from .. import tools as tools_module
-        from ..tools.registry import registry
-
-        registered = {tool["function"]["name"] for tool in registry.get_all_tools()}
-        required = {"run_command", "read_file", "file_ops", "fetch"}
+        registered = {tool["function"]["name"] for tool in tool_registry.get_all_tools()}
+        required = {"run_command", "file_io", "web_search", "fetch", "remember", "recall", "forget", "subagent"}
         missing = sorted(required - registered)
         loader_complete = bool(tools_module._loaded)
         if missing or not loader_complete:

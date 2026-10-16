@@ -8,21 +8,21 @@ import sys
 import time
 import uuid
 import webbrowser
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from threading import Lock
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from nally.agent import get_agent
 from nally.agent.identity import owner_session_id
 from nally.agent.sessions import session_manager
+from nally.mcp.bridge_server import build_bridge_mcp_app
 from nally.config import (
     ACTIVE_MODEL,
     ALLOWED_ORIGINS,
@@ -33,7 +33,6 @@ from nally.config import (
     RATE_LIMIT_RPM,
     ensure_data_dir,
 )
-from nally.core.errors import NallyError
 from nally.tools import load_all_tools
 from nally.tools.registry import registry
 from nally.utils.logger import logger
@@ -216,12 +215,6 @@ _internal_rate_limiter = _RateLimiter(rpm=RATE_LIMIT_RPM, burst=RATE_LIMIT_BURST
 # ── Request models ────────────────────────────────────────
 
 
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str = "web:default"
-    tab_id: str = ""
-
-
 class ApprovalRequest(BaseModel):
     tool_call_id: str
     approved: bool
@@ -241,6 +234,12 @@ class TelegramApprovalRequest(BaseModel):
 
     tc_id: str
     approved: bool
+
+
+class TelegramMCPConnectRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    service: str
 
 
 # ── Lifespan ──────────────────────────────────────────────
@@ -401,7 +400,41 @@ async def lifespan(app: FastAPI):
     for _name, _level in _saved_levels.items():
         logging.getLogger(_name).setLevel(_level)
 
-    # Yield immediately so Render detects open port quickly (health checks can pass while tools load in background)
+    # Start the hosted NallyBridge MCP transport under the host application's lifespan.
+    # A mounted MCP sub-app does not run its own lifespan automatically.
+    from ..mcp.bridge_server import bridge_mcp
+
+    mcp_stack = AsyncExitStack()
+    await mcp_stack.__aenter__()
+    await mcp_stack.enter_async_context(bridge_mcp.session_manager.run())
+    app.state.nalbridge_mcp_stack = mcp_stack
+
+    # The local MCP client cannot connect back to this service until its HTTP
+    # listener is live, so register NallyBridge after a short startup delay.
+    app.state.nalbridge_mcp_connect_task = None
+    if os.getenv("NALBRIDGE_MCP_TOKEN", ""):
+        async def _connect_local_nalbridge():
+            from ..mcp.bridge_server import local_client_config
+            from ..mcp.client import connect_http_server
+
+            for attempt in range(6):
+                await asyncio.sleep(2 if attempt == 0 else 3)
+                try:
+                    count = await connect_http_server(local_client_config())
+                    if count:
+                        logger.info("NallyBridge MCP connected locally; %s tools registered", count)
+                        return
+                except Exception as exc:
+                    logger.warning(
+                        "NallyBridge MCP connect attempt %s failed: %s",
+                        attempt + 1,
+                        type(exc).__name__,
+                    )
+            logger.error("NallyBridge MCP endpoint is enabled but its local client did not connect")
+
+        app.state.nalbridge_mcp_connect_task = asyncio.create_task(_connect_local_nalbridge())
+
+    # Yield immediately so Render detects open port quickly (health checks can pass while tools load in background).
     yield
 
     # Shutdown: stop reflector, curiosity scanner, telegram bot, and save all active sessions
@@ -443,12 +476,32 @@ async def lifespan(app: FastAPI):
         logger.info("Saved all session summaries on shutdown.")
     except Exception as e:
         logger.warning(f"Shutdown save failed: {e}")
+    try:
+        connect_task = getattr(app.state, "nalbridge_mcp_connect_task", None)
+        if connect_task and not connect_task.done():
+            connect_task.cancel()
+            try:
+                await connect_task
+            except asyncio.CancelledError:
+                pass
+    except Exception as e:
+        logger.warning("NallyBridge MCP client shutdown failed: %s", type(e).__name__)
+    try:
+        stack = getattr(app.state, "nalbridge_mcp_stack", None)
+        if stack:
+            await stack.aclose()
+    except Exception as e:
+        logger.warning("NallyBridge MCP shutdown failed: %s", type(e).__name__)
     logger.info("Lifespan shutdown.")
 
 
 # ── App ───────────────────────────────────────────────────
 
 app = FastAPI(title="Nally", lifespan=lifespan)
+
+# Authenticated NallyBridge Streamable HTTP MCP endpoint:
+# /mcp/nalbridge/mcp. Its device WebSocket is retained as the transport layer.
+app.mount("/mcp/nalbridge", build_bridge_mcp_app(), name="nalbridge-mcp")
 
 # CORS from config
 _origins = (
@@ -496,7 +549,6 @@ async def _middleware(request: Request, call_next):
 
 # ── Static files ──────────────────────────────────────────
 
-_web_dir = _base / "web"
 _data_dir = _base / "data"
 _gen_dir = _data_dir / "generated"
 _gen_dir.mkdir(parents=True, exist_ok=True)
@@ -504,25 +556,32 @@ _gen_dir.mkdir(parents=True, exist_ok=True)
 
 @app.get("/")
 async def index():
-    return FileResponse(str(_web_dir / "index.html"))
+    """Landing page only; Telegram is the sole human chat interface."""
+    return HTMLResponse(
+        content=(
+            "<!doctype html><html lang='en'><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<title>N.A.L.L.Y</title><body style='font:16px system-ui;max-width:38rem;"
+            "margin:12vh auto;padding:0 1rem;line-height:1.6'>"
+            "<h1>N.A.L.L.Y</h1><p>Chat is available through Telegram only.</p>"
+            "<p>This service hosts N.A.L.L.Y's secured backend and MCP connections.</p>"
+            "</body></html>"
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
-# Serve JS/CSS assets from web/ directory
-app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
 
-# Serve generated images
-app.mount("/generated", StaticFiles(directory=str(_gen_dir)), name="generated")
+
+
 
 # ── Face Avatar MVP ───────────────────────────────────────
-_mvp_dir = _web_dir / "mvp"
-
-
 @app.get("/mvp")
 async def mvp():
-    return FileResponse(str(_mvp_dir / "index.html"))
+    raise HTTPException(status_code=410, detail="This interface is disabled; use Telegram.")
 
 
-app.mount("/mvp/static", StaticFiles(directory=str(_mvp_dir)), name="mvp-static")
+
 
 
 # ── Orb Standalone (floating preview) ───────────────────────
@@ -530,7 +589,7 @@ app.mount("/mvp/static", StaticFiles(directory=str(_mvp_dir)), name="mvp-static"
 
 @app.get("/orb")
 async def orb():
-    return FileResponse(str(_web_dir / "orb-standalone.html"))
+    raise HTTPException(status_code=410, detail="This interface is disabled; use Telegram.")
 
 
 @app.get("/web/")
@@ -543,31 +602,7 @@ async def web_root():
 
 @app.get("/debug")
 async def debug_page():
-    return """<!DOCTYPE html>
-<html><head><title>Nally Debug</title>
-<style>body{background:#0a0a0a;color:#0f0;font-family:monospace;padding:40px;font-size:14px;}
-.log{margin:4px 0;padding:4px 8px;border-left:3px solid #333;}
-.ok{border-color:#0f0;color:#0f0;}
-.fail{border-color:#f00;color:#f00;}
-.info{border-color:#0ff;color:#0ff;}</style>
-</head><body>
-<h2>Nally Debug Console</h2>
-<div id="log"></div>
-<script>
-function L(cls, txt) {
-  var d = document.createElement('div');
-  d.className = 'log ' + cls;
-  d.textContent = txt;
-  document.getElementById('log').appendChild(d);
-}
-L('info', 'Server: FastAPI + SSE');
-fetch('/api/status').then(r => r.json()).then(data => {
-  L('ok', 'STATUS: ' + JSON.stringify(data));
-}).catch(e => {
-  L('fail', 'ERROR: ' + e.message);
-});
-</script>
-</body></html>"""
+    raise HTTPException(status_code=410, detail="This interface is disabled; use Telegram.")
 
 
 # ── API: Status ───────────────────────────────────────────
@@ -623,112 +658,9 @@ async def trace(run_id: str, _auth=Depends(verify_auth)):
 
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest, _auth=Depends(verify_auth)):
-    message = request.message.strip()
-    if not message:
-        raise HTTPException(status_code=400, detail="No message provided")
-
-    # Intercept "call me" on web UI — redirect to Telegram
-    if message.lower() in ("call me", "call nally"):
-        from ..config import NALLY_VOICE_CALLS_ENABLED
-
-        if NALLY_VOICE_CALLS_ENABLED:
-
-            async def voice_redirect():
-                yield 'data: {"type": "response", "text": "Voice calls only work on Telegram. Send me \\"call me\\" there and I\'ll set up a voice chat for you."}\n\n'
-                yield 'data: {"event": "done"}\n\n'
-
-            return StreamingResponse(voice_redirect(), media_type="text/event-stream")
-
-    # Identity: same brain (user:{owner}) for memory, but per-route history isolation (web:default)
-    # Client-supplied session_id is kept only for backward compatibility.
-    from ..agent.identity import resolve_session
-
-    ref = resolve_session("web")
-    brain_session = ref.session_id
-    route_key = ref.route_key
-    tab_id = request.tab_id
-    queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
-
-    def stream_event(event, payload):
-        try:
-            flat = {"type": event}
-            flat.update(payload)
-            loop.call_soon_threadsafe(queue.put_nowait, flat)
-        except Exception:
-            pass
-
-    async def event_generator():
-
-        # Check if session is busy — queue the message (per-route)
-        if session_manager.is_busy(brain_session, route_key=route_key):
-            pos = session_manager.queue_message(brain_session, message, route_key=route_key)
-            if pos < 0:
-                yield 'data: {"type": "error", "text": "Queue full — try again shortly."}\n\n'
-            else:
-                yield f'data: {{"type": "busy", "text": "Queued (position {pos}). Processing after current task."}}\n\n'
-            yield 'data: {"event": "done"}\n\n'
-            return
-
-        def run_agent():
-            try:
-                response = session_manager.process(brain_session, message, emit=stream_event, route_key=route_key)
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "response", "text": response})
-            except NallyError as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": e.to_llm_format()})
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "text": str(e)})
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-
-        # Clear any prior abort flag for this route
-        from ..core.abort import clear_abort
-
-        clear_abort(route_key)
-
-        # Broadcast user message immediately to other tabs (per-route)
-        broadcast_manager.broadcast("user_message", {"text": message, "tab_id": tab_id}, route_key=route_key)
-
-        asyncio.ensure_future(loop.run_in_executor(None, run_agent))
-
-        while True:
-            # Check for abort (per-route)
-            if check_abort(route_key):
-                from ..core.abort import clear_abort
-
-                clear_abort(route_key)
-                yield 'data: {"type": "error", "text": "Operation aborted by user."}\n\n'
-                yield 'data: {"event": "done"}\n\n'
-                return
-            item = await queue.get()
-            if item is None:
-                break
-            yield f"data: {json.dumps(item)}\n\n"
-
-            # Broadcast specific events to other tabs (per-route)
-            evt_type = item.get("type", "")
-            if evt_type == "thought":
-                broadcast_manager.broadcast(
-                    "thinking", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key
-                )
-            elif evt_type == "response":
-                broadcast_manager.broadcast(
-                    "assistant_message", {"text": item.get("text", ""), "tab_id": tab_id}, route_key=route_key
-                )
-
-        yield 'data: {"event": "done"}\n\n'
-
-    response = StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "X-Accel-Buffering": "no",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    )
-    return response
+async def chat_disabled(_auth=Depends(verify_auth)):
+    """The web chat is intentionally disabled; Telegram is the only chat UI."""
+    raise HTTPException(status_code=410, detail="Web chat is disabled. Use Telegram.")
 
 
 # ── API: Persistent SSE (multi-tab sync) ──────────────────
@@ -945,6 +877,22 @@ async def reload_hooks(_auth=Depends(verify_auth)):
 # an approval here unblocks the gate that is waiting in this process.
 
 
+@app.get("/api/telegram/mcp/services")
+async def telegram_mcp_services(_auth=Depends(verify_internal_auth)):
+    """MCP connection status for the authenticated Telegram bot process."""
+    return await mcp_services(_auth=True)
+
+
+@app.post("/api/telegram/mcp/connect")
+async def telegram_mcp_connect(data: TelegramMCPConnectRequest, _auth=Depends(verify_internal_auth)):
+    """Start an approved MCP OAuth flow from Telegram without exposing API auth."""
+    allowed_services = {"github", "notion", "gmail", "spotify", "render", "nalbridge"}
+    service = data.service.strip().lower()
+    if service not in allowed_services:
+        raise HTTPException(status_code=400, detail="Unsupported MCP service")
+    return await mcp_connect(service, _auth=True)
+
+
 @app.post("/api/telegram/message")
 async def tg_message(
     data: TelegramMessageRequest,
@@ -1079,30 +1027,66 @@ async def mcp_services(_auth=Depends(verify_auth)):
         auth_mode = server.get("auth_mode", "")
         transport = server["transport"]
 
-        if transport == "stdio" and auth_mode == "api_key":
-            # Stdio services with env var token — check if env var is set
+        loaded_tools = sum(tool_name.startswith(f"mcp_{name}_") for tool_name in registry.tools)
+        if auth_mode == "api_key":
             env_key = server.get("env_key", "")
-            token_set = bool(os.getenv(env_key, ""))
+            configured = bool(env_key and os.getenv(env_key, ""))
+            connected = configured and loaded_tools > 0
+            status = (
+                "connected"
+                if connected
+                else ("configured_tools_missing" if configured else "needs_api_key")
+            )
             services.append(
                 {
                     "name": name,
                     "transport": transport,
                     "auth_mode": auth_mode,
                     "description": server.get("description", ""),
-                    "connected": token_set,
+                    "connected": connected,
+                    "status": status,
+                    "env_key": env_key,
+                    "tools": loaded_tools,
                 }
             )
         else:
             token = await get_existing_tokens(name, db)
+            connected = token is not None and loaded_tools > 0
+            status = (
+                "connected"
+                if connected
+                else ("token_stored_tools_missing" if token is not None else "needs_oauth")
+            )
             services.append(
                 {
                     "name": name,
                     "transport": transport,
                     "auth_mode": auth_mode,
                     "description": server.get("description", ""),
-                    "connected": token is not None,
+                    "connected": connected,
+                    "status": status,
+                    "tools": loaded_tools,
                 }
             )
+
+    bridge_token_configured = bool(os.getenv("NALBRIDGE_MCP_TOKEN", ""))
+    bridge_client_tools = sum(name.startswith("mcp_nalbridge_") for name in registry.tools)
+    services.append(
+        {
+            "name": "nalbridge",
+            "transport": "streamable-http",
+            "endpoint": "/mcp/nalbridge/mcp",
+            "auth_mode": "bearer",
+            "description": "Authenticated NallyBridge MCP server for connected devices",
+            "connected": bridge_token_configured and bridge_client_tools > 0,
+            "status": (
+                "connected"
+                if bridge_client_tools > 0
+                else ("enabled_client_connecting" if bridge_token_configured else "needs_mcp_token")
+            ),
+            "tools": bridge_client_tools,
+        }
+    )
     return {"services": services}
 
 
@@ -1116,6 +1100,30 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     from nally.config import DATA_DIR, MCP_SERVERS
     from nally.mcp.oauth import get_existing_tokens
 
+    if service == "nalbridge":
+        if not os.getenv("NALBRIDGE_MCP_TOKEN", ""):
+            return {
+                "status": "needs_configuration",
+                "service": service,
+                "required_env": ["NALBRIDGE_MCP_TOKEN", "NALLY_MCP_ALLOWED_HOSTS"],
+                "endpoint": "/mcp/nalbridge/mcp",
+            }
+
+        from nally.mcp.bridge_server import local_client_config
+        from nally.mcp.client import connect_http_server
+
+        try:
+            count = await connect_http_server(local_client_config())
+        except Exception as exc:
+            logger.warning("NallyBridge MCP connection failed: %s", type(exc).__name__)
+            count = 0
+        return {
+            "status": "connected" if count else "error",
+            "service": service,
+            "endpoint": "/mcp/nalbridge/mcp",
+            "tools": count,
+        }
+
     server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
     if server_cfg is None:
         raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
@@ -1126,8 +1134,22 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
     # Check if already connected
     existing = await get_existing_tokens(service, db)
     if existing:
-        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
-        return {"status": "connected", "service": service}
+        loaded_tools = sum(tool_name.startswith(f"mcp_{service}_") for tool_name in registry.tools)
+        if loaded_tools:
+            return {"status": "connected", "service": service, "tools": loaded_tools}
+
+        from nally.mcp.client import connect_http_server
+
+        try:
+            count = await connect_http_server(server_cfg)
+        except Exception as exc:
+            logger.warning("MCP reconnect failed for %s: %s", service, type(exc).__name__)
+            count = 0
+        return {
+            "status": "connected" if count else "token_stored_tools_missing",
+            "service": service,
+            "tools": count,
+        }
 
     if auth_mode == "oauth":
         # Start OAuth flow — return auth_url for browser redirect
@@ -1159,12 +1181,53 @@ async def mcp_connect(service: str, _auth=Depends(verify_auth)):
             from nally.mcp.oauth import start_github_oauth
 
             try:
+                from nally.config import ensure_data_dir
+
+                ensure_data_dir()
                 auth_url = await start_github_oauth(db)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except RuntimeError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.exception("GitHub OAuth start failed")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"GitHub connect failed: {type(e).__name__}: {e}",
+                )
+            return {"status": "auth_required", "auth_url": auth_url, "service": service}
+        elif service == "spotify":
+            from nally.mcp.oauth import start_spotify_oauth
+
+            try:
+                auth_url = await start_spotify_oauth(db)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
             return {"status": "auth_required", "auth_url": auth_url, "service": service}
         else:
             raise HTTPException(status_code=400, detail=f"OAuth not configured for {service}")
+
+    if auth_mode == "api_key":
+        env_key = server_cfg.get("env_key", "")
+        if not env_key or not os.getenv(env_key, ""):
+            return {
+                "status": "needs_configuration",
+                "service": service,
+                "required_env": [env_key] if env_key else [],
+            }
+
+        from nally.mcp.client import connect_http_server
+
+        try:
+            count = await connect_http_server(server_cfg)
+        except Exception as exc:
+            logger.warning("MCP API-key connect failed for %s: %s", service, type(exc).__name__)
+            count = 0
+        return {
+            "status": "connected" if count else "error",
+            "service": service,
+            "tools": count,
+        }
 
     return {"status": "disconnected", "service": service}
 
@@ -1175,50 +1238,11 @@ class TokenSubmit(BaseModel):
 
 @app.post("/api/mcp/token/{service}")
 async def mcp_submit_token(service: str, body: TokenSubmit, _auth=Depends(verify_auth)):
-    """Submit a PAT/API token for an HTTP MCP service, or bot token for stdio."""
-    from mcp.shared.auth import OAuthToken
-
-    from nally.config import DATA_DIR, MCP_SERVERS
-    from nally.mcp.oauth import SQLiteTokenStorage
-
-    server_cfg = next((s for s in MCP_SERVERS if s["name"] == service), None)
-    if server_cfg is None:
-        raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
-
-    db = str(DATA_DIR / "nally.db")
-    transport = server_cfg.get("transport", "http")
-
-    if transport == "stdio":
-        # Stdio service (e.g. Telegram) — store token in env and connect
-        env_key = server_cfg.get("env_key", "")
-        if env_key:
-            import os
-
-            os.environ[env_key] = body.token
-        from nally.mcp.client import connect_stdio_with_token
-
-        try:
-            count = connect_stdio_with_token(server_cfg)
-        except Exception:
-            count = 0
-        broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
-        return {"status": "connected", "service": service, "tools": count}
-
-    # HTTP service — store as OAuthToken
-    storage = SQLiteTokenStorage(db, service)
-    token = OAuthToken(access_token=body.token, token_type="bearer")
-    await storage.set_tokens(token)
-
-    from nally.mcp.client import connect_http_server
-
-    try:
-        count = await connect_http_server(server_cfg)
-    except Exception:
-        count = 0
-
-    broadcast_manager.broadcast("mcp_status", {"service": service, "connected": True}, route_key="web:default")
-    return {"status": "connected", "service": service, "tools": count}
-
+    """Disable legacy token uploads; provider OAuth or host-managed secrets are required."""
+    raise HTTPException(
+        status_code=410,
+        detail="Token uploads are disabled. Use /connect in Telegram for OAuth or set service API keys in the host environment.",
+    )
 
 # ── API: OAuth Callbacks ──────────────────────────────────
 
@@ -1292,6 +1316,36 @@ async def github_oauth_callback(code: str = "", state: str = "", error: str = ""
             pass
 
     html = REDIRECT_HTML.replace("SERVICE", "github")
+    return HTMLResponse(content=html)
+
+
+@app.get("/api/oauth/spotify/callback")
+async def spotify_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Spotify OAuth callback; validate state before exchanging the code."""
+    if error:
+        return JSONResponse(status_code=400, content={"error": error})
+    if not code:
+        return JSONResponse(status_code=400, content={"error": "missing_code"})
+
+    from nally.config import DATA_DIR, MCP_SERVERS
+    from nally.mcp.client import connect_http_server
+    from nally.mcp.oauth import exchange_spotify_code, validate_oauth_state
+
+    db = str(DATA_DIR / "nally.db")
+    if not validate_oauth_state("spotify", state, db):
+        return JSONResponse(status_code=400, content={"error": "invalid_oauth_state"})
+    if not await exchange_spotify_code(code, db):
+        return JSONResponse(status_code=400, content={"error": "token_exchange_failed"})
+
+    server_cfg = next((server for server in MCP_SERVERS if server["name"] == "spotify"), None)
+    tools_count = 0
+    if server_cfg:
+        try:
+            await connect_http_server(server_cfg)
+        except Exception as exc:
+            logger.warning("Spotify MCP tool discovery failed after OAuth: %s", type(exc).__name__)
+
+    html = REDIRECT_HTML.replace("SERVICE", "spotify")
     return HTMLResponse(content=html)
 
 
@@ -1380,27 +1434,11 @@ async def mcp_disconnect(service: str, _auth=Depends(verify_auth)):
 
 @app.post("/api/env/{key}")
 async def set_env_var(key: str, body: TokenSubmit, _auth=Depends(verify_auth)):
-    """Set an environment variable at runtime and persist to .env file."""
-
-    os.environ[key] = body.token
-
-    # Persist to .env file
-    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-    lines = []
-    found = False
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if line.startswith(f"{key}="):
-                lines.append(f"{key}={body.token}")
-                found = True
-            else:
-                lines.append(line)
-    if not found:
-        lines.append(f"{key}={body.token}")
-    env_path.write_text("\n".join(lines) + "\n")
-
-    return {"ok": True, "key": key}
-
+    """Disable legacy arbitrary environment mutation; use host-managed secrets."""
+    raise HTTPException(
+        status_code=410,
+        detail="Runtime environment mutation is disabled. Configure secrets in the hosting environment.",
+    )
 
 # ── WebSocket: NallyBridge (remote device connections) ──────
 
@@ -1430,14 +1468,8 @@ async def list_bridges(_auth=Depends(verify_auth)):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """WebSocket endpoint for real-time bidirectional chat.
-
-    Connect with: ws://localhost:5000/ws/web:default?token=<access_token>
-    """
-    from .ws_handler import websocket_chat
-
-    await websocket_chat(websocket, session_id)
-
+    """Disable the legacy browser chat transport; Telegram is the only chat UI."""
+    await websocket.close(code=1008, reason="Use Telegram for chat.")
 
 # ── Telegram Webhook ──────────────────────────────────────
 

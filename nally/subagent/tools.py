@@ -10,7 +10,7 @@ class Agent(Tool):
 
     def __init__(self):
         super().__init__(
-            name="agent",
+            name="subagent",
             description="Delegate tasks to sub-agents. Use delegate for single tasks, spawn for parallel work, collect to get results, status to check progress.",
             permission="safe",
             parameters={
