@@ -86,6 +86,5 @@
     "delete": "allow"
   },
   "subagent": "allow",
-  "mcp_nalbridge_list_devices": "allow",
-  "mcp_nalbridge_execute_device_tool": "allow"
+  "mcp_*": "allow"
 }
