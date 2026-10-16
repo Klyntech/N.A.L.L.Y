@@ -44,11 +44,14 @@ OPENROUTER_KEYS = [k.strip() for k in OPENROUTER_API_KEY_RAW.split(",") if k.str
 OPENROUTER_API_KEY = OPENROUTER_KEYS[0] if OPENROUTER_KEYS else ""
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_MODELS = {
-    "fast": os.getenv("NALLY_MODEL_FAST", "google/gemini-2.5-flash"),
+    # Free OpenRouter model (Nemotron lightning + optional reasoning)
+    "fast": os.getenv("NALLY_MODEL_FAST", "nvidia/nemotron-3.5-lightning:free"),
     "balanced": os.getenv("NALLY_MODEL_BALANCED", "google/gemini-2.5-flash"),
     "powerful": os.getenv("NALLY_MODEL_POWERFUL", "anthropic/claude-sonnet-4"),
     "frontier": os.getenv("NALLY_MODEL_FRONTIER", "anthropic/claude-sonnet-4"),
 }
+# Enable OpenRouter reasoning payload for models that support it (e.g. nemotron-3.5-lightning)
+OPENROUTER_REASONING = os.getenv("NALLY_OPENROUTER_REASONING", "true").lower() in ("1", "true", "yes")
 
 SUBAGENT_MODELS = list(OPENCODE_MODELS.values())
 
